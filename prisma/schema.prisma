@@ -1,0 +1,574 @@
+// Schema derivado del modelo Sanity actual de tenemosfilo-front.
+// Convencion: campos de auditoria (createdAt/updatedAt/deletedAt/isActive)
+// en casi todas las entidades. JSON para sub-objetos flexibles.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// NextAuth (Prisma Adapter compatible)
+// Si en el futuro NextAuth usa el adapter directamente, estas
+// tablas ya estan listas. Por ahora la auth la maneja el API
+// y NextAuth solo firma JWT, pero las dejamos para flexibilidad.
+// ============================================================
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ============================================================
+// Dominio
+// ============================================================
+
+enum UserRole {
+  HOST
+  GUEST
+  ADMIN
+}
+
+model User {
+  id             String    @id @default(cuid())
+  email          String    @unique
+  name           String?
+  password       String? // bcrypt hash; null si solo OAuth
+  emailVerified  DateTime?
+  image          String?
+  role           UserRole  @default(GUEST)
+  phone          String?
+  documentType   String?
+  documentNumber String?
+  firebaseId     String?   @unique // legacy: para futura migracion desde Firebase
+
+  // Pertenencia a una company (host o guest enlazado a una empresa)
+  companyId String?
+  company   Company? @relation("CompanyUsers", fields: [companyId], references: [id])
+
+  accounts Account[]
+  sessions Session[]
+
+  // Relaciones de dominio
+  ownedCompanies        Company[]     @relation("CompanyOwner")
+  contactsAssigned      Contact[]     @relation("ContactAssignedTo")
+  contactsCreated       Contact[]     @relation("ContactCreatedBy")
+  crmCompaniesAssigned  CrmCompany[]  @relation("CrmCompanyAssignedTo")
+  opportunitiesAssigned Opportunity[] @relation("OpportunityAssignedTo")
+  opportunitiesCreated  Opportunity[] @relation("OpportunityCreatedBy")
+  reservations          Reservation[]
+  quotes                Quote[]       @relation("QuoteHost")
+  integrations          Integration[]
+
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([companyId])
+}
+
+enum CompanyType {
+  RESTAURANT
+  CATERING
+  FOODTRUCK
+  OTHER
+}
+
+enum DocumentType {
+  NIT
+  CEDULA
+  PASAPORTE
+  OTHER
+}
+
+model Company {
+  id      String @id @default(cuid())
+  ownerId String
+  owner   User   @relation("CompanyOwner", fields: [ownerId], references: [id])
+
+  companyName    String
+  slug           String        @unique
+  businessName   String?
+  description    String?       @db.Text
+  companyType    CompanyType?
+  companyEmail   String?
+  companyPhone   String?
+  logo           String? // URL del asset
+  documentType   DocumentType?
+  documentNumber String?
+  website        String?
+  address        Json? // { street, city, state, postalCode, country }
+  employeeCount  String? // enum-like; lo dejamos string para flexibilidad de UI
+  annualRevenue  String?
+  businessYears  String?
+
+  users         User[]        @relation("CompanyUsers")
+  locations     Location[]
+  experiences   Experience[]
+  reservations  Reservation[]
+  quotes        Quote[]
+  contacts      Contact[]
+  crmCompanies  CrmCompany[]
+  opportunities Opportunity[]
+
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([ownerId])
+}
+
+model Location {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+
+  name        String
+  slug        String?
+  description String? @db.Text
+  address     Json? // { street, city, state, postalCode, country }
+  contactInfo Json? // { phone, email }
+  capacity    Json? // { minGuests, maxGuests }
+  isMain      Boolean @default(false)
+
+  experiences    Experience[]   @relation("ExperienceLocations")
+  availabilities Availability[]
+  reservations   Reservation[]
+
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([companyId])
+}
+
+enum ExperienceType {
+  VIRTUAL
+  PRESENTIAL
+  HYBRID
+}
+
+enum ExperienceStatus {
+  DRAFT
+  PENDING
+  ACTIVE
+  PAUSED
+  INACTIVE
+}
+
+model Experience {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+
+  title              String
+  slug               String           @unique
+  description        String?          @db.Text
+  categories         String[]
+  duration           Int? // minutos
+  capacity           Int?
+  minCapacity        Int?
+  basePrice          Decimal?         @db.Decimal(12, 2)
+  currency           String           @default("COP")
+  featuredImage      String?
+  gallery            Json? // string[] de URLs
+  experienceType     ExperienceType   @default(PRESENTIAL)
+  isVirtual          Boolean          @default(false)
+  virtualPlatform    String?
+  presentialLocation String?
+  presentialAddress  String?
+  presentialCity     String?
+  hideAddress        Boolean          @default(false)
+  requirements       String?          @db.Text
+  includes           Json? // string[] o texto libre
+  addons             Json? // [{ name, price, priceType, description }]
+  startDate          DateTime?
+  endDate            DateTime?
+  startTime          String? // formato "HH:mm"
+  endTime            String?
+  status             ExperienceStatus @default(DRAFT)
+  isFeatured         Boolean          @default(false)
+  rating             Float?
+  totalBookings      Int              @default(0)
+  totalRevenue       Decimal          @default(0) @db.Decimal(14, 2)
+
+  locations        Location[]              @relation("ExperienceLocations")
+  availabilities   Availability[]          @relation("ExperienceAvailabilities")
+  reservations     Reservation[]
+  quotes           Quote[]                 @relation("QuoteExperiences")
+  opportunityItems OpportunityExperience[]
+
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([companyId])
+  @@index([status])
+}
+
+model Availability {
+  id          String  @id @default(cuid())
+  name        String
+  description String?
+
+  locationId String?
+  location   Location? @relation(fields: [locationId], references: [id])
+
+  experiences Experience[] @relation("ExperienceAvailabilities")
+
+  isMain         Boolean  @default(false)
+  weeklySchedule Json // { mon:{isActive,timeSlots[]}, tue:{...}, ... }
+  bufferTime     Int      @default(0) // minutos entre reservas
+  minimumNotice  Int      @default(0) // minutos minimos para reservar
+  blockedDates   String[] // ISO dates "YYYY-MM-DD"
+  notes          String?
+
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+}
+
+enum ContactStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+model Contact {
+  id            String  @id @default(cuid())
+  hostCompanyId String
+  hostCompany   Company @relation(fields: [hostCompanyId], references: [id])
+
+  firstName  String
+  lastName   String?
+  email      String?
+  phone      String?
+  mobile     String?
+  jobTitle   String?
+  department String?
+
+  crmCompanyId String?
+  crmCompany   CrmCompany? @relation(fields: [crmCompanyId], references: [id])
+
+  contactType String?
+  status      ContactStatus @default(ACTIVE)
+  source      String?
+  address     Json?
+  avatar      String?
+  tags        String[]
+  socialMedia Json? // { linkedin, twitter, facebook, instagram }
+
+  assignedToId String?
+  assignedTo   User?   @relation("ContactAssignedTo", fields: [assignedToId], references: [id])
+  createdById  String?
+  createdBy    User?   @relation("ContactCreatedBy", fields: [createdById], references: [id])
+
+  lastContactDate DateTime?
+  nextFollowUp    DateTime?
+
+  decisionForOpportunities Opportunity[] @relation("OpportunityDecisionMakers")
+  opportunities            Opportunity[]
+
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([hostCompanyId])
+  @@index([crmCompanyId])
+}
+
+model CrmCompany {
+  id            String  @id @default(cuid())
+  hostCompanyId String
+  hostCompany   Company @relation(fields: [hostCompanyId], references: [id])
+
+  companyName    String
+  businessName   String?
+  companyType    String?
+  industry       String?
+  description    String?  @db.Text
+  email          String?
+  phone          String?
+  website        String?
+  documentType   String?
+  documentNumber String?
+  address        Json?
+  employeeCount  String?
+  annualRevenue  String?
+  logo           String?
+  status         String?
+  source         String?
+  tags           String[]
+  socialMedia    Json?
+
+  assignedToId String?
+  assignedTo   User?   @relation("CrmCompanyAssignedTo", fields: [assignedToId], references: [id])
+
+  lastContactDate DateTime?
+  nextFollowUp    DateTime?
+
+  contacts      Contact[]
+  opportunities Opportunity[]
+
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([hostCompanyId])
+}
+
+enum OpportunityStage {
+  PROSPECTING
+  QUALIFICATION
+  PROPOSAL
+  NEGOTIATION
+  CLOSED_WON
+  CLOSED_LOST
+}
+
+enum OpportunityStatus {
+  OPEN
+  WON
+  LOST
+}
+
+model Opportunity {
+  id   String @id @default(cuid())
+  name String
+
+  hostCompanyId String
+  hostCompany   Company @relation(fields: [hostCompanyId], references: [id])
+
+  crmCompanyId String?
+  crmCompany   CrmCompany? @relation(fields: [crmCompanyId], references: [id])
+
+  contactId String?
+  contact   Contact? @relation(fields: [contactId], references: [id])
+
+  stage             OpportunityStage  @default(PROSPECTING)
+  status            OpportunityStatus @default(OPEN)
+  value             Decimal           @default(0) @db.Decimal(14, 2)
+  currency          String            @default("COP")
+  expectedCloseDate DateTime?
+  actualCloseDate   DateTime?
+  description       String?           @db.Text
+  lostReason        String?
+  lostReasonNotes   String?           @db.Text
+  wonReason         String?
+  source            String?
+
+  assignedToId String?
+  assignedTo   User?   @relation("OpportunityAssignedTo", fields: [assignedToId], references: [id])
+  createdById  String?
+  createdBy    User?   @relation("OpportunityCreatedBy", fields: [createdById], references: [id])
+
+  notes String?  @db.Text
+  tags  String[]
+
+  experiences    OpportunityExperience[]
+  decisionMakers Contact[]               @relation("OpportunityDecisionMakers")
+
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([hostCompanyId])
+  @@index([stage])
+}
+
+// Pivote Opportunity <-> Experience con datos extra (cantidad, precio custom)
+model OpportunityExperience {
+  id            String   @id @default(cuid())
+  opportunityId String
+  experienceId  String
+  quantity      Int      @default(1)
+  customPrice   Decimal? @db.Decimal(12, 2)
+  notes         String?
+
+  opportunity Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  experience  Experience  @relation(fields: [experienceId], references: [id])
+
+  @@unique([opportunityId, experienceId])
+}
+
+enum QuoteStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
+model Quote {
+  id            String      @id @default(cuid())
+  customerName  String
+  customerEmail String
+  customerPhone String?
+  eventDate     DateTime?
+  eventTime     String?
+  guests        Int?
+  location      String?
+  notes         String?     @db.Text
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+
+  hostId String?
+  host   User?   @relation("QuoteHost", fields: [hostId], references: [id])
+
+  status QuoteStatus @default(PENDING)
+
+  experiences Experience[] @relation("QuoteExperiences")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([status])
+}
+
+enum ReservationStatus {
+  PENDING
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+  RESCHEDULED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  REFUNDED
+  PARTIAL
+  FAILED
+}
+
+enum ClientType {
+  GUEST
+  REGISTERED
+}
+
+enum ReservationSource {
+  MANUAL
+  BOOKING_ENGINE
+  QUOTE
+}
+
+model Reservation {
+  id                String @id @default(cuid())
+  reservationNumber String @unique
+
+  experienceId String
+  experience   Experience @relation(fields: [experienceId], references: [id])
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+
+  client     Json // { name, email, phone }
+  clientType ClientType @default(GUEST)
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id])
+
+  source              ReservationSource @default(MANUAL)
+  reservationDate     DateTime
+  duration            Int? // minutos
+  participants        Int
+  status              ReservationStatus @default(PENDING)
+  paymentStatus       PaymentStatus     @default(PENDING)
+  pricing             Json // { basePrice, subtotal, addons[], addonsTotal, discount, tax, commission, total, hostEarnings }
+  paymentMethod       String?
+  paymentDetails      Json?
+  locationId          String?
+  location            Location?         @relation(fields: [locationId], references: [id])
+  isVirtual           Boolean           @default(false)
+  virtualDetails      String?
+  specialRequirements String?           @db.Text
+  cancellation        Json? // { cancelledAt, cancelledBy, cancellationReason, refundAmount, refundStatus }
+  rescheduling        Json? // { originalDate, newDate, reason, requestedBy }
+  rating              Int?
+  notes               String?           @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([experienceId])
+  @@index([status])
+  @@index([reservationDate])
+}
+
+enum IntegrationType {
+  GOOGLE
+  OUTLOOK
+  ZOHO
+}
+
+enum IntegrationStatus {
+  CONNECTED
+  DISCONNECTED
+  PENDING
+  ERROR
+}
+
+model Integration {
+  id     String            @id @default(cuid())
+  userId String
+  user   User              @relation(fields: [userId], references: [id])
+  type   IntegrationType
+  name   String?
+  status IntegrationStatus @default(PENDING)
+  config Json? // tokens, calendar IDs, etc. (cifrar a futuro)
+  error  String?
+
+  lastSync DateTime?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([userId, type])
+}
