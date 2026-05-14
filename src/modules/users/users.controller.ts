@@ -1,5 +1,11 @@
 import type { Request, Response } from 'express';
 import { usersService } from './users.service.js';
+import type { ListUsersQuery, UpdateUserInput } from './users.schemas.js';
+
+// Helpers: el middleware validate() ya parseo y reasigno req.query/params/body
+// con los datos validados por zod. Aca solo recuperamos el tipo correcto.
+const q = <T,>(req: Request) => req.query as unknown as T;
+const p = <T,>(req: Request) => req.params as unknown as T;
 
 export const usersController = {
   async me(req: Request, res: Response) {
@@ -8,23 +14,29 @@ export const usersController = {
   },
 
   async list(req: Request, res: Response) {
-    const { items, total } = await usersService.list(req.query as never);
-    const { page, pageSize } = req.query as { page: number; pageSize: number };
-    res.json({ data: items, meta: { total, page, pageSize } });
+    const query = q<ListUsersQuery>(req);
+    const { items, total } = await usersService.list(query);
+    res.json({
+      data: items,
+      meta: { total, page: query.page, pageSize: query.pageSize },
+    });
   },
 
   async getById(req: Request, res: Response) {
-    const user = await usersService.getById(req.params.id);
+    const { id } = p<{ id: string }>(req);
+    const user = await usersService.getById(id);
     res.json({ data: user });
   },
 
   async update(req: Request, res: Response) {
-    const user = await usersService.update(req.params.id, req.body);
+    const { id } = p<{ id: string }>(req);
+    const user = await usersService.update(id, req.body as UpdateUserInput);
     res.json({ data: user });
   },
 
   async remove(req: Request, res: Response) {
-    await usersService.softDelete(req.params.id);
+    const { id } = p<{ id: string }>(req);
+    await usersService.softDelete(id);
     res.status(204).end();
   },
 };
