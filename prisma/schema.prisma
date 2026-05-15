@@ -270,6 +270,8 @@ model Availability {
 enum ContactStatus {
   ACTIVE
   INACTIVE
+  QUALIFIED
+  UNQUALIFIED
   ARCHIVED
 }
 
@@ -294,6 +296,7 @@ model Contact {
   source      String?
   address     Json?
   avatar      String?
+  notes       String? @db.Text
   tags        String[]
   socialMedia Json? // { linkedin, twitter, facebook, instagram }
 
@@ -338,6 +341,7 @@ model CrmCompany {
   logo           String?
   status         String?
   source         String?
+  notes          String?  @db.Text
   tags           String[]
   socialMedia    Json?
 
@@ -363,6 +367,7 @@ enum OpportunityStage {
   QUALIFICATION
   PROPOSAL
   NEGOTIATION
+  APPROVAL
   CLOSED_WON
   CLOSED_LOST
 }
@@ -371,6 +376,7 @@ enum OpportunityStatus {
   OPEN
   WON
   LOST
+  PAUSED
 }
 
 model Opportunity {

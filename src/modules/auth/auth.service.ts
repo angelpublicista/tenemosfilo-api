@@ -41,6 +41,8 @@ export const authService = {
         name: input.name ?? null,
         phone: input.phone ?? null,
         role: input.role,
+        documentType: input.documentType ?? null,
+        documentNumber: input.documentNumber ?? null,
       },
       select: publicUserSelect,
     });

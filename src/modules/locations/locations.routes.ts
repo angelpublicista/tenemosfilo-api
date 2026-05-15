@@ -1,8 +1,42 @@
 import { Router } from 'express';
 import { requireAuth } from '../../middleware/auth.js';
-import { NotImplemented } from '../../lib/errors.js';
+import { validate } from '../../middleware/validate.js';
+import { locationsController } from './locations.controller.js';
+import {
+  createLocationSchema,
+  listLocationsQuerySchema,
+  locationIdParamsSchema,
+  updateLocationSchema,
+} from './locations.schemas.js';
 
-// TODO: implementar reemplazando src/lib/sanity/locationService.ts del front.
 export const locationsRouter = Router();
+
 locationsRouter.use(requireAuth);
-locationsRouter.all('*', (_req, _res, next) => next(NotImplemented('Modulo locations pendiente')));
+
+locationsRouter.get('/', validate(listLocationsQuerySchema, 'query'), locationsController.list);
+locationsRouter.post('/', validate(createLocationSchema), locationsController.create);
+
+locationsRouter.get(
+  '/:id',
+  validate(locationIdParamsSchema, 'params'),
+  locationsController.getById,
+);
+
+locationsRouter.patch(
+  '/:id',
+  validate(locationIdParamsSchema, 'params'),
+  validate(updateLocationSchema),
+  locationsController.update,
+);
+
+locationsRouter.delete(
+  '/:id',
+  validate(locationIdParamsSchema, 'params'),
+  locationsController.remove,
+);
+
+locationsRouter.post(
+  '/:id/set-main',
+  validate(locationIdParamsSchema, 'params'),
+  locationsController.setMain,
+);

@@ -11,6 +11,8 @@ export const registerSchema = z.object({
   name: z.string().min(1).optional(),
   phone: z.string().optional(),
   role: z.enum(['HOST', 'GUEST']).default('GUEST'),
+  documentType: z.string().optional(),
+  documentNumber: z.string().optional(),
 });
 
 export const googleAuthSchema = z.object({

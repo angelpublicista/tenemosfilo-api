@@ -1,8 +1,31 @@
 import { Router } from 'express';
 import { requireAuth } from '../../middleware/auth.js';
-import { NotImplemented } from '../../lib/errors.js';
+import { validate } from '../../middleware/validate.js';
+import { quotesController } from './quotes.controller.js';
+import {
+  createQuoteSchema,
+  listQuotesQuerySchema,
+  quoteIdParamsSchema,
+  searchExperiencesQuerySchema,
+  updateQuoteStatusSchema,
+} from './quotes.schemas.js';
 
-// TODO: implementar reemplazando src/lib/sanity/quoteService.ts del front.
 export const quotesRouter = Router();
+
 quotesRouter.use(requireAuth);
-quotesRouter.all('*', (_req, _res, next) => next(NotImplemented('Modulo quotes pendiente')));
+
+quotesRouter.get(
+  '/search-experiences',
+  validate(searchExperiencesQuerySchema, 'query'),
+  quotesController.searchExperiences,
+);
+
+quotesRouter.get('/', validate(listQuotesQuerySchema, 'query'), quotesController.list);
+quotesRouter.post('/', validate(createQuoteSchema), quotesController.create);
+
+quotesRouter.patch(
+  '/:id/status',
+  validate(quoteIdParamsSchema, 'params'),
+  validate(updateQuoteStatusSchema),
+  quotesController.updateStatus,
+);

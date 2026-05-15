@@ -21,6 +21,7 @@ import { availabilitiesRouter } from './modules/availabilities/availabilities.ro
 import { locationsRouter } from './modules/locations/locations.routes.js';
 import { integrationsRouter } from './modules/integrations/integrations.routes.js';
 import { dashboardRouter } from './modules/dashboard/dashboard.routes.js';
+import { uploadsRouter } from './modules/uploads/uploads.routes.js';
 
 export function createApp() {
   const app = express();
@@ -53,6 +54,7 @@ export function createApp() {
   app.use('/locations', locationsRouter);
   app.use('/integrations', integrationsRouter);
   app.use('/dashboard', dashboardRouter);
+  app.use('/uploads', uploadsRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

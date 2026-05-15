@@ -30,6 +30,13 @@ export const usersController = {
 
   async update(req: Request, res: Response) {
     const { id } = p<{ id: string }>(req);
+    // Solo self-update o admin. Sin esto cualquier user autenticado podria
+    // modificar a otro user.
+    if (id !== req.user!.id && req.user!.role !== 'ADMIN') {
+      return res.status(403).json({
+        error: { code: 'FORBIDDEN', message: 'Solo puedes actualizar tu propio perfil' },
+      });
+    }
     const user = await usersService.update(id, req.body as UpdateUserInput);
     res.json({ data: user });
   },
