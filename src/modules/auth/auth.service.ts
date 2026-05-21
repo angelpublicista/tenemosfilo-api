@@ -80,7 +80,7 @@ export const authService = {
     return user;
   },
 
-  toPublic(user: { id: string; email: string; name: string | null; role: 'HOST' | 'GUEST' | 'ADMIN'; image: string | null; phone: string | null; companyId: string | null }) {
+  toPublic(user: { id: string; email: string; name: string | null; role: 'HOST' | 'GUEST' | 'ADMIN' | 'RESELLER'; image: string | null; phone: string | null; companyId: string | null }) {
     return {
       id: user.id,
       email: user.email,

@@ -34,18 +34,31 @@ async function assertCanManage(id: string, requesterCompanyId: string | null | u
 }
 
 export const reservationsService = {
-  async create(requesterCompanyId: string | null | undefined, input: CreateReservationInput) {
-    // Si no viene company, lo derivamos del experience
+  async create(
+    requesterCompanyId: string | null | undefined,
+    input: CreateReservationInput,
+    opts?: { asReseller?: boolean },
+  ) {
+    const asReseller = opts?.asReseller === true;
+
+    // Resolver companyId de la experiencia. Para resellers exigimos ACTIVE.
     let companyId = input.company;
-    if (!companyId) {
+    if (!companyId || asReseller) {
       const exp = await prisma.experience.findFirst({
-        where: { id: input.experience, deletedAt: null },
+        where: {
+          id: input.experience,
+          deletedAt: null,
+          ...(asReseller ? { status: 'ACTIVE' } : {}),
+        },
         select: { companyId: true },
       });
       if (!exp) throw NotFound('Experiencia no encontrada');
       companyId = exp.companyId;
     }
-    if (requesterCompanyId && companyId !== requesterCompanyId) {
+
+    // Hosts: bloqueamos crear reservas en companies que no son suyas.
+    // Resellers: permitido en cualquier company (su companyId no aplica).
+    if (!asReseller && requesterCompanyId && companyId !== requesterCompanyId) {
       throw Forbidden('No puedes crear reservas en otra company');
     }
 
@@ -57,7 +70,7 @@ export const reservationsService = {
         client: input.client as Prisma.InputJsonValue,
         clientType: input.clientType ?? 'GUEST',
         ...(input.user ? { user: { connect: { id: input.user } } } : {}),
-        source: input.source ?? 'MANUAL',
+        source: input.source ?? (asReseller ? 'BOOKING_ENGINE' : 'MANUAL'),
         reservationDate: new Date(input.reservationDate),
         duration: input.duration ?? null,
         participants: input.participants,

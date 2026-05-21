@@ -34,13 +34,61 @@ export const quotesService = {
     requesterId: string,
     requesterCompanyId: string | null | undefined,
     input: CreateQuoteInput,
+    opts?: { asReseller?: boolean },
   ) {
-    const companyId = input.companyId ?? requesterCompanyId;
-    if (!companyId) throw Forbidden('No tienes una company asociada');
-    if (input.companyId && input.companyId !== requesterCompanyId) {
-      throw Forbidden('No puedes crear cotizaciones en otra company');
+    const asReseller = opts?.asReseller === true;
+
+    let companyId: string | undefined;
+
+    if (asReseller) {
+      // Derivamos la company de la(s) experiencia(s). Para v1 exigimos que
+      // todas las experiencias pertenezcan a la misma host company y esten
+      // ACTIVE.
+      if (!input.experiences.length) {
+        throw Forbidden('Una cotizacion necesita al menos una experiencia');
+      }
+      const exps = await prisma.experience.findMany({
+        where: {
+          id: { in: input.experiences },
+          deletedAt: null,
+          status: 'ACTIVE',
+        },
+        select: { id: true, companyId: true },
+      });
+      if (exps.length !== input.experiences.length) {
+        throw NotFound('Una o mas experiencias no estan disponibles');
+      }
+      const companyIds = new Set(exps.map((e) => e.companyId));
+      if (companyIds.size > 1) {
+        throw Forbidden('Todas las experiencias de la cotizacion deben ser de la misma company');
+      }
+      companyId = [...companyIds][0];
+      if (input.companyId && input.companyId !== companyId) {
+        throw Forbidden('companyId no coincide con la company de las experiencias');
+      }
+    } else {
+      companyId = input.companyId ?? requesterCompanyId ?? undefined;
+      if (!companyId) throw Forbidden('No tienes una company asociada');
+      if (input.companyId && input.companyId !== requesterCompanyId) {
+        throw Forbidden('No puedes crear cotizaciones en otra company');
+      }
     }
-    const hostId = input.hostId ?? requesterId;
+
+    // hostId: para reseller no hay host humano del lado del operador; usamos
+    // el owner de la company. Para host, usa el requester o el override.
+    let hostId = input.hostId;
+    if (!hostId) {
+      if (asReseller) {
+        const company = await prisma.company.findUnique({
+          where: { id: companyId! },
+          select: { ownerId: true },
+        });
+        if (!company) throw NotFound('Company no encontrada');
+        hostId = company.ownerId;
+      } else {
+        hostId = requesterId;
+      }
+    }
 
     return prisma.quote.create({
       data: {
@@ -52,7 +100,7 @@ export const quotesService = {
         guests: input.guests ?? null,
         location: input.location ?? null,
         notes: input.notes ?? null,
-        company: { connect: { id: companyId } },
+        company: { connect: { id: companyId! } },
         host: { connect: { id: hostId } },
         experiences: { connect: input.experiences.map((id) => ({ id })) },
       },
@@ -87,8 +135,10 @@ export const quotesService = {
   async searchExperiences(
     requesterCompanyId: string | null | undefined,
     query: SearchExperiencesQuery,
+    opts?: { crossCompany?: boolean },
   ) {
-    if (requesterCompanyId && query.companyId !== requesterCompanyId) {
+    const crossCompany = opts?.crossCompany === true;
+    if (!crossCompany && requesterCompanyId && query.companyId !== requesterCompanyId) {
       throw Forbidden('No tienes acceso a las experiencias de otra company');
     }
 

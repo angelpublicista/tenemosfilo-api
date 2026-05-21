@@ -12,9 +12,11 @@ const q = <T,>(req: Request) => req.query as unknown as T;
 
 export const availabilitiesController = {
   async list(req: Request, res: Response) {
+    const crossCompany = req.user!.role === 'RESELLER';
     const items = await availabilitiesService.list(
       req.user!.companyId,
       q<ListAvailabilitiesQuery>(req),
+      { crossCompany },
     );
     res.json({ data: items });
   },
@@ -29,7 +31,8 @@ export const availabilitiesController = {
 
   async getById(req: Request, res: Response) {
     const { id } = p<{ id: string }>(req);
-    const av = await availabilitiesService.getById(id, req.user!.companyId);
+    const crossCompany = req.user!.role === 'RESELLER';
+    const av = await availabilitiesService.getById(id, req.user!.companyId, { crossCompany });
     res.json({ data: av });
   },
 

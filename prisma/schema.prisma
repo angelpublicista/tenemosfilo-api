@@ -61,6 +61,7 @@ enum UserRole {
   HOST
   GUEST
   ADMIN
+  RESELLER
 }
 
 model User {
@@ -93,6 +94,7 @@ model User {
   reservations          Reservation[]
   quotes                Quote[]       @relation("QuoteHost")
   integrations          Integration[]
+  apiKeysCreated        ApiKey[]      @relation("ApiKeyCreatedBy")
 
   isActive  Boolean   @default(true)
   createdAt DateTime  @default(now())
@@ -145,6 +147,7 @@ model Company {
   contacts      Contact[]
   crmCompanies  CrmCompany[]
   opportunities Opportunity[]
+  apiKeys       ApiKey[]
 
   isActive  Boolean   @default(true)
   createdAt DateTime  @default(now())
@@ -577,4 +580,35 @@ model Integration {
   deletedAt DateTime?
 
   @@index([userId, type])
+}
+
+// ============================================================
+// API Keys para integraciones externas (server-to-server).
+// Una key pertenece a una Company y la creo un host de esa company.
+// El token plano solo se devuelve al momento de crear; en DB se guarda
+// el hash sha256. `scopes` controla que endpoints puede llamar la key.
+// ============================================================
+
+model ApiKey {
+  id      String  @id @default(cuid())
+  name    String
+  prefix  String  @unique // "tf_live_<8 chars>" visible para identificar la key
+  keyHash String  @unique // sha256(token) en hex
+  scopes  String[]
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  createdById String
+  createdBy   User   @relation("ApiKeyCreatedBy", fields: [createdById], references: [id])
+
+  lastUsedAt DateTime?
+  expiresAt  DateTime?
+  revokedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([createdById])
 }

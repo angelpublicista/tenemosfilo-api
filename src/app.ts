@@ -9,6 +9,7 @@ import { logger } from './lib/logger.js';
 import { errorHandler, notFoundHandler } from './middleware/error.js';
 
 import { authRouter } from './modules/auth/auth.routes.js';
+import { apiKeysRouter } from './modules/api-keys/api-keys.routes.js';
 import { usersRouter } from './modules/users/users.routes.js';
 import { companiesRouter } from './modules/companies/companies.routes.js';
 import { crmCompaniesRouter } from './modules/crm-companies/crm-companies.routes.js';
@@ -42,6 +43,7 @@ export function createApp() {
   app.get('/health', (_req, res) => res.json({ status: 'ok', uptime: process.uptime() }));
 
   app.use('/auth', authRouter);
+  app.use('/api-keys', apiKeysRouter);
   app.use('/users', usersRouter);
   app.use('/companies', companiesRouter);
   app.use('/crm-companies', crmCompaniesRouter);

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireAuth } from '../../middleware/auth.js';
+import { requireAuth, requireHumanAuth } from '../../middleware/auth.js';
 import { validate } from '../../middleware/validate.js';
 import { integrationsController } from './integrations.controller.js';
 import {
@@ -12,7 +12,8 @@ import {
 
 export const integrationsRouter = Router();
 
-integrationsRouter.use(requireAuth);
+// /integrations almacena tokens OAuth del usuario; no se expone via API key.
+integrationsRouter.use(requireAuth, requireHumanAuth);
 
 integrationsRouter.get('/stats', integrationsController.stats);
 integrationsRouter.get(

@@ -89,19 +89,33 @@ export const availabilitiesService = {
     });
   },
 
-  async getById(id: string, requesterCompanyId: string | null | undefined) {
-    await assertCanManage(id, requesterCompanyId);
+  async getById(
+    id: string,
+    requesterCompanyId: string | null | undefined,
+    opts?: { crossCompany?: boolean },
+  ) {
+    const crossCompany = opts?.crossCompany === true;
+    if (!crossCompany) {
+      await assertCanManage(id, requesterCompanyId);
+    }
     const av = await prisma.availability.findFirst({
-      where: { id, deletedAt: null },
+      where: { id, deletedAt: null, ...(crossCompany ? { isActive: true } : {}) },
       include: baseInclude,
     });
     if (!av) throw NotFound('Disponibilidad no encontrada');
     return av;
   },
 
-  async list(requesterCompanyId: string | null | undefined, query: ListAvailabilitiesQuery) {
+  async list(
+    requesterCompanyId: string | null | undefined,
+    query: ListAvailabilitiesQuery,
+    opts?: { crossCompany?: boolean },
+  ) {
+    const crossCompany = opts?.crossCompany === true;
+
     const where: Prisma.AvailabilityWhereInput = {
       deletedAt: null,
+      ...(crossCompany ? { isActive: true } : {}),
       ...(query.primaryOnly ? { isMain: true, isActive: true } : {}),
       ...(query.locationId ? { locationId: query.locationId } : {}),
       ...(query.experienceId ? { experiences: { some: { id: query.experienceId } } } : {}),
@@ -112,14 +126,16 @@ export const availabilitiesService = {
               { experiences: { some: { companyId: query.companyId } } },
             ],
           }
-        : requesterCompanyId
-          ? {
-              OR: [
-                { location: { companyId: requesterCompanyId } },
-                { experiences: { some: { companyId: requesterCompanyId } } },
-              ],
-            }
-          : {}),
+        : crossCompany
+          ? {}
+          : requesterCompanyId
+            ? {
+                OR: [
+                  { location: { companyId: requesterCompanyId } },
+                  { experiences: { some: { companyId: requesterCompanyId } } },
+                ],
+              }
+            : {}),
     };
 
     return prisma.availability.findMany({

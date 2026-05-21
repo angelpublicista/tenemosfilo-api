@@ -70,16 +70,46 @@ export const locationsService = {
     });
   },
 
-  async getById(id: string, requesterCompanyId: string | null | undefined) {
-    const loc = await prisma.location.findFirst({ where: { id, deletedAt: null } });
+  async getById(
+    id: string,
+    requesterCompanyId: string | null | undefined,
+    opts?: { crossCompany?: boolean },
+  ) {
+    const crossCompany = opts?.crossCompany === true;
+    const loc = await prisma.location.findFirst({
+      where: {
+        id,
+        deletedAt: null,
+        ...(crossCompany ? { isActive: true } : {}),
+      },
+    });
     if (!loc) throw NotFound('Sede no encontrada');
-    if (!requesterCompanyId || loc.companyId !== requesterCompanyId) {
-      throw NotFound('Sede no encontrada');
+    if (!crossCompany) {
+      if (!requesterCompanyId || loc.companyId !== requesterCompanyId) {
+        throw NotFound('Sede no encontrada');
+      }
     }
     return loc;
   },
 
-  async list(requesterCompanyId: string | null | undefined, query: ListLocationsQuery) {
+  async list(
+    requesterCompanyId: string | null | undefined,
+    query: ListLocationsQuery,
+    opts?: { crossCompany?: boolean },
+  ) {
+    const crossCompany = opts?.crossCompany === true;
+
+    if (crossCompany) {
+      return prisma.location.findMany({
+        where: {
+          deletedAt: null,
+          isActive: true,
+          ...(query.companyId ? { companyId: query.companyId } : {}),
+        },
+        orderBy: [{ isMain: 'desc' }, { name: 'asc' }],
+      });
+    }
+
     const companyId = query.companyId ?? requesterCompanyId;
     if (!companyId) return [];
     if (query.companyId && query.companyId !== requesterCompanyId) {

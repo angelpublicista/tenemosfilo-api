@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { requireAuth } from '../../middleware/auth.js';
+import { requireAuth, requireRole } from '../../middleware/auth.js';
+import { requireScope } from '../../middleware/scope.js';
 import { validate } from '../../middleware/validate.js';
 import { opportunitiesController } from './opportunities.controller.js';
 import {
@@ -11,23 +12,32 @@ import {
 
 export const opportunitiesRouter = Router();
 
-opportunitiesRouter.use(requireAuth);
+// Pipeline B2B del host: solo HOSTs/ADMINs.
+opportunitiesRouter.use(requireAuth, requireRole('HOST', 'ADMIN'));
 
 opportunitiesRouter.get(
   '/',
+  requireScope('opportunities:read'),
   validate(listOpportunitiesQuerySchema, 'query'),
   opportunitiesController.list,
 );
-opportunitiesRouter.post('/', validate(createOpportunitySchema), opportunitiesController.create);
+opportunitiesRouter.post(
+  '/',
+  requireScope('opportunities:write'),
+  validate(createOpportunitySchema),
+  opportunitiesController.create,
+);
 
 opportunitiesRouter.get(
   '/:id',
+  requireScope('opportunities:read'),
   validate(opportunityIdParamsSchema, 'params'),
   opportunitiesController.getById,
 );
 
 opportunitiesRouter.patch(
   '/:id',
+  requireScope('opportunities:write'),
   validate(opportunityIdParamsSchema, 'params'),
   validate(updateOpportunitySchema),
   opportunitiesController.update,
@@ -35,6 +45,7 @@ opportunitiesRouter.patch(
 
 opportunitiesRouter.delete(
   '/:id',
+  requireScope('opportunities:write'),
   validate(opportunityIdParamsSchema, 'params'),
   opportunitiesController.remove,
 );

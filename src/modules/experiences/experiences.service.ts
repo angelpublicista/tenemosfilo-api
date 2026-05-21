@@ -129,32 +129,56 @@ export const experiencesService = {
     });
   },
 
-  async getById(id: string, requesterCompanyId: string | null | undefined) {
+  async getById(
+    id: string,
+    requesterCompanyId: string | null | undefined,
+    opts?: { crossCompany?: boolean },
+  ) {
+    const crossCompany = opts?.crossCompany === true;
     const exp = await prisma.experience.findFirst({
-      where: { id, deletedAt: null },
+      where: {
+        id,
+        deletedAt: null,
+        ...(crossCompany ? { status: 'ACTIVE' } : {}),
+      },
       include: fullInclude,
     });
     if (!exp) throw NotFound('Experiencia no encontrada');
-    // Solo el owner de la company puede ver el detalle (incluye drafts/inactivas).
-    // Para experiencias publicas usar GET /experiences/featured u otro endpoint sin auth.
-    if (!requesterCompanyId || exp.companyId !== requesterCompanyId) {
-      throw NotFound('Experiencia no encontrada');
+    // Cross-company: el reseller puede ver cualquier experiencia ACTIVE.
+    // En modo normal solo el owner de la company puede leer el detalle.
+    if (!crossCompany) {
+      if (!requesterCompanyId || exp.companyId !== requesterCompanyId) {
+        throw NotFound('Experiencia no encontrada');
+      }
     }
     return exp;
   },
 
-  async list(requesterCompanyId: string | null | undefined, query: ListExperiencesQuery) {
-    // Si filtra por una company que no es la tuya, bloqueamos. Si no
-    // pasas companyId, devolvemos solo las tuyas.
-    const targetCompanyId = query.companyId ?? requesterCompanyId;
-    if (query.companyId && requesterCompanyId && query.companyId !== requesterCompanyId) {
+  async list(
+    requesterCompanyId: string | null | undefined,
+    query: ListExperiencesQuery,
+    opts?: { crossCompany?: boolean },
+  ) {
+    const crossCompany = opts?.crossCompany === true;
+
+    // Cross-company (reseller): puede filtrar por companyId arbitrario y solo
+    // ve ACTIVE. Modo normal: cae a la propia company si no se especifica.
+    const targetCompanyId = crossCompany
+      ? query.companyId
+      : (query.companyId ?? requesterCompanyId);
+
+    if (!crossCompany && query.companyId && requesterCompanyId && query.companyId !== requesterCompanyId) {
       throw Forbidden('No tienes acceso a las experiencias de otra company');
     }
 
     const where: Prisma.ExperienceWhereInput = {
       deletedAt: null,
       ...(targetCompanyId ? { companyId: targetCompanyId } : {}),
-      ...(query.status ? { status: query.status } : {}),
+      ...(crossCompany
+        ? { status: 'ACTIVE' }
+        : query.status
+          ? { status: query.status }
+          : {}),
       ...(query.category ? { categories: { has: query.category } } : {}),
       ...(query.experienceType ? { experienceType: query.experienceType } : {}),
       ...(query.isFeatured !== undefined ? { isFeatured: query.isFeatured } : {}),

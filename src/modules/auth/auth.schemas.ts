@@ -10,7 +10,7 @@ export const registerSchema = z.object({
   password: z.string().min(8, 'Minimo 8 caracteres'),
   name: z.string().min(1).optional(),
   phone: z.string().optional(),
-  role: z.enum(['HOST', 'GUEST']).default('GUEST'),
+  role: z.enum(['HOST', 'GUEST', 'RESELLER']).default('GUEST'),
   documentType: z.string().optional(),
   documentNumber: z.string().optional(),
 });

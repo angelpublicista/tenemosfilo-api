@@ -17,10 +17,12 @@ export const quotesController = {
   },
 
   async create(req: Request, res: Response) {
+    const asReseller = req.user!.role === 'RESELLER';
     const created = await quotesService.create(
       req.user!.id,
       req.user!.companyId,
       req.body as CreateQuoteInput,
+      { asReseller },
     );
     res.status(201).json({ data: created });
   },
@@ -33,9 +35,11 @@ export const quotesController = {
   },
 
   async searchExperiences(req: Request, res: Response) {
+    const crossCompany = req.user!.role === 'RESELLER';
     const items = await quotesService.searchExperiences(
       req.user!.companyId,
       q<SearchExperiencesQuery>(req),
+      { crossCompany },
     );
     res.json({ data: items });
   },

@@ -11,7 +11,12 @@ const q = <T,>(req: Request) => req.query as unknown as T;
 
 export const locationsController = {
   async list(req: Request, res: Response) {
-    const items = await locationsService.list(req.user!.companyId, q<ListLocationsQuery>(req));
+    const crossCompany = req.user!.role === 'RESELLER';
+    const items = await locationsService.list(
+      req.user!.companyId,
+      q<ListLocationsQuery>(req),
+      { crossCompany },
+    );
     res.json({ data: items });
   },
 
@@ -22,7 +27,8 @@ export const locationsController = {
 
   async getById(req: Request, res: Response) {
     const { id } = p<{ id: string }>(req);
-    const loc = await locationsService.getById(id, req.user!.companyId);
+    const crossCompany = req.user!.role === 'RESELLER';
+    const loc = await locationsService.getById(id, req.user!.companyId, { crossCompany });
     res.json({ data: loc });
   },
 

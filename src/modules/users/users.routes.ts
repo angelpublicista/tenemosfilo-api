@@ -1,12 +1,14 @@
 import { Router } from 'express';
-import { requireAuth, requireRole } from '../../middleware/auth.js';
+import { requireAuth, requireHumanAuth, requireRole } from '../../middleware/auth.js';
 import { validate } from '../../middleware/validate.js';
 import { usersController } from './users.controller.js';
 import { listUsersQuerySchema, updateUserSchema, userIdParamsSchema } from './users.schemas.js';
 
 export const usersRouter = Router();
 
-usersRouter.use(requireAuth);
+// /users no es accesible por API keys: la administracion de usuarios
+// es solo para humanos (HOST/ADMIN logueados).
+usersRouter.use(requireAuth, requireHumanAuth);
 
 usersRouter.get('/me', usersController.me);
 

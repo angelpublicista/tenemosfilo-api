@@ -13,7 +13,10 @@ const q = <T,>(req: Request) => req.query as unknown as T;
 export const experiencesController = {
   async list(req: Request, res: Response) {
     const query = q<ListExperiencesQuery>(req);
-    const { items, total } = await experiencesService.list(req.user!.companyId, query);
+    const crossCompany = req.user!.role === 'RESELLER';
+    const { items, total } = await experiencesService.list(req.user!.companyId, query, {
+      crossCompany,
+    });
     res.json({
       data: items,
       meta: { total, page: query.page, pageSize: query.limit },
@@ -34,7 +37,8 @@ export const experiencesController = {
 
   async getById(req: Request, res: Response) {
     const { id } = p<{ id: string }>(req);
-    const exp = await experiencesService.getById(id, req.user!.companyId);
+    const crossCompany = req.user!.role === 'RESELLER';
+    const exp = await experiencesService.getById(id, req.user!.companyId, { crossCompany });
     res.json({ data: exp });
   },
 

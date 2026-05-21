@@ -20,9 +20,11 @@ export const reservationsController = {
   },
 
   async create(req: Request, res: Response) {
+    const asReseller = req.user!.role === 'RESELLER';
     const r = await reservationsService.create(
       req.user!.companyId,
       req.body as CreateReservationInput,
+      { asReseller },
     );
     res.status(201).json({ data: r });
   },

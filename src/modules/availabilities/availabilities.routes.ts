@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { requireAuth } from '../../middleware/auth.js';
+import { requireAuth, requireRole } from '../../middleware/auth.js';
+import { requireScope } from '../../middleware/scope.js';
 import { validate } from '../../middleware/validate.js';
 import { availabilitiesController } from './availabilities.controller.js';
 import {
@@ -16,19 +17,27 @@ availabilitiesRouter.use(requireAuth);
 
 availabilitiesRouter.get(
   '/',
+  requireScope('availabilities:read'),
   validate(listAvailabilitiesQuerySchema, 'query'),
   availabilitiesController.list,
 );
-availabilitiesRouter.post('/', validate(createAvailabilitySchema), availabilitiesController.create);
+availabilitiesRouter.post(
+  '/',
+  requireRole('HOST', 'ADMIN'),
+  validate(createAvailabilitySchema),
+  availabilitiesController.create,
+);
 
 availabilitiesRouter.get(
   '/:id',
+  requireScope('availabilities:read'),
   validate(availabilityIdParamsSchema, 'params'),
   availabilitiesController.getById,
 );
 
 availabilitiesRouter.patch(
   '/:id',
+  requireRole('HOST', 'ADMIN'),
   validate(availabilityIdParamsSchema, 'params'),
   validate(updateAvailabilitySchema),
   availabilitiesController.update,
@@ -36,12 +45,14 @@ availabilitiesRouter.patch(
 
 availabilitiesRouter.delete(
   '/:id',
+  requireRole('HOST', 'ADMIN'),
   validate(availabilityIdParamsSchema, 'params'),
   availabilitiesController.remove,
 );
 
 availabilitiesRouter.post(
   '/:id/set-primary',
+  requireRole('HOST', 'ADMIN'),
   validate(availabilityIdParamsSchema, 'params'),
   validate(setPrimarySchema),
   availabilitiesController.setPrimary,
