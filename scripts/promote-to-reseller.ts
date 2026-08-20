@@ -1,11 +1,14 @@
-import { PrismaClient } from '@prisma/client';
+// Usa el cliente compartido en vez de `new PrismaClient()`: asi respeta
+// DB_TARGET y no depende de que DATABASE_URL exista en el proceso.
+import { dbTarget, env } from '../src/config/env.js';
+import { prisma } from '../src/config/prisma.js';
 
-// Cambia el role del usuario a RESELLER. Usa este script despues de correr
-// `prisma migrate dev` para el cambio que agrega RESELLER al enum UserRole.
+// Unica via para dar el rol RESELLER: /auth/register no lo acepta porque
+// otorga acceso entre empresas.
 const TARGET_EMAIL = process.argv[2] ?? 'host@tenemosfilo.com';
 
 async function main() {
-  const prisma = new PrismaClient();
+  console.log(`BD: ${dbTarget} -> ${new URL(env.DATABASE_URL).host}`);
 
   const user = await prisma.user.findUnique({ where: { email: TARGET_EMAIL } });
   if (!user) {

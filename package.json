@@ -13,6 +13,8 @@
     "prisma:deploy": "node scripts/resolve-db-url.mjs prisma migrate deploy",
     "prisma:studio": "node scripts/resolve-db-url.mjs prisma studio",
     "prisma:reset": "node scripts/resolve-db-url.mjs prisma migrate reset",
+    "script:create-host": "tsx scripts/create-host.ts",
+    "script:promote-reseller": "tsx scripts/promote-to-reseller.ts",
     "db:local:create": "createdb tenemosfilo_dev || true",
     "db:local:setup": "npm run db:local:create && DB_TARGET=local npm run prisma:deploy",
     "lint": "eslint . --ext .ts",

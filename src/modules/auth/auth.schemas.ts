@@ -10,7 +10,12 @@ export const registerSchema = z.object({
   password: z.string().min(8, 'Minimo 8 caracteres'),
   name: z.string().min(1).optional(),
   phone: z.string().optional(),
-  role: z.enum(['HOST', 'GUEST', 'RESELLER']).default('GUEST'),
+  // Solo roles sin privilegios. RESELLER queda FUERA a proposito: da acceso
+  // entre empresas (ver crossCompany en availabilities/quotes), asi que
+  // permitir auto-registrarse con el rol era una escalada de privilegios.
+  // Se asigna despues, por un admin: PATCH /users/:id o
+  // `npm run script:promote-reseller <email>`.
+  role: z.enum(['HOST', 'GUEST']).default('GUEST'),
   documentType: z.string().optional(),
   documentNumber: z.string().optional(),
 });

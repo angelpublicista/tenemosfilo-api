@@ -104,6 +104,22 @@ ALLOW_PRODUCTION_DB=1 DB_TARGET=production npm run prisma:migrate
 `migrate deploy` no esta bloqueado: solo aplica migraciones pendientes y es la
 via normal de publicar cambios de schema.
 
+## Roles
+
+`UserRole` tiene cuatro valores: `HOST`, `GUEST`, `ADMIN`, `RESELLER`.
+
+`POST /auth/register` solo acepta **`HOST` y `GUEST`**. Los otros dos otorgan
+privilegios —`ADMIN` es obvio, y `RESELLER` da acceso entre empresas (ver
+`crossCompany` en availabilities y quotes)—, asi que permitir auto-registrarse
+con ellos seria una escalada de privilegios.
+
+Para asignarlos, dos vias de administrador:
+
+```bash
+# PATCH /users/:id con {"role": "RESELLER"}   (requiere sesion de admin)
+npm run script:promote-reseller <email>       # o por script
+```
+
 ## Auth: como funciona con NextAuth
 
 NextAuth vive en el front (`tenemosfilo-front/src/auth.ts`) y delega al API:

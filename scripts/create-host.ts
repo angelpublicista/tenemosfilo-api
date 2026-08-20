@@ -1,6 +1,10 @@
 import { randomBytes } from 'node:crypto';
 import bcrypt from 'bcrypt';
-import { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '@prisma/client';
+// Usa el cliente compartido en vez de `new PrismaClient()`: asi respeta
+// DB_TARGET y no depende de que DATABASE_URL exista en el proceso.
+import { dbTarget, env } from '../src/config/env.js';
+import { prisma } from '../src/config/prisma.js';
 
 // Datos del HOST a crear. Cambialos si vas a correr el script de nuevo
 // para otro tenant de prueba.
@@ -29,7 +33,7 @@ async function uniqueCompanySlug(prisma: PrismaClient, base: string) {
 }
 
 async function main() {
-  const prisma = new PrismaClient();
+  console.log(`BD: ${dbTarget} -> ${new URL(env.DATABASE_URL).host}`);
 
   const existing = await prisma.user.findUnique({ where: { email: HOST_EMAIL } });
   if (existing) {
