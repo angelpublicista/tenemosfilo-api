@@ -16,4 +16,15 @@ export const authController = {
     const user = await authService.loginWithGoogle(req.body);
     res.json({ data: user });
   },
+
+  // 204 siempre: que el email exista o no debe ser indistinguible.
+  async forgotPassword(req: Request, res: Response) {
+    await authService.forgotPassword(req.body);
+    res.status(204).send();
+  },
+
+  async resetPassword(req: Request, res: Response) {
+    await authService.resetPassword(req.body);
+    res.status(204).send();
+  },
 };

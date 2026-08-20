@@ -1,11 +1,34 @@
+import { createHash, randomBytes } from 'node:crypto';
 import { OAuth2Client } from 'google-auth-library';
 import { env } from '../../config/env.js';
 import { prisma } from '../../config/prisma.js';
-import { Conflict, Unauthorized } from '../../lib/errors.js';
+import { passwordResetEmailHtml, sendEmail } from '../../lib/email.js';
+import { BadRequest, Conflict, Unauthorized } from '../../lib/errors.js';
+import { logger } from '../../lib/logger.js';
 import { hashPassword, verifyPassword } from '../../lib/password.js';
-import type { GoogleAuthInput, LoginInput, RegisterInput } from './auth.schemas.js';
+import type {
+  ForgotPasswordInput,
+  GoogleAuthInput,
+  LoginInput,
+  RegisterInput,
+  ResetPasswordInput,
+} from './auth.schemas.js';
 
 const googleClient = env.GOOGLE_CLIENT_ID ? new OAuth2Client(env.GOOGLE_CLIENT_ID) : null;
+
+// Ventana corta: el enlace de reset es una credencial temporal.
+const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hora
+const RESET_TOKEN_BYTES = 32;
+
+/** Guardamos solo el sha256; el token plano viaja unicamente en el correo. */
+function hashResetToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
+}
+
+function generateResetToken(): { token: string; tokenHash: string } {
+  const token = randomBytes(RESET_TOKEN_BYTES).toString('base64url');
+  return { token, tokenHash: hashResetToken(token) };
+}
 
 const publicUserSelect = {
   id: true,
@@ -78,6 +101,81 @@ export const authService = {
 
     if (!user) throw Unauthorized('No se pudo crear el usuario');
     return user;
+  },
+
+  /**
+   * Paso 1 del reset. SIEMPRE termina sin error, exista o no el email:
+   * cualquier diferencia observable (status, mensaje, tiempo) convertiria
+   * este endpoint en un oraculo para enumerar usuarios registrados.
+   */
+  async forgotPassword({ email }: ForgotPasswordInput) {
+    const user = await prisma.user.findUnique({ where: { email } });
+
+    // Silencio deliberado para usuario inexistente, inactivo o borrado.
+    if (!user || !user.isActive || user.deletedAt) {
+      logger.info({ email }, 'forgot-password para email sin cuenta activa: no se envia correo');
+      return;
+    }
+
+    const { token, tokenHash } = generateResetToken();
+
+    // Invalidamos los tokens vigentes previos: solo el ultimo enlace sirve.
+    await prisma.passwordResetToken.updateMany({
+      where: { userId: user.id, usedAt: null },
+      data: { usedAt: new Date() },
+    });
+
+    await prisma.passwordResetToken.create({
+      data: {
+        tokenHash,
+        userId: user.id,
+        expiresAt: new Date(Date.now() + RESET_TOKEN_TTL_MS),
+      },
+    });
+
+    const resetUrl = `${env.APP_URL}/reset-password?token=${token}`;
+    const sent = await sendEmail({
+      to: user.email,
+      subject: 'Recupera tu contraseña - Tenemos Filo',
+      html: passwordResetEmailHtml(resetUrl),
+    });
+
+    // Un fallo de correo se registra pero no cambia la respuesta HTTP.
+    if (!sent) logger.error({ userId: user.id }, 'No se pudo enviar el correo de recuperacion');
+  },
+
+  /** Paso 2 del reset: canjea el token por una contraseña nueva. */
+  async resetPassword({ token, password }: ResetPasswordInput) {
+    const record = await prisma.passwordResetToken.findUnique({
+      where: { tokenHash: hashResetToken(token) },
+      include: { user: true },
+    });
+
+    // Mismo error para token inexistente, ya usado o vencido: no damos
+    // pistas sobre cual de los tres fue.
+    if (!record || record.usedAt || record.expiresAt < new Date()) {
+      throw BadRequest('El enlace de recuperacion no es valido o ya expiro');
+    }
+    if (!record.user.isActive || record.user.deletedAt) {
+      throw BadRequest('El enlace de recuperacion no es valido o ya expiro');
+    }
+
+    const passwordHash = await hashPassword(password);
+
+    // Transaccion: cambiar la contraseña y quemar el token deben ocurrir
+    // juntos, o el enlace quedaria reutilizable.
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: record.userId },
+        data: { password: passwordHash },
+      }),
+      prisma.passwordResetToken.updateMany({
+        where: { userId: record.userId, usedAt: null },
+        data: { usedAt: new Date() },
+      }),
+    ]);
+
+    logger.info({ userId: record.userId }, 'Contraseña restablecida');
   },
 
   toPublic(user: { id: string; email: string; name: string | null; role: 'HOST' | 'GUEST' | 'ADMIN' | 'RESELLER'; image: string | null; phone: string | null; companyId: string | null }) {

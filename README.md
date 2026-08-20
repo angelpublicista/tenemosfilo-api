@@ -55,19 +55,54 @@ npm install
 
 # 2. Copiar y completar variables de entorno
 cp .env.example .env
-# Editar .env con tu DATABASE_URL de RDS y NEXTAUTH_SECRET
+# Editar .env con NEXTAUTH_SECRET y las URLs de base (ver abajo)
 
 # 3. Generar cliente Prisma
 npm run prisma:generate
 
-# 4. Crear las tablas en la base de datos
-npm run prisma:migrate -- --name init
+# 4. Crear la base local y aplicarle las migraciones
+npm run db:local:setup
 
 # 5. Levantar el servidor de desarrollo
 npm run dev
 ```
 
 El API queda en `http://localhost:4000`.
+
+## A cual base te conectas
+
+El servidor y la CLI de Prisma eligen la base con `DB_TARGET`, que vive en
+`.env`. El default es `local`: arrancar sin pensar nunca le pega a produccion.
+
+| `DB_TARGET` | Usa la variable |
+|---|---|
+| `local` *(default)* | `DATABASE_URL_LOCAL` |
+| `production` | `DATABASE_URL_PRODUCTION` |
+
+Si defines `DATABASE_URL` directamente, esa gana sobre `DB_TARGET`. Es lo que
+hacen los deploys, que inyectan la variable desde la plataforma.
+
+Al arrancar, el log dice contra que base quedaste:
+
+```
+BD: local -> localhost:5432/tenemosfilo_dev
+```
+
+Para apuntar a produccion en un comando puntual:
+
+```bash
+DB_TARGET=production npm run prisma:deploy
+```
+
+Los comandos que pueden borrar datos (`migrate dev`, `migrate reset`,
+`db push`) estan **bloqueados** contra produccion. Si de verdad los necesitas:
+
+```bash
+ALLOW_PRODUCTION_DB=1 DB_TARGET=production npm run prisma:migrate
+```
+
+`migrate deploy` no esta bloqueado: solo aplica migraciones pendientes y es la
+via normal de publicar cambios de schema.
 
 ## Auth: como funciona con NextAuth
 

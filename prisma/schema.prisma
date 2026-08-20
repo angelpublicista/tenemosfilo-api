@@ -95,6 +95,7 @@ model User {
   quotes                Quote[]       @relation("QuoteHost")
   integrations          Integration[]
   apiKeysCreated        ApiKey[]      @relation("ApiKeyCreatedBy")
+  passwordResetTokens   PasswordResetToken[]
 
   isActive  Boolean   @default(true)
   createdAt DateTime  @default(now())
@@ -611,4 +612,20 @@ model ApiKey {
 
   @@index([companyId])
   @@index([createdById])
+}
+
+model PasswordResetToken {
+  id String @id @default(cuid())
+  // sha256(token) en hex. El token plano solo existe en el correo que
+  // recibe el usuario: si se filtra la BD, no sirve para resetear nada.
+  tokenHash String @unique
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  expiresAt DateTime
+  usedAt    DateTime? // un token es de un solo uso
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
 }

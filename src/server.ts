@@ -1,13 +1,24 @@
 import { createApp } from './app.js';
-import { env } from './config/env.js';
+import { dbTarget, env } from './config/env.js';
 import { prisma } from './config/prisma.js';
 import { logger } from './lib/logger.js';
+
+/** Host de la BD sin credenciales, para saber de un vistazo contra que corres. */
+function dbHost(url: string): string {
+  try {
+    const { host, pathname } = new URL(url);
+    return `${host}${pathname}`;
+  } catch {
+    return 'desconocido';
+  }
+}
 
 async function bootstrap() {
   const app = createApp();
 
   const server = app.listen(env.PORT, () => {
     logger.info(`API escuchando en http://localhost:${env.PORT} (${env.NODE_ENV})`);
+    logger.info(`BD: ${dbTarget} -> ${dbHost(env.DATABASE_URL)}`);
   });
 
   const shutdown = async (signal: string) => {
