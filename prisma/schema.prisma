@@ -614,6 +614,41 @@ model ApiKey {
   @@index([createdById])
 }
 
+// Rastro de quien cambio que. Se escribe desde el middleware de auditoria,
+// una fila por mutacion con exito.
+//
+// No tiene relacion (FK) con User a proposito: el historial debe sobrevivir
+// al borrado del usuario que lo genero, que es justo cuando mas importa.
+model AuditLog {
+  id String @id @default(cuid())
+
+  // Quien: se copian email y rol al momento del hecho, no se resuelven
+  // despues, para que el registro no cambie si el usuario cambia de rol.
+  actorId    String?
+  actorEmail String?
+  actorRole  String?
+
+  // Empresa sobre la que se actuo. Para un ADMIN usando el selector, es la
+  // empresa "actuando como"; para el resto, la suya.
+  companyId String?
+
+  action       String // CREATE | UPDATE | DELETE
+  resourceType String // companies, users, experiences, ...
+  resourceId   String?
+
+  method  String
+  path    String
+  status  Int
+  payload Json? // body de la peticion, con secretos redactados
+
+  createdAt DateTime @default(now())
+
+  @@index([actorId])
+  @@index([companyId])
+  @@index([resourceType, resourceId])
+  @@index([createdAt])
+}
+
 model PasswordResetToken {
   id String @id @default(cuid())
   // sha256(token) en hex. El token plano solo existe en el correo que

@@ -2,7 +2,12 @@ import { Router } from 'express';
 import { requireAuth, requireHumanAuth, requireRole } from '../../middleware/auth.js';
 import { validate } from '../../middleware/validate.js';
 import { usersController } from './users.controller.js';
-import { listUsersQuerySchema, updateUserSchema, userIdParamsSchema } from './users.schemas.js';
+import {
+  createUserSchema,
+  listUsersQuerySchema,
+  updateUserSchema,
+  userIdParamsSchema,
+} from './users.schemas.js';
 
 export const usersRouter = Router();
 
@@ -13,6 +18,10 @@ usersRouter.use(requireAuth, requireHumanAuth);
 usersRouter.get('/me', usersController.me);
 
 usersRouter.get('/', requireRole('ADMIN'), validate(listUsersQuerySchema, 'query'), usersController.list);
+
+// Alta manual desde el panel. /auth/register es la via publica y solo
+// admite HOST/GUEST; esta admite cualquier rol y empresa.
+usersRouter.post('/', requireRole('ADMIN'), validate(createUserSchema), usersController.create);
 
 usersRouter.get('/:id', validate(userIdParamsSchema, 'params'), usersController.getById);
 

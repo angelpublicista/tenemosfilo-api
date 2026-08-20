@@ -56,6 +56,7 @@ export const experiencesController = {
       id,
       req.user!.companyId,
       req.body as UpdateExperienceInput,
+      { isAdmin: req.user!.role === 'ADMIN' },
     );
     res.json({ data: exp });
   },
@@ -63,13 +64,17 @@ export const experiencesController = {
   async updateStatus(req: Request, res: Response) {
     const { id } = p<{ id: string }>(req);
     const { status } = req.body as { status: ExperienceStatus };
-    const exp = await experiencesService.updateStatus(id, req.user!.companyId, status);
+    const exp = await experiencesService.updateStatus(id, req.user!.companyId, status, {
+      isAdmin: req.user!.role === 'ADMIN',
+    });
     res.json({ data: exp });
   },
 
   async remove(req: Request, res: Response) {
     const { id } = p<{ id: string }>(req);
-    await experiencesService.softDelete(id, req.user!.companyId);
+    await experiencesService.softDelete(id, req.user!.companyId, {
+      isAdmin: req.user!.role === 'ADMIN',
+    });
     res.status(204).end();
   },
 };

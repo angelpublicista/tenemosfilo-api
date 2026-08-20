@@ -1,7 +1,8 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../config/prisma.js';
-import { NotFound } from '../../lib/errors.js';
-import type { ListUsersQuery, UpdateUserInput } from './users.schemas.js';
+import { Conflict, NotFound } from '../../lib/errors.js';
+import { hashPassword } from '../../lib/password.js';
+import type { CreateUserInput, ListUsersQuery, UpdateUserInput } from './users.schemas.js';
 
 const publicSelect = {
   id: true,
@@ -19,6 +20,37 @@ const publicSelect = {
 } satisfies Prisma.UserSelect;
 
 export const usersService = {
+  /** Alta desde el panel de administracion. Solo la usa un ADMIN. */
+  async create(input: CreateUserInput) {
+    const exists = await prisma.user.findUnique({
+      where: { email: input.email },
+      select: { id: true },
+    });
+    if (exists) throw Conflict('Ya existe un usuario con ese email');
+
+    if (input.companyId) {
+      const company = await prisma.company.findFirst({
+        where: { id: input.companyId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!company) throw NotFound('La empresa indicada no existe');
+    }
+
+    return prisma.user.create({
+      data: {
+        email: input.email,
+        password: await hashPassword(input.password),
+        name: input.name ?? null,
+        role: input.role,
+        phone: input.phone ?? null,
+        documentType: input.documentType ?? null,
+        documentNumber: input.documentNumber ?? null,
+        companyId: input.companyId ?? null,
+      },
+      select: publicSelect,
+    });
+  },
+
   async list(query: ListUsersQuery) {
     const { page, pageSize, role, search } = query;
     const where: Prisma.UserWhereInput = {

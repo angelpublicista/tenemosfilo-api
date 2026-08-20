@@ -7,13 +7,17 @@ const q = <T,>(req: Request) => req.query as unknown as T;
 export const dashboardController = {
   async stats(req: Request, res: Response) {
     const { companyId } = q<StatsQuery>(req);
-    const stats = await dashboardService.stats(req.user!.companyId, companyId);
+    const stats = await dashboardService.stats(req.user!.companyId, companyId, {
+      isAdmin: req.user!.role === 'ADMIN',
+    });
     res.json({ data: stats });
   },
 
   async activities(req: Request, res: Response) {
     const { companyId, limit } = q<ActivitiesQuery>(req);
-    const items = await dashboardService.recentActivities(req.user!.companyId, companyId, limit);
+    const items = await dashboardService.recentActivities(req.user!.companyId, companyId, limit, {
+      isAdmin: req.user!.role === 'ADMIN',
+    });
     res.json({ data: items });
   },
 };

@@ -1,7 +1,11 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../config/prisma.js';
-import { Conflict, Forbidden, NotFound } from '../../lib/errors.js';
-import type { CreateCompanyInput, UpdateCompanyInput } from './companies.schemas.js';
+import { BadRequest, Conflict, Forbidden, NotFound } from '../../lib/errors.js';
+import type {
+  CreateCompanyInput,
+  ListCompaniesQuery,
+  UpdateCompanyInput,
+} from './companies.schemas.js';
 
 const slugify = (s: string) =>
   s
@@ -35,6 +39,28 @@ const defaultInclude = {
 } satisfies Prisma.CompanyInclude;
 
 export const companiesService = {
+  /**
+   * Valida que un usuario pueda ser dueño de una empresa.
+   *
+   * Las empresas son de anfitriones. Un ADMIN queda excluido a proposito:
+   * gestiona la plataforma y opera sobre empresas ajenas con el selector,
+   * pero no tiene experiencias propias.
+   */
+  async assertPuedeSerDuenio(userId: string) {
+    const user = await prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: { id: true, role: true, isActive: true },
+    });
+    if (!user) throw NotFound('El usuario indicado no existe');
+    if (!user.isActive) throw BadRequest('El usuario indicado esta inactivo');
+    if (user.role !== 'HOST') {
+      throw BadRequest(
+        `El dueño de una empresa debe tener rol Anfitrión (el elegido es ${user.role}).`,
+      );
+    }
+    return user;
+  },
+
   async create(ownerId: string, input: CreateCompanyInput) {
     const slug = await uniqueSlug(input.companyName);
     const company = await prisma.company.create({
@@ -59,11 +85,17 @@ export const companiesService = {
       include: defaultInclude,
     });
 
-    // Asociar el owner como user de la company
-    await prisma.user.update({
+    // Un anfitrion puede tener varias empresas, pero User.companyId es una
+    // sola: es "en cual esta trabajando ahora". Solo lo fijamos si aun no
+    // tiene ninguna; si ya trabaja en otra, sobrescribirlo lo desvincularia
+    // de ella en silencio. Para moverse entre las suyas usa el selector.
+    const owner = await prisma.user.findUnique({
       where: { id: ownerId },
-      data: { companyId: company.id },
+      select: { companyId: true },
     });
+    if (!owner?.companyId) {
+      await prisma.user.update({ where: { id: ownerId }, data: { companyId: company.id } });
+    }
 
     return company;
   },
@@ -77,11 +109,33 @@ export const companiesService = {
     return company;
   },
 
+  /**
+   * Empresas entre las que este usuario puede moverse: las que posee mas
+   * aquella a la que pertenece. Un anfitrion puede tener varias, asi que
+   * getByOwner (findFirst) no sirve para poblar el selector.
+   */
+  async listAccessible(userId: string) {
+    return prisma.company.findMany({
+      where: {
+        deletedAt: null,
+        OR: [{ ownerId: userId }, { users: { some: { id: userId } } }],
+      },
+      select: { id: true, companyName: true, slug: true, ownerId: true },
+      orderBy: { createdAt: 'asc' },
+    });
+  },
+
   async getByOwner(ownerId: string) {
     return prisma.company.findFirst({
       where: { ownerId, deletedAt: null },
       include: defaultInclude,
     });
+  },
+
+  /** Como getById pero devuelve null en vez de lanzar. */
+  async getByIdOrNull(id: string | null | undefined) {
+    if (!id) return null;
+    return prisma.company.findFirst({ where: { id, deletedAt: null }, include: defaultInclude });
   },
 
   async getByUser(userId: string) {
@@ -106,13 +160,89 @@ export const companiesService = {
     return company;
   },
 
-  async update(id: string, requesterId: string, input: UpdateCompanyInput) {
+  /**
+   * Listado global de todas las empresas de la plataforma. Solo ADMIN: el
+   * resto de roles trabaja siempre contra su propia company.
+   */
+  async list(query: ListCompaniesQuery) {
+    const { page, pageSize, search, deleted } = query;
+
+    const where: Prisma.CompanyWhereInput = {
+      ...(deleted === undefined
+        ? {}
+        : deleted
+          ? { NOT: { deletedAt: null } }
+          : { deletedAt: null }),
+      ...(search && {
+        OR: [
+          { companyName: { contains: search, mode: 'insensitive' } },
+          { slug: { contains: search, mode: 'insensitive' } },
+          { companyEmail: { contains: search, mode: 'insensitive' } },
+        ],
+      }),
+    };
+
+    const [items, total] = await Promise.all([
+      prisma.company.findMany({
+        where,
+        select: {
+          id: true,
+          companyName: true,
+          slug: true,
+          companyEmail: true,
+          companyPhone: true,
+          companyType: true,
+          deletedAt: true,
+          createdAt: true,
+          owner: { select: { id: true, name: true, email: true } },
+          // Conteos para la tabla del panel, sin traerse las filas.
+          // Filtramos deletedAt: contar los borrados logicos mostraba mas
+          // experiencias de las que la empresa tiene realmente.
+          _count: {
+            select: {
+              users: { where: { deletedAt: null } },
+              experiences: { where: { deletedAt: null } },
+            },
+          },
+        },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        orderBy: { createdAt: 'desc' },
+      }),
+      prisma.company.count({ where }),
+    ]);
+
+    return { items, total };
+  },
+
+  /** Soft-delete / restauracion de una empresa. Solo ADMIN. */
+  async setDeleted(id: string, deleted: boolean) {
+    const existing = await prisma.company.findUnique({ where: { id }, select: { id: true } });
+    if (!existing) throw NotFound('Company no encontrada');
+
+    return prisma.company.update({
+      where: { id },
+      data: { deletedAt: deleted ? new Date() : null },
+      select: { id: true, companyName: true, deletedAt: true },
+    });
+  },
+
+  async update(
+    id: string,
+    requesterId: string,
+    input: UpdateCompanyInput,
+    opts?: { isAdmin?: boolean },
+  ) {
     const existing = await prisma.company.findFirst({
       where: { id, deletedAt: null },
       select: { id: true, ownerId: true, companyName: true, slug: true },
     });
     if (!existing) throw NotFound('Company no encontrada');
-    if (existing.ownerId !== requesterId) throw Forbidden('Solo el owner puede actualizar');
+    // El ADMIN administra la plataforma entera, asi que no se le exige ser
+    // el owner. Para el resto la regla sigue igual.
+    if (!opts?.isAdmin && existing.ownerId !== requesterId) {
+      throw Forbidden('Solo el owner puede actualizar');
+    }
 
     const data: Prisma.CompanyUpdateInput = {};
     if (input.companyName !== undefined && input.companyName !== existing.companyName) {
@@ -147,8 +277,18 @@ export const companiesService = {
     });
     if (!company) throw NotFound('Company no encontrada');
 
-    const user = await prisma.user.findUnique({ where: { id: userId }, select: { companyId: true } });
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { companyId: true, role: true },
+    });
     if (!user) throw NotFound('Usuario no encontrado');
+    // Un ADMIN no pertenece a ninguna empresa: opera sobre ellas con el
+    // selector "actuando como". Asociarlo le daria una empresa propia.
+    if (user.role === 'ADMIN') {
+      throw Forbidden(
+        'Un administrador no puede asociarse a una empresa. Usa el selector de empresa activa.',
+      );
+    }
     if (user.companyId && user.companyId !== companyId) {
       throw Conflict('El usuario ya esta asociado a otra company');
     }

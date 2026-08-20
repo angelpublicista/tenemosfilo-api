@@ -26,10 +26,25 @@ function pricingTotal(pricing: unknown): number {
   return 0;
 }
 
+/**
+ * Devuelve la company sobre la que se calculan las metricas.
+ *
+ * Para el ADMIN puede devolver `undefined`, que significa "toda la
+ * plataforma": los `where` de Prisma ignoran las claves undefined, asi que
+ * el filtro por empresa simplemente no se aplica. El admin tambien puede
+ * pedir una empresa concreta con ?companyId=.
+ */
 function resolveCompanyId(
   requesterCompanyId: string | null | undefined,
   paramCompanyId?: string,
-): string {
+  opts?: { isAdmin?: boolean },
+): string | undefined {
+  // Para el admin, requesterCompanyId es la empresa que eligio en el selector
+  // (la puso applyActingCompany desde la cabecera) o null si esta en modo
+  // plataforma. Sin este ?? , actuar como una empresa seguia dando el
+  // agregado global.
+  if (opts?.isAdmin) return paramCompanyId ?? requesterCompanyId ?? undefined;
+
   const target = paramCompanyId ?? requesterCompanyId;
   if (!target) throw Forbidden('No tienes una company asociada');
   if (paramCompanyId && requesterCompanyId && paramCompanyId !== requesterCompanyId) {
@@ -39,8 +54,14 @@ function resolveCompanyId(
 }
 
 export const dashboardService = {
-  async stats(requesterCompanyId: string | null | undefined, paramCompanyId?: string) {
-    const companyId = resolveCompanyId(requesterCompanyId, paramCompanyId);
+  async stats(
+    requesterCompanyId: string | null | undefined,
+    paramCompanyId?: string,
+    opts?: { isAdmin?: boolean },
+  ) {
+    const companyId = resolveCompanyId(requesterCompanyId, paramCompanyId, opts);
+    // Modo plataforma: el admin sin ?companyId ve el agregado de todo.
+    const global = companyId === undefined;
 
     const [activeExperiences, pendingReservations, currentRows, prevRows] = await Promise.all([
       prisma.experience.count({
@@ -77,11 +98,21 @@ export const dashboardService = {
       growth = 100;
     }
 
+    // Solo en modo plataforma: totales que al admin le sirven de portada y
+    // que a un host no le significan nada.
+    const platform = global
+      ? {
+          totalCompanies: await prisma.company.count({ where: { deletedAt: null } }),
+          totalUsers: await prisma.user.count({ where: { deletedAt: null } }),
+        }
+      : {};
+
     return {
       activeExperiences,
       pendingReservations,
       monthlyRevenue,
       growth: Math.round(growth * 10) / 10,
+      ...platform,
     };
   },
 
@@ -89,8 +120,9 @@ export const dashboardService = {
     requesterCompanyId: string | null | undefined,
     paramCompanyId: string | undefined,
     limit: number,
+    opts?: { isAdmin?: boolean },
   ) {
-    const companyId = resolveCompanyId(requesterCompanyId, paramCompanyId);
+    const companyId = resolveCompanyId(requesterCompanyId, paramCompanyId, opts);
 
     const [experiences, reservations, payments] = await Promise.all([
       prisma.experience.findMany({

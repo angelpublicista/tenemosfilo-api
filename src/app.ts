@@ -6,6 +6,7 @@ import pinoHttp from 'pino-http';
 
 import { corsOrigins } from './config/env.js';
 import { logger } from './lib/logger.js';
+import { auditLog } from './middleware/audit.js';
 import { errorHandler, notFoundHandler } from './middleware/error.js';
 
 import { authRouter } from './modules/auth/auth.routes.js';
@@ -23,6 +24,7 @@ import { locationsRouter } from './modules/locations/locations.routes.js';
 import { integrationsRouter } from './modules/integrations/integrations.routes.js';
 import { dashboardRouter } from './modules/dashboard/dashboard.routes.js';
 import { uploadsRouter } from './modules/uploads/uploads.routes.js';
+import { auditRouter } from './modules/audit/audit.routes.js';
 
 export function createApp() {
   const app = express();
@@ -42,6 +44,10 @@ export function createApp() {
 
   app.get('/health', (_req, res) => res.json({ status: 'ok', uptime: process.uptime() }));
 
+  // Va antes de los routers para poder engancharse al final de la respuesta,
+  // y despues de express.json para ver el body ya parseado.
+  app.use(auditLog);
+
   app.use('/auth', authRouter);
   app.use('/api-keys', apiKeysRouter);
   app.use('/users', usersRouter);
@@ -57,6 +63,7 @@ export function createApp() {
   app.use('/integrations', integrationsRouter);
   app.use('/dashboard', dashboardRouter);
   app.use('/uploads', uploadsRouter);
+  app.use('/audit-logs', auditRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

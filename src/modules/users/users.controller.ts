@@ -1,6 +1,6 @@
 import type { Request, Response } from 'express';
 import { usersService } from './users.service.js';
-import type { ListUsersQuery, UpdateUserInput } from './users.schemas.js';
+import type { CreateUserInput, ListUsersQuery, UpdateUserInput } from './users.schemas.js';
 
 // Helpers: el middleware validate() ya parseo y reasigno req.query/params/body
 // con los datos validados por zod. Aca solo recuperamos el tipo correcto.
@@ -11,6 +11,11 @@ export const usersController = {
   async me(req: Request, res: Response) {
     const user = await usersService.getById(req.user!.id);
     res.json({ data: user });
+  },
+
+  async create(req: Request, res: Response) {
+    const user = await usersService.create(req.body as CreateUserInput);
+    res.status(201).json({ data: user });
   },
 
   async list(req: Request, res: Response) {

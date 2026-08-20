@@ -15,6 +15,24 @@ export const userIdParamsSchema = z.object({
   id: z.string().min(1),
 });
 
+/**
+ * Alta de usuario desde el panel de administracion (solo ADMIN).
+ *
+ * A diferencia de /auth/register, aqui SI se puede asignar cualquier rol y
+ * una empresa: el que llama ya es administrador de la plataforma, asi que
+ * no hay escalada de privilegios posible.
+ */
+export const createUserSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(8, 'Minimo 8 caracteres'),
+  name: z.string().min(1).optional(),
+  role: userRoleSchema.default('GUEST'),
+  phone: z.string().optional(),
+  documentType: z.string().optional(),
+  documentNumber: z.string().optional(),
+  companyId: z.string().min(1).optional(),
+});
+
 export const updateUserSchema = z.object({
   name: z.string().min(1).optional(),
   phone: z.string().optional().nullable(),
@@ -28,3 +46,4 @@ export const updateUserSchema = z.object({
 
 export type ListUsersQuery = z.infer<typeof listUsersQuerySchema>;
 export type UpdateUserInput = z.infer<typeof updateUserSchema>;
+export type CreateUserInput = z.infer<typeof createUserSchema>;

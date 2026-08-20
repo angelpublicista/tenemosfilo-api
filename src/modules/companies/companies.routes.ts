@@ -6,7 +6,8 @@ import { validate } from '../../middleware/validate.js';
 import { companiesController } from './companies.controller.js';
 import {
   companyIdParamsSchema,
-  createCompanySchema,
+  createCompanyAsAdminSchema,
+  listCompaniesQuerySchema,
   updateCompanySchema,
 } from './companies.schemas.js';
 
@@ -14,8 +15,20 @@ export const companiesRouter = Router();
 
 companiesRouter.use(requireAuth);
 
+// Listado global de la plataforma: solo ADMIN. Va antes de /:id para que
+// no lo capture la ruta parametrizada.
+companiesRouter.get(
+  '/',
+  requireRole('ADMIN'),
+  validate(listCompaniesQuerySchema, 'query'),
+  companiesController.list,
+);
+
 // Mi company (la asociada al user logueado)
 companiesRouter.get('/me', requireScope('companies:read'), companiesController.getMine);
+
+// Todas mis empresas: un anfitrion puede tener varias. Va antes de /:id.
+companiesRouter.get('/mine/all', requireScope('companies:read'), companiesController.listMine);
 
 // Owned by a specific user (para flujos donde tenemos el ownerId)
 companiesRouter.get(
@@ -43,7 +56,7 @@ companiesRouter.get(
 companiesRouter.post(
   '/',
   requireHumanAuth,
-  validate(createCompanySchema),
+  validate(createCompanyAsAdminSchema),
   companiesController.create,
 );
 
@@ -53,6 +66,21 @@ companiesRouter.patch(
   validate(companyIdParamsSchema, 'params'),
   validate(updateCompanySchema),
   companiesController.update,
+);
+
+// Desactivar / reactivar una empresa (soft-delete). Solo ADMIN.
+companiesRouter.delete(
+  '/:id',
+  requireRole('ADMIN'),
+  validate(companyIdParamsSchema, 'params'),
+  companiesController.remove,
+);
+
+companiesRouter.patch(
+  '/:id/restore',
+  requireRole('ADMIN'),
+  validate(companyIdParamsSchema, 'params'),
+  companiesController.restore,
 );
 
 // Asociar al user logueado a una company existente: solo humanos

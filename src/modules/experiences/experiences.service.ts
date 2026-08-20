@@ -58,12 +58,19 @@ const lightInclude = {
   locations: { where: { deletedAt: null }, select: { id: true, name: true, isMain: true } },
 } satisfies Prisma.ExperienceInclude;
 
-async function assertCanManage(id: string, requesterCompanyId: string | null | undefined) {
+async function assertCanManage(
+  id: string,
+  requesterCompanyId: string | null | undefined,
+  opts?: { isAdmin?: boolean },
+) {
   const exp = await prisma.experience.findFirst({
     where: { id, deletedAt: null },
     select: { id: true, companyId: true },
   });
   if (!exp) throw NotFound('Experiencia no encontrada');
+  // El ADMIN gestiona experiencias de cualquier empresa; no tiene companyId
+  // propio, asi que la comparacion de abajo siempre lo dejaria fuera.
+  if (opts?.isAdmin) return exp;
   if (!requesterCompanyId || exp.companyId !== requesterCompanyId) {
     throw Forbidden('No tienes permiso sobre esta experiencia');
   }
@@ -223,8 +230,13 @@ export const experiencesService = {
     });
   },
 
-  async update(id: string, requesterCompanyId: string | null | undefined, input: UpdateExperienceInput) {
-    await assertCanManage(id, requesterCompanyId);
+  async update(
+    id: string,
+    requesterCompanyId: string | null | undefined,
+    input: UpdateExperienceInput,
+    opts?: { isAdmin?: boolean },
+  ) {
+    await assertCanManage(id, requesterCompanyId, opts);
 
     const data: Prisma.ExperienceUpdateInput = {};
 
@@ -275,13 +287,22 @@ export const experiencesService = {
     return prisma.experience.update({ where: { id }, data, include: fullInclude });
   },
 
-  async updateStatus(id: string, requesterCompanyId: string | null | undefined, status: ExperienceStatus) {
-    await assertCanManage(id, requesterCompanyId);
+  async updateStatus(
+    id: string,
+    requesterCompanyId: string | null | undefined,
+    status: ExperienceStatus,
+    opts?: { isAdmin?: boolean },
+  ) {
+    await assertCanManage(id, requesterCompanyId, opts);
     return prisma.experience.update({ where: { id }, data: { status }, include: lightInclude });
   },
 
-  async softDelete(id: string, requesterCompanyId: string | null | undefined) {
-    await assertCanManage(id, requesterCompanyId);
+  async softDelete(
+    id: string,
+    requesterCompanyId: string | null | undefined,
+    opts?: { isAdmin?: boolean },
+  ) {
+    await assertCanManage(id, requesterCompanyId, opts);
     await prisma.experience.update({
       where: { id },
       data: { deletedAt: new Date(), isActive: false, status: 'INACTIVE' },

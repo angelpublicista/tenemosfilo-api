@@ -71,5 +71,25 @@ export const updateCompanySchema = z.object({
 
 export const companyIdParamsSchema = z.object({ id: z.string().min(1) });
 
-export type CreateCompanyInput = z.infer<typeof createCompanySchema>;
+/**
+ * Dueño de la empresa. Solo el ADMIN puede indicarlo: crea empresas para
+ * terceros, y sin esto quedaria el mismo como dueño de todas. Para el resto
+ * de roles el dueño es siempre quien llama.
+ */
+export const createCompanyAsAdminSchema = createCompanySchema.extend({
+  ownerId: z.string().min(1).optional(),
+});
+
+// Listado global de empresas (solo ADMIN). Mismo shape de paginacion que
+// listUsersQuerySchema para que el front trate ambos listados igual.
+export const listCompaniesQuerySchema = z.object({
+  page: z.coerce.number().int().positive().default(1),
+  pageSize: z.coerce.number().int().positive().max(100).default(20),
+  search: z.string().trim().optional(),
+  /** true = solo desactivadas, false = solo activas, omitido = todas */
+  deleted: z.coerce.boolean().optional(),
+});
+
+export type CreateCompanyInput = z.infer<typeof createCompanyAsAdminSchema>;
 export type UpdateCompanyInput = z.infer<typeof updateCompanySchema>;
+export type ListCompaniesQuery = z.infer<typeof listCompaniesQuerySchema>;

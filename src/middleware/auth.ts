@@ -37,6 +37,51 @@ const secret = new TextEncoder().encode(env.NEXTAUTH_SECRET);
  * de la company duena de la key, para que los controllers existentes
  * sigan funcionando sin cambios (todos leen req.user.companyId).
  */
+/** Cabecera con la que el ADMIN dice sobre que empresa esta operando. */
+export const ACTING_COMPANY_HEADER = 'x-acting-company';
+
+/**
+ * Permite que un ADMIN opere como si perteneciera a una empresa concreta.
+ *
+ * Por que aqui y no en cada servicio: todos los modulos ya resuelven el
+ * alcance con `req.user.companyId`. Poblandolo una sola vez, el admin puede
+ * crear y listar en cualquier empresa sin tocar controllers ni servicios.
+ *
+ * Solo aplica a ADMIN. Para cualquier otro rol la cabecera se ignora, asi
+ * que no sirve para escalar privilegios ni para saltarse el aislamiento.
+ */
+async function applyActingCompany(req: Request) {
+  const raw = req.headers[ACTING_COMPANY_HEADER];
+  const companyId = Array.isArray(raw) ? raw[0] : raw;
+  if (!companyId || !req.user) return;
+
+  const esAdmin = req.user.role === 'ADMIN';
+  // Un HOST puede tener varias empresas, asi que tambien cambia entre ellas
+  // con esta cabecera. La diferencia con el ADMIN es el alcance: el admin
+  // puede indicar cualquiera; el host, solo las que posee o aquella a la
+  // que pertenece. Para el resto de roles la cabecera se ignora.
+  const esHost = req.user.role === 'HOST';
+  if (!esAdmin && !esHost) return;
+
+  const company = await prisma.company.findFirst({
+    where: {
+      id: companyId,
+      deletedAt: null,
+      ...(esAdmin ? {} : { OR: [{ ownerId: req.user.id }, { users: { some: { id: req.user.id } } }] }),
+    },
+    select: { id: true },
+  });
+  if (!company) {
+    throw Forbidden(
+      esAdmin
+        ? 'La empresa indicada no existe o esta desactivada'
+        : 'No tienes acceso a esa empresa',
+    );
+  }
+
+  req.user.companyId = company.id;
+}
+
 export async function requireAuth(req: Request, _res: Response, next: NextFunction) {
   try {
     const header = req.headers.authorization;
@@ -51,6 +96,7 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
     } else {
       await authenticateJwt(req, token);
     }
+    await applyActingCompany(req);
     next();
   } catch (err) {
     if (err instanceof Error && err.name === 'HttpError') return next(err);

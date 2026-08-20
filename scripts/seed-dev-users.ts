@@ -13,20 +13,41 @@ import { hashPassword } from '../src/lib/password.js';
 // registerSchema exige minimo 8 caracteres.
 const PASSWORD = 'dev12345';
 
-const COMPANY_NAME = 'Filo Demo';
-const COMPANY_SLUG = 'filo-demo';
 
 type SeedUser = {
   email: string;
   name: string;
   role: UserRole;
-  /** true = queda como dueño y miembro de la company demo */
-  ownsCompany?: boolean;
+  /** Si esta, el user queda como dueño y miembro de esta empresa. */
+  empresa?: { nombre: string; slug: string; experiencia: string; expSlug: string };
 };
 
+// Dos empresas a proposito: con una sola no se distingue si el panel de
+// administracion realmente ve toda la plataforma o solo la del usuario.
 const USERS: SeedUser[] = [
   { email: 'admin@filo.test', name: 'Admin Demo', role: 'ADMIN' },
-  { email: 'host@filo.test', name: 'Host Demo', role: 'HOST', ownsCompany: true },
+  {
+    email: 'host@filo.test',
+    name: 'Host Demo',
+    role: 'HOST',
+    empresa: {
+      nombre: 'Filo Demo',
+      slug: 'filo-demo',
+      experiencia: 'Cena en Filo Demo',
+      expSlug: 'cena-en-filo-demo',
+    },
+  },
+  {
+    email: 'host2@filo.test',
+    name: 'Host Dos',
+    role: 'HOST',
+    empresa: {
+      nombre: 'Cocina Dos',
+      slug: 'cocina-dos',
+      experiencia: 'Taller en Cocina Dos',
+      expSlug: 'taller-en-cocina-dos',
+    },
+  },
   { email: 'guest@filo.test', name: 'Guest Demo', role: 'GUEST' },
   { email: 'reseller@filo.test', name: 'Reseller Demo', role: 'RESELLER' },
 ];
@@ -64,16 +85,31 @@ async function main() {
 
     let empresa = '—';
 
-    if (u.ownsCompany) {
+    if (u.empresa) {
       // La company necesita dueño, asi que se crea despues del user.
       const company = await prisma.company.upsert({
-        where: { slug: COMPANY_SLUG },
-        update: { ownerId: user.id },
-        create: { companyName: COMPANY_NAME, slug: COMPANY_SLUG, ownerId: user.id },
+        where: { slug: u.empresa.slug },
+        update: { ownerId: user.id, companyName: u.empresa.nombre, deletedAt: null },
+        create: { companyName: u.empresa.nombre, slug: u.empresa.slug, ownerId: user.id },
       });
       // Y el dueño ademas es miembro: sin companyId el front lo manda a
       // /company-setup en vez de al dashboard.
       await prisma.user.update({ where: { id: user.id }, data: { companyId: company.id } });
+
+      // Una experiencia activa por empresa, para que las pantallas no salgan
+      // vacias y se note la diferencia entre ver "lo mio" y ver "todo".
+      await prisma.experience.upsert({
+        where: { slug: u.empresa.expSlug },
+        update: { title: u.empresa.experiencia, status: 'ACTIVE', deletedAt: null },
+        create: {
+          title: u.empresa.experiencia,
+          slug: u.empresa.expSlug,
+          companyId: company.id,
+          basePrice: 100000,
+          status: 'ACTIVE',
+        },
+      });
+
       empresa = company.companyName;
     }
 
