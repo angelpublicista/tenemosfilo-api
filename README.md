@@ -120,6 +120,24 @@ Para asignarlos, dos vias de administrador:
 npm run script:promote-reseller <email>       # o por script
 ```
 
+### Usuarios de prueba
+
+`npm run db:local:seed` crea uno por rol. Es idempotente y esta bloqueado
+contra cualquier base que no sea local.
+
+| Email | Rol | Empresa |
+|---|---|---|
+| `admin@filo.test` | ADMIN | — |
+| `host@filo.test` | HOST | Filo Demo |
+| `guest@filo.test` | GUEST | — |
+| `reseller@filo.test` | RESELLER | — |
+
+Todos con la contraseña `dev12345`.
+
+Para que el login funcione desde el front, `NEXTAUTH_SECRET` debe ser el
+**mismo valor** en ambos `.env`: el front firma la cookie y el API la
+verifica. Si difieren, el login pasa pero toda llamada al API da 401.
+
 ## Auth: como funciona con NextAuth
 
 NextAuth vive en el front (`tenemosfilo-front/src/auth.ts`) y delega al API:

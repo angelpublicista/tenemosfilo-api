@@ -16,7 +16,8 @@
     "script:create-host": "tsx scripts/create-host.ts",
     "script:promote-reseller": "tsx scripts/promote-to-reseller.ts",
     "db:local:create": "createdb tenemosfilo_dev || true",
-    "db:local:setup": "npm run db:local:create && DB_TARGET=local npm run prisma:deploy",
+    "db:local:setup": "npm run db:local:create && DB_TARGET=local npm run prisma:deploy && npm run db:local:seed",
+    "db:local:seed": "tsx scripts/seed-dev-users.ts",
     "lint": "eslint . --ext .ts",
     "typecheck": "tsc --noEmit"
   },
