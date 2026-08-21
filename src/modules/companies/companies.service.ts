@@ -291,6 +291,12 @@ export const companiesService = {
     if (input.employeeCount !== undefined) data.employeeCount = input.employeeCount;
     if (input.annualRevenue !== undefined) data.annualRevenue = input.annualRevenue;
     if (input.businessYears !== undefined) data.businessYears = input.businessYears;
+    if (input.tagline !== undefined) data.tagline = input.tagline;
+    if (input.openTableRid !== undefined) data.openTableRid = input.openTableRid;
+    if (input.autoConfirmReservations !== undefined) {
+      data.autoConfirmReservations = input.autoConfirmReservations;
+    }
+    if (input.blockWhenFull !== undefined) data.blockWhenFull = input.blockWhenFull;
 
     return prisma.company.update({
       where: { id },

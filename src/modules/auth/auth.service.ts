@@ -3,10 +3,11 @@ import { OAuth2Client } from 'google-auth-library';
 import { env } from '../../config/env.js';
 import { prisma } from '../../config/prisma.js';
 import { passwordResetEmailHtml, sendEmail } from '../../lib/email.js';
-import { BadRequest, Conflict, Unauthorized } from '../../lib/errors.js';
+import { BadRequest, Conflict, NotFound, Unauthorized } from '../../lib/errors.js';
 import { logger } from '../../lib/logger.js';
 import { hashPassword, verifyPassword } from '../../lib/password.js';
 import type {
+  ChangePasswordInput,
   ForgotPasswordInput,
   GoogleAuthInput,
   LoginInput,
@@ -176,6 +177,47 @@ export const authService = {
     ]);
 
     logger.info({ userId: record.userId }, 'Contraseña restablecida');
+  },
+
+  /**
+   * Cambio de contraseña desde la sesion, sin pasar por el correo.
+   *
+   * Se exige la actual aunque ya haya sesion: si alguien deja el equipo
+   * abierto, no deberia poder quedarse con la cuenta cambiando la clave.
+   */
+  async changePassword(userId: string, { currentPassword, newPassword }: ChangePasswordInput) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, password: true },
+    });
+    if (!user) throw NotFound('Usuario no encontrado');
+
+    // Las cuentas creadas con Google no tienen contraseña que comparar.
+    if (!user.password) {
+      throw BadRequest('Tu cuenta entra con Google; no tiene contraseña que cambiar');
+    }
+    if (!(await verifyPassword(currentPassword, user.password))) {
+      throw BadRequest('La contraseña actual no es correcta');
+    }
+    if (currentPassword === newPassword) {
+      throw BadRequest('La contraseña nueva debe ser distinta de la actual');
+    }
+
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: userId },
+        data: { password: await hashPassword(newPassword) },
+      }),
+      // Cambiar la clave invalida cualquier enlace de recuperacion vivo:
+      // si el cambio fue porque sospechas que te entraron, un enlace
+      // pendiente en el correo seguiria siendo una puerta abierta.
+      prisma.passwordResetToken.updateMany({
+        where: { userId, usedAt: null },
+        data: { usedAt: new Date() },
+      }),
+    ]);
+
+    logger.info({ userId }, 'Contraseña cambiada desde la sesion');
   },
 
   toPublic(user: { id: string; email: string; name: string | null; role: 'HOST' | 'GUEST' | 'ADMIN' | 'RESELLER'; image: string | null; phone: string | null; companyId: string | null }) {

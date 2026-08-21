@@ -141,6 +141,20 @@ model Company {
   // por defecto romperia los embeds que ya estan publicados.
   embedDomains String[] @default([])
 
+  // Frase corta de la empresa; sale en su catalogo publico.
+  tagline String?
+
+  // Id del restaurante en OpenTable (el "rid" de sus enlaces). Es lo unico
+  // que OpenTable expone sin contrato de partner, y basta para enlazar su
+  // ficha y sus reservas.
+  openTableRid String?
+
+  // Operacion. Se leen al crear reservas, no son solo preferencias:
+  // autoConfirm decide si una reserva nace confirmada, y blockWhenFull
+  // rechaza las que pasarian del aforo de la experiencia.
+  autoConfirmReservations Boolean @default(false)
+  blockWhenFull           Boolean @default(true)
+
   employeeCount  String? // enum-like; lo dejamos string para flexibilidad de UI
   annualRevenue  String?
   businessYears  String?
@@ -152,6 +166,7 @@ model Company {
   // Reservas que esta empresa vendio como revendedora.
   reservationsAsReseller Reservation[] @relation("ReservationReseller")
   payouts                Payout[]
+  channelListings        ChannelListing[]
   quotes        Quote[]
   contacts      Contact[]
   crmCompanies  CrmCompany[]
@@ -320,6 +335,7 @@ model Experience {
   reservations     Reservation[]
   quotes           Quote[]                 @relation("QuoteExperiences")
   opportunityItems OpportunityExperience[]
+  channelListings  ChannelListing[]
 
   // Comisiones. Null = hereda el valor por defecto de PlatformSettings.
   // Solo un ADMIN puede fijarlas: un anfitrion no se pone su propia comision.
@@ -758,4 +774,53 @@ model PasswordResetToken {
   createdAt DateTime  @default(now())
 
   @@index([userId])
+}
+
+
+// ─── Distribucion en canales externos ──────────────────────────────────────
+
+enum ChannelType {
+  OPENTABLE
+}
+
+enum ChannelListingStatus {
+  // Faltan datos obligatorios del canal.
+  DRAFT
+  // La ficha esta completa y se puede cargar en el canal.
+  READY
+  // El anfitrion confirmo que ya esta publicada alli.
+  PUBLISHED
+  // Estuvo publicada y se retiro.
+  UNPUBLISHED
+}
+
+// Presencia de una experiencia en un canal externo.
+//
+// No guarda la ficha: se genera desde la experiencia cada vez, para que
+// editar la experiencia no deje el canal mostrando datos viejos. Aqui solo
+// vive lo que el canal sabe y FILO no: donde quedo publicada y desde cuando.
+model ChannelListing {
+  id           String     @id @default(cuid())
+  companyId    String
+  company      Company    @relation(fields: [companyId], references: [id])
+  experienceId String
+  experience   Experience @relation(fields: [experienceId], references: [id])
+
+  channel ChannelType
+  status  ChannelListingStatus @default(DRAFT)
+
+  // URL de la ficha en el canal, cuando el anfitrion la publica.
+  externalUrl String?
+  // Id en el canal, si el canal lo expone.
+  externalId  String?
+  publishedAt DateTime?
+  notes       String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  // Una experiencia no puede estar dos veces en el mismo canal.
+  @@unique([experienceId, channel])
+  @@index([companyId, channel])
 }

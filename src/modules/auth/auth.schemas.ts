@@ -36,8 +36,15 @@ export const resetPasswordSchema = z.object({
   password: z.string().min(8, 'Minimo 8 caracteres'),
 });
 
+/** Cambio de contraseña con sesion iniciada. */
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(8, 'Minimo 8 caracteres'),
+});
+
 export type LoginInput = z.infer<typeof loginSchema>;
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type GoogleAuthInput = z.infer<typeof googleAuthSchema>;
+export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;

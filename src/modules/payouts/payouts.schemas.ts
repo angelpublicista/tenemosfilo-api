@@ -20,5 +20,17 @@ export const listPayoutsQuerySchema = z.object({
   role: payoutRoleEnum.optional(),
 });
 
+/**
+ * Detalle de ingresos de la propia empresa. No lleva companyId: se toma de
+ * la sesion, nunca de la query.
+ */
+export const listEarningsQuerySchema = z.object({
+  page: z.coerce.number().int().positive().default(1),
+  pageSize: z.coerce.number().int().positive().max(100).default(20),
+  /** En calidad de que se miran: como anfitriona o como revendedora. */
+  role: payoutRoleEnum.default('HOST'),
+});
+
 export type CreatePayoutInput = z.infer<typeof createPayoutSchema>;
 export type ListPayoutsQuery = z.infer<typeof listPayoutsQuerySchema>;
+export type ListEarningsQuery = z.infer<typeof listEarningsQuerySchema>;

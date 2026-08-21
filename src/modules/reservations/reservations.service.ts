@@ -5,7 +5,7 @@ import {
   getPlatformSettings,
   resolverComisiones,
 } from '../../lib/commissions.js';
-import { Forbidden, NotFound } from '../../lib/errors.js';
+import { BadRequest, Forbidden, NotFound } from '../../lib/errors.js';
 import { construirCheckout } from '../payments/payments.service.js';
 import type {
   CancelInput,
@@ -84,6 +84,68 @@ async function conComisiones(
 
 type AddonExperiencia = { name?: string; price?: number; priceType?: string };
 type AddonElegido = { name?: string; quantity?: number };
+
+/**
+ * Ajustes de operacion de la empresa. No son preferencias decorativas: de
+ * ellos depende si una reserva entra y con que estado nace.
+ */
+async function ajustesDeOperacion(companyId: string) {
+  const c = await prisma.company.findUnique({
+    where: { id: companyId },
+    select: { autoConfirmReservations: true, blockWhenFull: true },
+  });
+  return {
+    autoConfirmar: c?.autoConfirmReservations ?? false,
+    bloquearLleno: c?.blockWhenFull ?? true,
+  };
+}
+
+/**
+ * Rechaza la reserva si pasa del aforo, cuando la empresa lo pide.
+ *
+ * Las canceladas y los no-show no ocupan sitio; una pendiente si, porque
+ * puede pagarse en cualquier momento y vender su lugar a otro seria peor
+ * que rechazar esta.
+ */
+async function verificarAforo(
+  experienceId: string,
+  fecha: Date,
+  participantes: number,
+  bloquearLleno: boolean,
+) {
+  if (!bloquearLleno) return;
+
+  const exp = await prisma.experience.findUnique({
+    where: { id: experienceId },
+    select: { capacity: true },
+  });
+  const aforo = exp?.capacity ?? 0;
+  // Sin aforo definido no hay nada contra que comparar.
+  if (aforo <= 0) return;
+
+  const inicio = new Date(fecha);
+  inicio.setHours(0, 0, 0, 0);
+  const fin = new Date(inicio);
+  fin.setDate(fin.getDate() + 1);
+
+  const agregado = await prisma.reservation.aggregate({
+    where: {
+      experienceId,
+      status: { notIn: ['CANCELLED', 'NO_SHOW'] },
+      reservationDate: { gte: inicio, lt: fin },
+    },
+    _sum: { participants: true },
+  });
+
+  const libres = aforo - (agregado._sum?.participants ?? 0);
+  if (participantes > libres) {
+    throw BadRequest(
+      libres > 0
+        ? `Solo quedan ${libres} ${libres === 1 ? 'lugar' : 'lugares'} para esa fecha.`
+        : 'No quedan lugares disponibles para esa fecha.',
+    );
+  }
+}
 
 /**
  * Precio de una reserva calculado DESDE LA EXPERIENCIA.
@@ -165,6 +227,16 @@ export const reservationsService = {
 
     const pricing = await conComisiones(input.experience, input.pricing, asReseller);
 
+    // Tambien aqui: una venta de revendedor o una reserva cargada a mano no
+    // deberian poder pasarse del aforo si la empresa lo tiene bloqueado.
+    const { bloquearLleno } = await ajustesDeOperacion(companyId);
+    await verificarAforo(
+      input.experience,
+      new Date(input.reservationDate),
+      input.participants,
+      bloquearLleno,
+    );
+
     return prisma.reservation.create({
       data: {
         reservationNumber: input.reservationNumber ?? generateReservationNumber(),
@@ -227,6 +299,11 @@ export const reservationsService = {
       false,
     );
 
+    // Los ajustes de la empresa mandan sobre como entra la reserva.
+    const fecha = new Date(input.reservationDate);
+    const { autoConfirmar, bloquearLleno } = await ajustesDeOperacion(companyId);
+    await verificarAforo(input.experience, fecha, input.participants, bloquearLleno);
+
     const creada = await prisma.reservation.create({
       data: {
         reservationNumber: input.reservationNumber ?? generateReservationNumber(),
@@ -235,10 +312,12 @@ export const reservationsService = {
         client: input.client as Prisma.InputJsonValue,
         clientType: 'GUEST',
         source: 'BOOKING_ENGINE',
-        reservationDate: new Date(input.reservationDate),
+        reservationDate: fecha,
         duration: input.duration ?? null,
         participants: input.participants,
-        status: 'PENDING',
+        // Confirmada de entrada solo si la empresa lo pidio; el aforo ya se
+        // comprobo arriba, asi que no se autoconfirma nada sin sitio.
+        status: autoConfirmar ? 'CONFIRMED' : 'PENDING',
         paymentStatus: 'PENDING',
         pricing,
         ...(input.location ? { location: { connect: { id: input.location } } } : {}),

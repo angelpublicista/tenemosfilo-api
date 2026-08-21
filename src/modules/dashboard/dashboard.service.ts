@@ -195,7 +195,9 @@ export const dashboardService = {
         id: `payment:${p.id}`,
         type: 'payment',
         title: 'Pago procesado',
-        description: `Reserva #${p.reservationNumber} - $${pricingTotal(p.pricing).toFixed(2)}`,
+        // En pesos no hay centavos y sin separador de miles "600000.00" no
+        // se lee de un vistazo.
+        description: `Reserva #${p.reservationNumber} - $${pricingTotal(p.pricing).toLocaleString('es-CO', { maximumFractionDigits: 0 })}`,
         timestamp: p.updatedAt.toISOString(),
       });
     }

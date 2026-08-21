@@ -22,6 +22,7 @@ const companiaPublica = {
   companyName: true,
   slug: true,
   logo: true,
+  tagline: true,
   description: true,
   companyEmail: true,
   companyPhone: true,

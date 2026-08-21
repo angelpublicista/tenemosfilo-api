@@ -27,4 +27,9 @@ export const authController = {
     await authService.resetPassword(req.body);
     res.status(204).send();
   },
+
+  async changePassword(req: Request, res: Response) {
+    await authService.changePassword(req.user!.id, req.body);
+    res.status(204).send();
+  },
 };

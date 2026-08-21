@@ -12,6 +12,7 @@ import { errorHandler, notFoundHandler } from './middleware/error.js';
 import { authRouter } from './modules/auth/auth.routes.js';
 import { apiKeysRouter } from './modules/api-keys/api-keys.routes.js';
 import { usersRouter } from './modules/users/users.routes.js';
+import { channelsRouter } from './modules/channels/channels.routes.js';
 import { companiesRouter } from './modules/companies/companies.routes.js';
 import { crmCompaniesRouter } from './modules/crm-companies/crm-companies.routes.js';
 import { contactsRouter } from './modules/contacts/contacts.routes.js';
@@ -58,6 +59,7 @@ export function createApp() {
   app.use('/auth', authRouter);
   app.use('/api-keys', apiKeysRouter);
   app.use('/users', usersRouter);
+  app.use('/channels', channelsRouter);
   app.use('/companies', companiesRouter);
   app.use('/crm-companies', crmCompaniesRouter);
   app.use('/contacts', contactsRouter);

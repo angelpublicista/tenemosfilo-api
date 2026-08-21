@@ -49,6 +49,7 @@ export const createCompanySchema = z.object({
   employeeCount: optStr,
   annualRevenue: optStr,
   businessYears: optStr,
+  tagline: optStr,
 });
 
 // PATCH: todos los campos opcionales, y los "clearables" admiten null.
@@ -67,6 +68,11 @@ export const updateCompanySchema = z.object({
   employeeCount: nullishStr,
   annualRevenue: nullishStr,
   businessYears: nullishStr,
+  tagline: nullishStr,
+  openTableRid: nullishStr,
+  // Ajustes de operacion: cambian como entran las reservas.
+  autoConfirmReservations: z.boolean().optional(),
+  blockWhenFull: z.boolean().optional(),
 });
 
 export const companyIdParamsSchema = z.object({ id: z.string().min(1) });
