@@ -163,11 +163,14 @@ export const dashboardService = {
       description: string;
       timestamp: string;
     };
+    // El id lleva el tipo delante porque una misma reserva genera dos
+    // actividades — la reserva y su pago — y el front las usa como key de
+    // lista. Con el id pelado React ve dos hijos con la misma clave.
     const items: Activity[] = [];
 
     for (const e of experiences) {
       items.push({
-        id: e.id,
+        id: `experience:${e.id}`,
         type: 'experience',
         title: 'Nueva experiencia creada',
         description: e.title,
@@ -180,7 +183,7 @@ export const dashboardService = {
           ? String((r.client as { name: unknown }).name ?? 'Cliente')
           : 'Cliente';
       items.push({
-        id: r.id,
+        id: `reservation:${r.id}`,
         type: 'reservation',
         title: 'Nueva reserva recibida',
         description: `${clientName} reservo para ${r.participants} personas`,
@@ -189,7 +192,7 @@ export const dashboardService = {
     }
     for (const p of payments) {
       items.push({
-        id: p.id,
+        id: `payment:${p.id}`,
         type: 'payment',
         title: 'Pago procesado',
         description: `Reserva #${p.reservationNumber} - $${pricingTotal(p.pricing).toFixed(2)}`,
