@@ -1,6 +1,12 @@
 import { Prisma, ReservationStatus, PaymentStatus } from '@prisma/client';
 import { prisma } from '../../config/prisma.js';
+import {
+  calcularDesglose,
+  getPlatformSettings,
+  resolverComisiones,
+} from '../../lib/commissions.js';
 import { Forbidden, NotFound } from '../../lib/errors.js';
+import { construirCheckout } from '../payments/payments.service.js';
 import type {
   CancelInput,
   CreateReservationInput,
@@ -33,6 +39,96 @@ async function assertCanManage(id: string, requesterCompanyId: string | null | u
   return r;
 }
 
+/**
+ * Devuelve el pricing con las comisiones calculadas EN EL SERVIDOR.
+ *
+ * Lo que manda el cliente en `commission` y `hostEarnings` se descarta a
+ * proposito: son dinero, y quien reserva no puede decidir cuanto se lleva
+ * la plataforma. El resto del desglose (precios, descuentos) si viene del
+ * cliente, que es quien conoce la seleccion.
+ */
+async function conComisiones(
+  experienceId: string,
+  pricing: CreateReservationInput['pricing'],
+  esDeReseller: boolean,
+): Promise<Prisma.InputJsonValue> {
+  const [experiencia, ajustes] = await Promise.all([
+    prisma.experience.findUnique({
+      where: { id: experienceId },
+      select: {
+        filoCommissionType: true,
+        filoCommissionValue: true,
+        resellerCommissionType: true,
+        resellerCommissionValue: true,
+      },
+    }),
+    getPlatformSettings(),
+  ]);
+
+  const desglose = calcularDesglose(
+    Number(pricing.total) || 0,
+    resolverComisiones(experiencia, ajustes),
+    { esDeReseller },
+  );
+
+  return {
+    ...pricing,
+    // Desglosadas ademas de sumadas: sin esto no se puede saber cuanto le
+    // toca a cada parte una vez guardada la reserva.
+    filoCommission: desglose.filo,
+    resellerCommission: desglose.reseller,
+    commission: desglose.total,
+    hostEarnings: desglose.hostEarnings,
+  } as Prisma.InputJsonValue;
+}
+
+type AddonExperiencia = { name?: string; price?: number; priceType?: string };
+type AddonElegido = { name?: string; quantity?: number };
+
+/**
+ * Precio de una reserva calculado DESDE LA EXPERIENCIA.
+ *
+ * En el catalogo publico quien reserva no tiene sesion y el precio no puede
+ * venir del cliente: enviaria el que quisiera. Se toma el basePrice de la
+ * experiencia y se cobran los adicionales segun su definicion; del cliente
+ * solo se acepta *que* eligio, no *cuanto* cuesta.
+ */
+async function precioDesdeExperiencia(
+  experienceId: string,
+  participants: number,
+  elegidos: AddonElegido[] | undefined,
+) {
+  const exp = await prisma.experience.findFirst({
+    where: { id: experienceId, deletedAt: null },
+    select: { basePrice: true, addons: true },
+  });
+  if (!exp) throw NotFound('Experiencia no disponible');
+
+  const basePrice = Number(exp.basePrice ?? 0);
+  const subtotal = basePrice * participants;
+
+  const definidos = (Array.isArray(exp.addons) ? exp.addons : []) as AddonExperiencia[];
+  const addons: Array<{ name: string; price: number; quantity: number }> = [];
+  let addonsTotal = 0;
+
+  for (const elegido of elegidos ?? []) {
+    const def = definidos.find((d) => d.name === elegido.name);
+    // Un adicional que no existe en la experiencia se ignora: no vamos a
+    // cobrar por algo que el anfitrion no ofrece.
+    if (!def || typeof def.price !== 'number') continue;
+
+    const cantidad = Math.max(1, Math.trunc(Number(elegido.quantity ?? 1)));
+    const unidades = def.priceType === 'per_person' ? cantidad * participants : cantidad;
+    const importe = def.price * unidades;
+
+    addons.push({ name: def.name ?? '', price: def.price, quantity: cantidad });
+    addonsTotal += importe;
+  }
+
+  const total = subtotal + addonsTotal;
+  return { basePrice, subtotal, addons, addonsTotal, discount: 0, tax: 0, total };
+}
+
 export const reservationsService = {
   async create(
     requesterCompanyId: string | null | undefined,
@@ -40,6 +136,11 @@ export const reservationsService = {
     opts?: { asReseller?: boolean },
   ) {
     const asReseller = opts?.asReseller === true;
+
+    // Si vende un revendedor, su empresa es la que llama (viene de la API
+    // key). Hay que guardarla antes de que companyId pase a ser la del
+    // anfitrion, o se pierde a quien hay que pagarle la comision.
+    const resellerCompanyId = asReseller ? (requesterCompanyId ?? null) : null;
 
     // Resolver companyId de la experiencia. Para resellers exigimos ACTIVE.
     let companyId = input.company;
@@ -62,11 +163,16 @@ export const reservationsService = {
       throw Forbidden('No puedes crear reservas en otra company');
     }
 
+    const pricing = await conComisiones(input.experience, input.pricing, asReseller);
+
     return prisma.reservation.create({
       data: {
         reservationNumber: input.reservationNumber ?? generateReservationNumber(),
         experience: { connect: { id: input.experience } },
         company: { connect: { id: companyId } },
+        ...(resellerCompanyId
+          ? { resellerCompany: { connect: { id: resellerCompanyId } } }
+          : {}),
         client: input.client as Prisma.InputJsonValue,
         clientType: input.clientType ?? 'GUEST',
         ...(input.user ? { user: { connect: { id: input.user } } } : {}),
@@ -76,7 +182,7 @@ export const reservationsService = {
         participants: input.participants,
         status: input.status ?? 'PENDING',
         paymentStatus: input.paymentStatus ?? 'PENDING',
-        pricing: input.pricing as Prisma.InputJsonValue,
+        pricing,
         paymentMethod: input.paymentMethod ?? null,
         paymentDetails: (input.paymentDetails as Prisma.InputJsonValue | undefined) ?? Prisma.JsonNull,
         ...(input.location ? { location: { connect: { id: input.location } } } : {}),
@@ -100,7 +206,28 @@ export const reservationsService = {
       if (!exp) throw NotFound('Experiencia no disponible');
       companyId = exp.companyId;
     }
-    return prisma.reservation.create({
+    // El precio lo pone el servidor, no el cliente: en el catalogo publico
+    // cualquiera podria enviar total = 1 y pagar eso.
+    const precio = await precioDesdeExperiencia(
+      input.experience,
+      input.participants,
+      input.pricing?.addons as AddonElegido[] | undefined,
+    );
+
+    // Sin comision de revendedor: el enlace publico es el que comparte el
+    // propio anfitrion y aqui no se conecta ninguna `resellerCompany`.
+    // Cobrarla igual le descontaba al anfitrion un porcentaje que despues
+    // no le tocaba a nadie en las dispersiones.
+    //
+    // Cuando exista atribucion (un enlace de referido que identifique al
+    // revendedor) hay que conectar `resellerCompany` y pasar true aqui.
+    const pricing = await conComisiones(
+      input.experience,
+      precio as unknown as CreateReservationInput['pricing'],
+      false,
+    );
+
+    const creada = await prisma.reservation.create({
       data: {
         reservationNumber: input.reservationNumber ?? generateReservationNumber(),
         experience: { connect: { id: input.experience } },
@@ -113,7 +240,7 @@ export const reservationsService = {
         participants: input.participants,
         status: 'PENDING',
         paymentStatus: 'PENDING',
-        pricing: input.pricing as Prisma.InputJsonValue,
+        pricing,
         ...(input.location ? { location: { connect: { id: input.location } } } : {}),
         isVirtual: input.isVirtual ?? false,
         specialRequirements: input.specialRequirements ?? null,
@@ -121,6 +248,12 @@ export const reservationsService = {
       },
       select: { reservationNumber: true },
     });
+
+    // Si la pasarela esta activa, devolvemos ya los datos firmados para
+    // cobrar. Asi el cliente paga sin un endpoint publico adicional, que
+    // seria una via para enumerar reservas ajenas.
+    const payment = await construirCheckout(creada.reservationNumber);
+    return { ...creada, payment };
   },
 
   async getById(id: string) {

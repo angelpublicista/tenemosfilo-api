@@ -72,6 +72,17 @@ export const updateCompanySchema = z.object({
 export const companyIdParamsSchema = z.object({ id: z.string().min(1) });
 
 /**
+ * Dominios autorizados a insertar el catalogo. Se validan como texto libre
+ * y se normalizan en el servicio: la gente pega la URL de muchas formas.
+ * Lista vacia = cualquiera puede insertarlo.
+ */
+export const embedDomainsSchema = z.object({
+  embedDomains: z.array(z.string().trim().min(1)).max(50),
+});
+
+export type EmbedDomainsInput = z.infer<typeof embedDomainsSchema>;
+
+/**
  * Dueño de la empresa. Solo el ADMIN puede indicarlo: crea empresas para
  * terceros, y sin esto quedaria el mismo como dueño de todas. Para el resto
  * de roles el dueño es siempre quien llama.

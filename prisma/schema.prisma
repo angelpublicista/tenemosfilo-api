@@ -136,6 +136,11 @@ model Company {
   documentNumber String?
   website        String?
   address        Json? // { street, city, state, postalCode, country }
+  // Origenes autorizados a insertar el catalogo en un iframe.
+  // Lista VACIA = cualquiera puede: es el comportamiento previo y cambiarlo
+  // por defecto romperia los embeds que ya estan publicados.
+  embedDomains String[] @default([])
+
   employeeCount  String? // enum-like; lo dejamos string para flexibilidad de UI
   annualRevenue  String?
   businessYears  String?
@@ -144,6 +149,9 @@ model Company {
   locations     Location[]
   experiences   Experience[]
   reservations  Reservation[]
+  // Reservas que esta empresa vendio como revendedora.
+  reservationsAsReseller Reservation[] @relation("ReservationReseller")
+  payouts                Payout[]
   quotes        Quote[]
   contacts      Contact[]
   crmCompanies  CrmCompany[]
@@ -187,6 +195,80 @@ enum ExperienceType {
   VIRTUAL
   PRESENTIAL
   HYBRID
+}
+
+// Forma en que se expresa una comision: porcentaje del total de la reserva
+// o monto fijo por reserva.
+enum CommissionType {
+  PERCENT
+  FIXED
+}
+
+// En que calidad se le debe dinero a una empresa. La misma empresa puede
+// tener saldo por las dos: como anfitriona por sus experiencias y como
+// revendedora por lo que vendio de otros.
+enum PayoutRole {
+  HOST
+  RESELLER
+}
+
+// Dispersion de fondos: FILO cobra todo y luego paga a cada parte. Cada
+// fila es una transferencia ya hecha, y el saldo pendiente sale de restar
+// lo dispersado a lo acumulado por reservas pagadas.
+model Payout {
+  id String @id @default(cuid())
+
+  companyId String
+  company   Company    @relation(fields: [companyId], references: [id])
+  role      PayoutRole
+
+  amount    Decimal  @db.Decimal(14, 2)
+  reference String? // numero de transferencia, comprobante, etc.
+  notes     String?
+
+  // Quien lo registro. Sin FK: el historial de pagos debe sobrevivir al
+  // borrado del usuario, igual que el de auditoria.
+  createdById    String?
+  createdByEmail String?
+
+  paidAt    DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  @@index([companyId, role])
+  @@index([paidAt])
+}
+
+// Ajustes globales de la plataforma. Fila unica (id = "default"): son
+// valores que aplican a todo, no por empresa.
+model PlatformSettings {
+  id String @id @default("default")
+
+  // Comision de Tenemos Filo sobre cada reserva.
+  filoCommissionType  CommissionType @default(PERCENT)
+  filoCommissionValue Decimal        @default(0) @db.Decimal(12, 2)
+
+  // Comision del revendedor: solo se aplica si la reserva entra por esa via.
+  resellerCommissionType  CommissionType @default(PERCENT)
+  resellerCommissionValue Decimal        @default(0) @db.Decimal(12, 2)
+
+  // ──────── Pasarela de pagos (Wompi) ────────
+  // Solo el ADMIN configura esto. Las llaves privadas NUNCA salen del API:
+  // el GET de ajustes devuelve unicamente si estan puestas.
+  wompiEnabled     Boolean          @default(false)
+  wompiEnvironment WompiEnvironment @default(SANDBOX)
+  // Publica por diseño: viaja al navegador para abrir el checkout.
+  wompiPublicKey String?
+  // Secretos:
+  wompiPrivateKey      String?
+  wompiIntegritySecret String? // firma los datos del checkout
+  wompiEventsSecret    String? // valida los webhooks entrantes
+
+  updatedAt DateTime @updatedAt
+}
+
+enum WompiEnvironment {
+  SANDBOX
+  PRODUCTION
 }
 
 enum ExperienceStatus {
@@ -238,6 +320,13 @@ model Experience {
   reservations     Reservation[]
   quotes           Quote[]                 @relation("QuoteExperiences")
   opportunityItems OpportunityExperience[]
+
+  // Comisiones. Null = hereda el valor por defecto de PlatformSettings.
+  // Solo un ADMIN puede fijarlas: un anfitrion no se pone su propia comision.
+  filoCommissionType      CommissionType?
+  filoCommissionValue     Decimal?        @db.Decimal(12, 2)
+  resellerCommissionType  CommissionType?
+  resellerCommissionValue Decimal?        @db.Decimal(12, 2)
 
   isActive  Boolean   @default(true)
   createdAt DateTime  @default(now())
@@ -517,6 +606,11 @@ model Reservation {
   companyId String
   company   Company @relation(fields: [companyId], references: [id])
 
+  // Empresa revendedora que hizo la venta, si la hubo. Sin esto se cobra la
+  // comision de revendedor pero no se sabe a quien hay que pagarsela.
+  resellerCompanyId String?
+  resellerCompany   Company? @relation("ReservationReseller", fields: [resellerCompanyId], references: [id])
+
   client     Json // { name, email, phone }
   clientType ClientType @default(GUEST)
 
@@ -546,6 +640,7 @@ model Reservation {
   updatedAt DateTime @updatedAt
 
   @@index([companyId])
+  @@index([resellerCompanyId])
   @@index([experienceId])
   @@index([status])
   @@index([reservationDate])

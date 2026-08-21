@@ -52,12 +52,22 @@ export const experiencesController = {
 
   async update(req: Request, res: Response) {
     const { id } = p<{ id: string }>(req);
-    const exp = await experiencesService.update(
-      id,
-      req.user!.companyId,
-      req.body as UpdateExperienceInput,
-      { isAdmin: req.user!.role === 'ADMIN' },
-    );
+    const esAdmin = req.user!.role === 'ADMIN';
+
+    // Las comisiones solo las fija el equipo de Tenemos Filo. Si las manda
+    // otro rol las descartamos en silencio en vez de rechazar la peticion:
+    // el resto de campos del formulario son suyos y deben guardarse igual.
+    const input = { ...(req.body as UpdateExperienceInput) };
+    if (!esAdmin) {
+      delete input.filoCommissionType;
+      delete input.filoCommissionValue;
+      delete input.resellerCommissionType;
+      delete input.resellerCommissionValue;
+    }
+
+    const exp = await experiencesService.update(id, req.user!.companyId, input, {
+      isAdmin: esAdmin,
+    });
     res.json({ data: exp });
   },
 

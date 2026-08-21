@@ -25,6 +25,10 @@ import { integrationsRouter } from './modules/integrations/integrations.routes.j
 import { dashboardRouter } from './modules/dashboard/dashboard.routes.js';
 import { uploadsRouter } from './modules/uploads/uploads.routes.js';
 import { auditRouter } from './modules/audit/audit.routes.js';
+import { settingsRouter } from './modules/settings/settings.routes.js';
+import { payoutsRouter } from './modules/payouts/payouts.routes.js';
+import { paymentsRouter } from './modules/payments/payments.routes.js';
+import { publicRouter } from './modules/public/public.routes.js';
 
 export function createApp() {
   const app = express();
@@ -48,6 +52,9 @@ export function createApp() {
   // y despues de express.json para ver el body ya parseado.
   app.use(auditLog);
 
+  // Catalogo publico: va antes que el resto, no lleva auth.
+  app.use('/public', publicRouter);
+
   app.use('/auth', authRouter);
   app.use('/api-keys', apiKeysRouter);
   app.use('/users', usersRouter);
@@ -64,6 +71,9 @@ export function createApp() {
   app.use('/dashboard', dashboardRouter);
   app.use('/uploads', uploadsRouter);
   app.use('/audit-logs', auditRouter);
+  app.use('/settings', settingsRouter);
+  app.use('/payouts', payoutsRouter);
+  app.use('/payments', paymentsRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

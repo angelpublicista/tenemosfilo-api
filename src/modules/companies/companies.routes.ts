@@ -7,6 +7,7 @@ import { companiesController } from './companies.controller.js';
 import {
   companyIdParamsSchema,
   createCompanyAsAdminSchema,
+  embedDomainsSchema,
   listCompaniesQuerySchema,
   updateCompanySchema,
 } from './companies.schemas.js';
@@ -66,6 +67,15 @@ companiesRouter.patch(
   validate(companyIdParamsSchema, 'params'),
   validate(updateCompanySchema),
   companiesController.update,
+);
+
+// Dominios autorizados a insertar el catalogo. Lo gestiona el dueño.
+companiesRouter.patch(
+  '/:id/embed-domains',
+  requireHumanAuth,
+  validate(companyIdParamsSchema, 'params'),
+  validate(embedDomainsSchema),
+  companiesController.setEmbedDomains,
 );
 
 // Desactivar / reactivar una empresa (soft-delete). Solo ADMIN.

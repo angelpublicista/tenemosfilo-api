@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../config/prisma.js';
 import { BadRequest, Conflict, Forbidden, NotFound } from '../../lib/errors.js';
+import { normalizarDominios } from '../../lib/embed-domains.js';
 import type {
   CreateCompanyInput,
   ListCompaniesQuery,
@@ -213,6 +214,34 @@ export const companiesService = {
     ]);
 
     return { items, total };
+  },
+
+  /**
+   * Dominios autorizados a insertar el catalogo en un iframe.
+   *
+   * Solo el dueño de la empresa (o un ADMIN): quien decide donde se puede
+   * incrustar su catalogo es quien lo opera.
+   */
+  async setEmbedDomains(
+    id: string,
+    requesterId: string,
+    dominios: string[],
+    opts?: { isAdmin?: boolean },
+  ) {
+    const existing = await prisma.company.findFirst({
+      where: { id, deletedAt: null },
+      select: { id: true, ownerId: true },
+    });
+    if (!existing) throw NotFound('Company no encontrada');
+    if (!opts?.isAdmin && existing.ownerId !== requesterId) {
+      throw Forbidden('Solo el owner puede cambiar los dominios permitidos');
+    }
+
+    return prisma.company.update({
+      where: { id },
+      data: { embedDomains: normalizarDominios(dominios) },
+      select: { id: true, embedDomains: true },
+    });
   },
 
   /** Soft-delete / restauracion de una empresa. Solo ADMIN. */

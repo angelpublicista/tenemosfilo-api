@@ -56,10 +56,33 @@ export const createExperienceSchema = z.object({
 
 // PATCH: todo opcional. Para arrays vacios significa "limpiar"; para no
 // tocar el campo el front debe omitirlo del body.
-export const updateExperienceSchema = createExperienceSchema.partial().extend({
-  // No permitimos cambiar el companyId en update.
-  company: z.never().optional(),
+// Comisiones de la experiencia. Null explicito = volver a heredar el valor
+// por defecto de la plataforma. Solo un ADMIN puede enviarlas: el
+// controller las descarta para el resto de roles.
+const commissionTypeEnum = z.enum(['PERCENT', 'FIXED']);
+
+export const commissionFieldsSchema = z.object({
+  filoCommissionType: commissionTypeEnum.nullable().optional(),
+  filoCommissionValue: z.number().nonnegative().nullable().optional(),
+  resellerCommissionType: commissionTypeEnum.nullable().optional(),
+  resellerCommissionValue: z.number().nonnegative().nullable().optional(),
 });
+
+export const updateExperienceSchema = createExperienceSchema
+  .partial()
+  .extend({
+    // No permitimos cambiar el companyId en update.
+    company: z.never().optional(),
+  })
+  .merge(commissionFieldsSchema)
+  .refine(
+    (d) =>
+      !(d.filoCommissionType === 'PERCENT' && (d.filoCommissionValue ?? 0) > 100) &&
+      !(d.resellerCommissionType === 'PERCENT' && (d.resellerCommissionValue ?? 0) > 100),
+    { message: 'Un porcentaje no puede ser mayor que 100' },
+  );
+
+export type CommissionFields = z.infer<typeof commissionFieldsSchema>;
 
 export const updateStatusSchema = z.object({ status: experienceStatusEnum });
 

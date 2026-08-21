@@ -250,6 +250,17 @@ export const experiencesService = {
     if (input.capacity !== undefined) data.capacity = input.capacity;
     if (input.minCapacity !== undefined) data.minCapacity = input.minCapacity;
     if (input.basePrice !== undefined) data.basePrice = input.basePrice;
+
+    // Comisiones: null explicito borra el valor propio y vuelve a heredar
+    // el de la plataforma. El controller ya filtro estos campos si quien
+    // llama no es ADMIN.
+    if (input.filoCommissionType !== undefined) data.filoCommissionType = input.filoCommissionType;
+    if (input.filoCommissionValue !== undefined)
+      data.filoCommissionValue = input.filoCommissionValue;
+    if (input.resellerCommissionType !== undefined)
+      data.resellerCommissionType = input.resellerCommissionType;
+    if (input.resellerCommissionValue !== undefined)
+      data.resellerCommissionValue = input.resellerCommissionValue;
     if (input.currency !== undefined) data.currency = input.currency;
     if (input.featuredImage !== undefined) data.featuredImage = input.featuredImage ?? null;
     if (input.gallery !== undefined)

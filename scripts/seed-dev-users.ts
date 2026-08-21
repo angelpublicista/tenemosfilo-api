@@ -98,16 +98,21 @@ async function main() {
 
       // Una experiencia activa por empresa, para que las pantallas no salgan
       // vacias y se note la diferencia entre ver "lo mio" y ver "todo".
+      // Con duracion y capacidad: sin ellas el motor de reservas no deja
+      // pasar del primer paso.
+      const datosExperiencia = {
+        title: u.empresa.experiencia,
+        status: 'ACTIVE' as const,
+        deletedAt: null,
+        basePrice: 100000,
+        duration: 120,
+        capacity: 10,
+        minCapacity: 1,
+      };
       await prisma.experience.upsert({
         where: { slug: u.empresa.expSlug },
-        update: { title: u.empresa.experiencia, status: 'ACTIVE', deletedAt: null },
-        create: {
-          title: u.empresa.experiencia,
-          slug: u.empresa.expSlug,
-          companyId: company.id,
-          basePrice: 100000,
-          status: 'ACTIVE',
-        },
+        update: datosExperiencia,
+        create: { ...datosExperiencia, slug: u.empresa.expSlug, companyId: company.id },
       });
 
       empresa = company.companyName;

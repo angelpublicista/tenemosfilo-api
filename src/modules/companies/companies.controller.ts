@@ -3,6 +3,7 @@ import { companiesService } from './companies.service.js';
 import { BadRequest, NotFound } from '../../lib/errors.js';
 import type {
   CreateCompanyInput,
+  EmbedDomainsInput,
   ListCompaniesQuery,
   UpdateCompanyInput,
 } from './companies.schemas.js';
@@ -91,6 +92,15 @@ export const companiesController = {
       req.body as UpdateCompanyInput,
       { isAdmin: req.user!.role === 'ADMIN' },
     );
+    res.json({ data: company });
+  },
+
+  async setEmbedDomains(req: Request, res: Response) {
+    const { id } = p<{ id: string }>(req);
+    const { embedDomains } = req.body as EmbedDomainsInput;
+    const company = await companiesService.setEmbedDomains(id, req.user!.id, embedDomains, {
+      isAdmin: req.user!.role === 'ADMIN',
+    });
     res.json({ data: company });
   },
 
