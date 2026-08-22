@@ -11,6 +11,7 @@ import { validate } from '../../middleware/validate.js';
 import { NotFound } from '../../lib/errors.js';
 import { prisma } from '../../config/prisma.js';
 import { getPlatformSettings } from '../../lib/commissions.js';
+import { dondeEstaElCatalogo } from '../companies/companies.service.js';
 
 export const publicRouter = Router();
 
@@ -23,6 +24,9 @@ const companiaPublica = {
   slug: true,
   logo: true,
   tagline: true,
+  coverType: true,
+  coverImages: true,
+  coverVideo: true,
   description: true,
   companyEmail: true,
   companyPhone: true,
@@ -39,7 +43,7 @@ publicRouter.get(
   async (req: Request, res: Response) => {
     const { slug } = req.params as unknown as z.infer<typeof paramsSchema>;
     const company = await prisma.company.findFirst({
-      where: { deletedAt: null, OR: [{ slug }, { id: slug }] },
+      where: dondeEstaElCatalogo(slug),
       select: { embedDomains: true },
     });
     // Empresa inexistente: sin politica. La pagina ya devuelve su propio
@@ -54,10 +58,10 @@ publicRouter.get(
   async (req: Request, res: Response) => {
     const { slug } = req.params as unknown as z.infer<typeof paramsSchema>;
 
-    // Acepta slug o id: los enlaces compartidos antes del cambio llevan el
-    // id y deben seguir funcionando.
+    // Acepta el slug actual, cualquiera que la empresa tuvo antes, o su id:
+    // todos esos formatos estan circulando en enlaces ya compartidos.
     const company = await prisma.company.findFirst({
-      where: { deletedAt: null, OR: [{ slug }, { id: slug }] },
+      where: dondeEstaElCatalogo(slug),
       select: companiaPublica,
     });
     if (!company) throw NotFound('Catálogo no encontrado');

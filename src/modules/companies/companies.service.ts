@@ -25,14 +25,34 @@ async function uniqueSlug(base: string, ignoreId?: string): Promise<string> {
   // Loop hasta encontrar uno libre. En la practica termina rapido.
   // eslint-disable-next-line no-constant-condition
   while (true) {
+    // Tambien se descartan los slugs que otra empresa tuvo antes. Un slug
+    // liberado sigue vivo en enlaces compartidos: si se lo diera a otra
+    // empresa, esos enlaces llevarian al negocio equivocado, que es peor
+    // que no llevar a ninguno.
     const exists = await prisma.company.findFirst({
-      where: { slug: candidate, NOT: ignoreId ? { id: ignoreId } : undefined },
+      where: {
+        OR: [{ slug: candidate }, { previousSlugs: { has: candidate } }],
+        NOT: ignoreId ? { id: ignoreId } : undefined,
+      },
       select: { id: true },
     });
     if (!exists) return candidate;
     i += 1;
     candidate = `${baseSlug}-${i}`;
   }
+}
+
+/**
+ * Encuentra la empresa por su slug actual, uno anterior, o su id.
+ *
+ * El orden importa: el slug actual manda sobre el historico, porque una
+ * empresa puede haber recuperado un nombre que otra tuvo.
+ */
+export function dondeEstaElCatalogo(slugOrId: string): Prisma.CompanyWhereInput {
+  return {
+    deletedAt: null,
+    OR: [{ slug: slugOrId }, { previousSlugs: { has: slugOrId } }, { id: slugOrId }],
+  };
 }
 
 const defaultInclude = {
@@ -154,7 +174,7 @@ export const companiesService = {
 
   async getBySlug(slug: string) {
     const company = await prisma.company.findFirst({
-      where: { slug, deletedAt: null },
+      where: dondeEstaElCatalogo(slug),
       include: defaultInclude,
     });
     if (!company) throw NotFound('Company no encontrada');
@@ -264,7 +284,7 @@ export const companiesService = {
   ) {
     const existing = await prisma.company.findFirst({
       where: { id, deletedAt: null },
-      select: { id: true, ownerId: true, companyName: true, slug: true },
+      select: { id: true, ownerId: true, companyName: true, slug: true, previousSlugs: true },
     });
     if (!existing) throw NotFound('Company no encontrada');
     // El ADMIN administra la plataforma entera, asi que no se le exige ser
@@ -276,7 +296,18 @@ export const companiesService = {
     const data: Prisma.CompanyUpdateInput = {};
     if (input.companyName !== undefined && input.companyName !== existing.companyName) {
       data.companyName = input.companyName;
-      data.slug = await uniqueSlug(input.companyName, id);
+      const nuevoSlug = await uniqueSlug(input.companyName, id);
+      if (nuevoSlug !== existing.slug) {
+        data.slug = nuevoSlug;
+        // El anterior pasa al historial para que sus enlaces sigan
+        // abriendo este catalogo. `set` en vez de `push` porque hay que
+        // evitar duplicados si la empresa vuelve a un nombre previo.
+        data.previousSlugs = {
+          set: Array.from(new Set([...existing.previousSlugs, existing.slug])).filter(
+            (s) => s !== nuevoSlug,
+          ),
+        };
+      }
     }
     if (input.businessName !== undefined) data.businessName = input.businessName;
     if (input.description !== undefined) data.description = input.description;
@@ -293,6 +324,9 @@ export const companiesService = {
     if (input.businessYears !== undefined) data.businessYears = input.businessYears;
     if (input.tagline !== undefined) data.tagline = input.tagline;
     if (input.openTableRid !== undefined) data.openTableRid = input.openTableRid;
+    if (input.coverType !== undefined) data.coverType = input.coverType;
+    if (input.coverImages !== undefined) data.coverImages = { set: input.coverImages };
+    if (input.coverVideo !== undefined) data.coverVideo = input.coverVideo;
     if (input.autoConfirmReservations !== undefined) {
       data.autoConfirmReservations = input.autoConfirmReservations;
     }

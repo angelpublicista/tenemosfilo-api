@@ -126,6 +126,11 @@ model Company {
 
   companyName    String
   slug           String        @unique
+  // Slugs que esta empresa tuvo antes de renombrarse. El slug sigue al
+  // nombre para que la URL sea coherente, pero los enlaces ya compartidos
+  // tienen que seguir abriendo el catalogo: un anfitrion no puede perder
+  // su trafico por corregir una tilde.
+  previousSlugs  String[]      @default([])
   businessName   String?
   description    String?       @db.Text
   companyType    CompanyType?
@@ -143,6 +148,12 @@ model Company {
 
   // Frase corta de la empresa; sale en su catalogo publico.
   tagline String?
+
+  // Portada del catalogo. NONE deja la cabecera como estaba: solo logo y
+  // nombre. Las imagenes valen para IMAGE (la primera) y para SLIDER.
+  coverType   CoverType @default(NONE)
+  coverImages String[]  @default([])
+  coverVideo  String?
 
   // Id del restaurante en OpenTable (el "rid" de sus enlaces). Es lo unico
   // que OpenTable expone sin contrato de partner, y basta para enlazar su
@@ -778,6 +789,13 @@ model PasswordResetToken {
 
 
 // ─── Distribucion en canales externos ──────────────────────────────────────
+
+enum CoverType {
+  NONE
+  IMAGE
+  VIDEO
+  SLIDER
+}
 
 enum ChannelType {
   OPENTABLE

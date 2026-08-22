@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { esVideoSoportado } from '../../lib/video-embed.js';
 
 const companyTypeEnum = z.enum(['RESTAURANT', 'CATERING', 'FOODTRUCK', 'OTHER']);
 const documentTypeEnum = z.enum(['NIT', 'CEDULA', 'PASAPORTE', 'OTHER']);
@@ -70,6 +71,20 @@ export const updateCompanySchema = z.object({
   businessYears: nullishStr,
   tagline: nullishStr,
   openTableRid: nullishStr,
+  // Portada del catalogo. Un slider con una sola imagen es una imagen, y
+  // seis ya son demasiadas para que alguien las vea todas.
+  coverType: z.enum(['NONE', 'IMAGE', 'VIDEO', 'SLIDER']).optional(),
+  coverImages: z.array(z.string().url()).max(6).optional(),
+  // Solo YouTube o Vimeo: son los que permiten incrustar sin controles y
+  // sin que el anfitrion tenga que alojar el archivo.
+  coverVideo: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? null : v),
+    z
+      .string()
+      .refine(esVideoSoportado, 'Pega un enlace de YouTube o de Vimeo')
+      .nullable()
+      .optional(),
+  ),
   // Ajustes de operacion: cambian como entran las reservas.
   autoConfirmReservations: z.boolean().optional(),
   blockWhenFull: z.boolean().optional(),
