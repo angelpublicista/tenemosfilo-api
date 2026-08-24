@@ -1,0 +1,682 @@
+# API publica de Tenemos Filo.
+#
+# Documenta SOLO lo que una API key puede hacer de verdad: cada ruta de aqui
+# se probo contra el API con una key real antes de escribirla. Las rutas del
+# panel (usuarios, dispersiones, ajustes, emision de keys) no aparecen a
+# proposito — exigen sesion humana y no forman parte de la superficie
+# publica.
+openapi: 3.1.0
+
+info:
+  title: API de Tenemos Filo
+  version: "1.0.0"
+  description: |
+    API para vender experiencias gastronomicas de los anfitriones de
+    Tenemos Filo desde tu propia plataforma.
+
+    ## Como funciona
+
+    Tu empresa recibe una **API key**. Con ella puedes consultar el catalogo
+    de experiencias y crear reservas a nombre de tus clientes. Cada reserva
+    que crees queda atribuida a tu empresa como revendedora, y su comision
+    se calcula y liquida automaticamente.
+
+    ## Autenticacion
+
+    Manda la key en la cabecera `Authorization`:
+
+    ```
+    Authorization: Bearer tf_live_xxxxxxxxxxxxxxxx
+    ```
+
+    La key se muestra **una sola vez**, al crearla. Guardala en un gestor de
+    secretos: no la podemos recuperar, solo revocarla y emitir otra.
+
+    Nunca la pongas en codigo de navegador. Es una credencial de servidor:
+    quien la tenga puede reservar en tu nombre.
+
+    ## Permisos
+
+    Cada key lleva una lista de *scopes* y solo puede usar los endpoints que
+    le correspondan. Si te falta uno, la respuesta es `403` diciendo cual:
+
+    ```json
+    { "error": { "code": "FORBIDDEN", "message": "Scope requerido: experiences:read" } }
+    ```
+
+    Pide siempre los minimos que necesites. Una key de solo lectura no puede
+    hacer dano si se filtra.
+
+    ## Limites de peticiones
+
+    300 peticiones por minuto y por key. Cada respuesta te dice como vas:
+
+    | Cabecera | Que es |
+    |---|---|
+    | `RateLimit` | El estandar: `limit=300, remaining=299, reset=60` |
+    | `X-RateLimit-Remaining` | Cuantas te quedan |
+    | `X-RateLimit-Reset` | Cuando se reinicia el contador (epoch) |
+
+    Al pasarte recibes `429` con `Retry-After` en segundos. **Espera lo que
+    diga esa cabecera**; reintentar de inmediato solo alarga el bloqueo.
+
+    ## Errores
+
+    Todos tienen la misma forma:
+
+    ```json
+    { "error": { "code": "BAD_REQUEST", "message": "Explicacion en claro" } }
+    ```
+
+    | Codigo HTTP | Que significa |
+    |---|---|
+    | 400 | Faltan datos o son invalidos. `details` trae el campo concreto |
+    | 401 | Key ausente, invalida, caducada o revocada |
+    | 403 | La key no tiene el scope necesario |
+    | 404 | El recurso no existe o no es tuyo |
+    | 429 | Te pasaste del limite |
+
+  contact:
+    name: Soporte Tenemos Filo
+    url: https://tenemosfilo.com
+
+servers:
+  - url: https://api.tenemosfilo.com
+    description: Produccion
+  - url: http://localhost:4000
+    description: Local
+
+security:
+  - ApiKey: []
+
+tags:
+  - name: Experiencias
+    description: Que se puede vender.
+  - name: Disponibilidad
+    description: Cuando y donde ocurre.
+  - name: Reservas
+    description: Vender.
+  - name: Cotizaciones
+    description: Propuestas para grupos y eventos.
+  - name: Catalogo publico
+    description: Sin credenciales. Es lo que alimenta la pagina publica de cada anfitrion.
+
+paths:
+  /experiences:
+    get:
+      operationId: listarExperiencias
+      tags: [Experiencias]
+      summary: Listar experiencias
+      description: |
+        Devuelve las experiencias publicadas. Empieza por aqui: el `id` de
+        cada una es lo que necesitas para reservar.
+      security:
+        - ApiKey: [experiences:read]
+      parameters:
+        - { name: companyId, in: query, schema: { type: string }, description: "Filtrar por anfitrion" }
+        - { name: search, in: query, schema: { type: string }, description: "Busca en titulo y descripcion" }
+        - { name: category, in: query, schema: { type: string } }
+        - { name: minPrice, in: query, schema: { type: number } }
+        - { name: maxPrice, in: query, schema: { type: number } }
+        - name: experienceType
+          in: query
+          schema: { type: string, enum: [PRESENTIAL, VIRTUAL, HYBRID] }
+        - name: sortBy
+          in: query
+          schema:
+            type: string
+            enum: [title, basePrice, rating, createdAt, totalBookings]
+            default: createdAt
+        - { name: sortOrder, in: query, schema: { type: string, enum: [asc, desc], default: desc } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses:
+        "200":
+          description: Listado paginado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Experiencia" }
+                  meta: { $ref: "#/components/schemas/Paginacion" }
+        "401": { $ref: "#/components/responses/NoAutenticado" }
+        "403": { $ref: "#/components/responses/SinScope" }
+        "429": { $ref: "#/components/responses/Limitado" }
+
+  /experiences/featured:
+    get:
+      operationId: listarExperienciasDestacadas
+      tags: [Experiencias]
+      summary: Experiencias destacadas
+      description: Las que los anfitriones marcaron como destacadas. Util para una portada.
+      security:
+        - ApiKey: [experiences:read]
+      responses:
+        "200":
+          description: Listado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Experiencia" }
+        "401": { $ref: "#/components/responses/NoAutenticado" }
+        "403": { $ref: "#/components/responses/SinScope" }
+
+  /experiences/{id}:
+    get:
+      operationId: obtenerExperiencia
+      tags: [Experiencias]
+      summary: Detalle de una experiencia
+      security:
+        - ApiKey: [experiences:read]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: La experiencia
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Experiencia" }
+        "404": { $ref: "#/components/responses/NoEncontrado" }
+
+  /availabilities:
+    get:
+      operationId: listarDisponibilidad
+      tags: [Disponibilidad]
+      summary: Calendarios de disponibilidad
+      description: |
+        Horarios semanales, antelacion minima y fechas bloqueadas de cada
+        experiencia. Con esto puedes pintar las horas libres sin preguntar
+        al anfitrion.
+      security:
+        - ApiKey: [availabilities:read]
+      responses:
+        "200":
+          description: Listado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Disponibilidad" }
+
+  /locations:
+    get:
+      operationId: listarSedes
+      tags: [Disponibilidad]
+      summary: Sedes
+      description: Donde ocurren las experiencias presenciales.
+      security:
+        - ApiKey: [locations:read]
+      responses:
+        "200":
+          description: Listado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Sede" }
+
+  /companies/me:
+    get:
+      operationId: obtenerMiEmpresa
+      tags: [Experiencias]
+      summary: Tu empresa
+      description: Los datos de la empresa a la que pertenece la key. Sirve para comprobar que la credencial es la que crees.
+      security:
+        - ApiKey: [companies:read]
+      responses:
+        "200":
+          description: La empresa
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Empresa" }
+
+  /reservations:
+    post:
+      operationId: crearReserva
+      tags: [Reservas]
+      summary: Crear una reserva
+      description: |
+        Crea una reserva a nombre de tu cliente y la atribuye a tu empresa
+        como revendedora.
+
+        **El precio lo calcula el servidor.** Manda `pricing` con lo que le
+        mostraste al cliente, pero las comisiones y el reparto se recalculan
+        aqui a partir de la experiencia: no puedes fijar cuanto se lleva
+        cada parte.
+
+        Si el anfitrion tiene activado el control de aforo y no quedan
+        plazas para esa fecha, la respuesta es `400` diciendo cuantas
+        quedan.
+      security:
+        - ApiKey: [reservations:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CrearReserva" }
+            examples:
+              basica:
+                summary: Una cena para dos
+                value:
+                  experience: cmt100lt6000517vb3qlxwkle
+                  client:
+                    name: Camila Restrepo
+                    email: camila@ejemplo.com
+                    phone: "+57 310 555 4433"
+                  reservationDate: "2027-06-10T00:00:00.000Z"
+                  participants: 2
+                  pricing:
+                    basePrice: 100000
+                    subtotal: 200000
+                    total: 200000
+                    addons: []
+      responses:
+        "201":
+          description: Reserva creada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Reserva" }
+        "400":
+          description: Datos invalidos, o sin plazas para esa fecha
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              examples:
+                sinPlazas:
+                  value:
+                    error:
+                      code: BAD_REQUEST
+                      message: Solo quedan 2 lugares para esa fecha.
+        "403": { $ref: "#/components/responses/SinScope" }
+        "429": { $ref: "#/components/responses/Limitado" }
+
+  /quotes/search-experiences:
+    get:
+      operationId: buscarExperienciasParaCotizar
+      tags: [Cotizaciones]
+      summary: Buscar experiencias para un grupo
+      description: Filtra las experiencias de un anfitrion por numero de comensales, fecha y sede.
+      security:
+        - ApiKey: [experiences:read]
+      parameters:
+        - { name: companyId, in: query, required: true, schema: { type: string } }
+        - { name: guests, in: query, required: true, schema: { type: integer, minimum: 1 } }
+        - { name: date, in: query, schema: { type: string, format: date } }
+        - { name: time, in: query, schema: { type: string }, description: "Formato HH:mm" }
+        - { name: location, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: Experiencias que encajan
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Experiencia" }
+
+  /quotes:
+    post:
+      operationId: crearCotizacion
+      tags: [Cotizaciones]
+      summary: Crear una cotizacion
+      description: Para grupos y eventos, cuando el cliente pide propuesta antes de reservar.
+      security:
+        - ApiKey: [quotes:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customerName, customerEmail, experiences]
+              properties:
+                customerName: { type: string }
+                customerEmail: { type: string, format: email }
+                customerPhone: { type: string }
+                eventDate: { type: string }
+                eventTime: { type: string }
+                guests: { type: integer, minimum: 0 }
+                location: { type: string }
+                experiences:
+                  type: array
+                  minItems: 1
+                  items: { type: string }
+                  description: Ids de las experiencias a cotizar
+                notes: { type: string }
+                companyId: { type: string, description: "Anfitrion. Si falta, se usa el de la key" }
+      responses:
+        "201":
+          description: Cotizacion creada
+
+  /public/catalog/{slug}:
+    get:
+      operationId: obtenerCatalogoPublico
+      tags: [Catalogo publico]
+      summary: Catalogo de un anfitrion
+      description: |
+        Sin credenciales. Devuelve la empresa y sus experiencias activas con
+        sedes y disponibilidad: todo lo que hace falta para montar una
+        pagina de reservas.
+
+        Acepta el slug de la empresa o su id. Los slugs anteriores tambien
+        funcionan: si el anfitrion se renombra, los enlaces ya compartidos
+        siguen abriendo su catalogo.
+      security: []
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: El catalogo
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      company: { $ref: "#/components/schemas/Empresa" }
+                      experiences:
+                        type: array
+                        items: { $ref: "#/components/schemas/Experiencia" }
+                      paymentsEnabled:
+                        type: boolean
+                        description: Si la plataforma cobra en linea ahora mismo
+        "404": { $ref: "#/components/responses/NoEncontrado" }
+
+  /public/embed-policy/{slug}:
+    get:
+      operationId: obtenerPoliticaDeIframe
+      tags: [Catalogo publico]
+      summary: Dominios autorizados a insertar el catalogo
+      description: Lista vacia significa que cualquiera puede insertarlo en un iframe.
+      security: []
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: La politica
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      domains:
+                        type: array
+                        items: { type: string }
+
+  /reservations/public:
+    post:
+      operationId: crearReservaPublica
+      tags: [Catalogo publico]
+      summary: Reservar sin credenciales
+      description: |
+        El endpoint que usa la pagina publica de cada anfitrion. **No lo uses
+        para integrar tu plataforma**: no atribuye la venta a nadie, asi que
+        no genera comision. Para vender usa `POST /reservations` con tu key.
+
+        Aqui el precio se calcula entero en el servidor a partir de la
+        experiencia; lo que mandes en `pricing` se ignora.
+
+        Limite: 15 reservas cada 10 minutos por IP.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CrearReserva" }
+      responses:
+        "201":
+          description: Reserva creada, con los datos de pago si la pasarela esta activa
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      reservationNumber: { type: string }
+                      payment:
+                        oneOf:
+                          - { $ref: "#/components/schemas/Pago" }
+                          - { type: "null" }
+        "429": { $ref: "#/components/responses/Limitado" }
+
+components:
+  securitySchemes:
+    ApiKey:
+      type: http
+      scheme: bearer
+      description: |
+        Tu API key, con el prefijo `Bearer`. Empieza por `tf_live_`.
+
+  responses:
+    NoAutenticado:
+      description: Key ausente, invalida, caducada o revocada
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    SinScope:
+      description: La key no tiene el permiso necesario
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            faltaScope:
+              value:
+                error: { code: FORBIDDEN, message: "Scope requerido: experiences:read" }
+    NoEncontrado:
+      description: No existe o no es tuyo
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Limitado:
+      description: Demasiadas peticiones
+      headers:
+        Retry-After:
+          schema: { type: integer }
+          description: "Segundos que hay que esperar"
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string }
+            message: { type: string }
+            details: {}
+
+    Paginacion:
+      type: object
+      properties:
+        total: { type: integer }
+        page: { type: integer }
+        pageSize: { type: integer }
+
+    Experiencia:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        slug: { type: string }
+        description: { type: [string, "null"] }
+        categories: { type: array, items: { type: string } }
+        duration: { type: [integer, "null"], description: "Minutos" }
+        capacity: { type: [integer, "null"] }
+        minCapacity: { type: [integer, "null"] }
+        basePrice:
+          type: [string, "null"]
+          description: |
+            Viene como cadena para no perder decimales. Conviertelo antes de
+            operar con el.
+          example: "100000"
+        currency: { type: string, example: COP }
+        featuredImage: { type: [string, "null"] }
+        experienceType: { type: string, enum: [PRESENTIAL, VIRTUAL, HYBRID] }
+        status: { type: string, enum: [DRAFT, ACTIVE, PAUSED, ARCHIVED] }
+        addons:
+          type: array
+          description: Extras opcionales. `priceType` decide si el precio es por persona o por reserva.
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              price: { type: number }
+              priceType: { type: string, enum: [per_person, total] }
+              description: { type: string }
+
+    Disponibilidad:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        isActive: { type: boolean }
+        weeklySchedule:
+          type: object
+          description: |
+            Un dia por clave, en ingles y minusculas (`monday`…`sunday`).
+          additionalProperties:
+            type: object
+            properties:
+              isActive: { type: boolean }
+              timeSlots:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    startTime: { type: string, example: "12:00" }
+                    endTime: { type: string, example: "23:00" }
+        bufferTime: { type: [integer, "null"], description: "Minutos entre reservas" }
+        minimumNotice: { type: [integer, "null"], description: "Antelacion minima en horas" }
+        blockedDates:
+          type: array
+          items:
+            type: object
+            properties:
+              date: { type: string, format: date }
+              reason: { type: string }
+
+    Sede:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        isMain: { type: boolean }
+        address:
+          type: object
+          properties:
+            street: { type: string }
+            city: { type: string }
+            state: { type: string }
+            country: { type: string }
+
+    Empresa:
+      type: object
+      properties:
+        id: { type: string }
+        companyName: { type: string }
+        slug: { type: string }
+        tagline: { type: [string, "null"] }
+        description: { type: [string, "null"] }
+        logo: { type: [string, "null"] }
+        companyEmail: { type: [string, "null"] }
+        companyPhone: { type: [string, "null"] }
+
+    CrearReserva:
+      type: object
+      required: [experience, client, reservationDate, participants, pricing]
+      properties:
+        experience: { type: string, description: "Id de la experiencia" }
+        client:
+          type: object
+          required: [name, email]
+          properties:
+            name: { type: string }
+            email: { type: string, format: email }
+            phone: { type: string }
+            companyName: { type: string }
+            notes: { type: string }
+        reservationDate: { type: string, format: date-time }
+        participants: { type: integer, minimum: 1 }
+        duration: { type: integer, description: "Minutos" }
+        location: { type: string, description: "Id de la sede" }
+        pricing:
+          type: object
+          required: [basePrice, subtotal, total]
+          properties:
+            basePrice: { type: number }
+            subtotal: { type: number }
+            total: { type: number }
+            addons:
+              type: array
+              items:
+                type: object
+                properties:
+                  name: { type: string }
+                  price: { type: number }
+                  quantity: { type: number }
+        specialRequirements: { type: string }
+        notes: { type: string }
+
+    Reserva:
+      type: object
+      properties:
+        id: { type: string }
+        reservationNumber: { type: string, example: RES-123456-ABC }
+        status: { type: string, enum: [PENDING, CONFIRMED, COMPLETED, CANCELLED, NO_SHOW] }
+        paymentStatus: { type: string, enum: [PENDING, PAID, REFUNDED, FAILED] }
+        reservationDate: { type: string, format: date-time }
+        participants: { type: integer }
+        pricing:
+          type: object
+          description: Con el desglose ya calculado por el servidor.
+          properties:
+            total: { type: number }
+            filoCommission: { type: number }
+            resellerCommission: { type: number, description: "Lo que te corresponde a ti" }
+            hostEarnings: { type: number }
+
+    Pago:
+      type: object
+      description: Datos firmados para abrir el checkout. Nunca incluyen secretos.
+      properties:
+        checkoutUrl: { type: string }
+        publicKey: { type: string }
+        currency: { type: string }
+        amountInCents: { type: integer }
+        reference: { type: string }
+        signature: { type: string }
+        environment: { type: string, enum: [SANDBOX, PRODUCTION] }

@@ -57,6 +57,10 @@ const envSchema = z.object({
   // el endpoint S3 estandar https://{bucket}.s3.{region}.amazonaws.com
   S3_PUBLIC_URL_BASE: z.string().optional().default(''),
   // Limite duro server-side (el front tambien valida). 10 MB por defecto.
+  // Cuantos proxies hay delante del API. En local 0; detras de un balanceador
+  // o de Nginx normalmente 1. Si se deja en 0 con un proxy delante, el limite
+  // por IP cuenta a todos los visitantes como si fueran uno solo.
+  TRUST_PROXY: z.coerce.number().int().min(0).max(10).default(0),
   UPLOADS_MAX_BYTES: z.coerce.number().int().positive().default(10 * 1024 * 1024),
 });
 

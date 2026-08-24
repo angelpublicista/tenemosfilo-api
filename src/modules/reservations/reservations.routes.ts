@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth, requireRole } from '../../middleware/auth.js';
 import { requireScope } from '../../middleware/scope.js';
+import { limiteReservaPublica } from '../../middleware/rate-limit.js';
 import { validate } from '../../middleware/validate.js';
 import { reservationsController } from './reservations.controller.js';
 import {
@@ -20,6 +21,7 @@ export const reservationsRouter = Router();
 // Endpoint publico (sin auth) para el booking engine.
 reservationsRouter.post(
   '/public',
+  limiteReservaPublica,
   validate(createReservationSchema),
   reservationsController.createPublic,
 );

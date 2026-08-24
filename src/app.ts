@@ -4,7 +4,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import pinoHttp from 'pino-http';
 
-import { corsOrigins } from './config/env.js';
+import { corsOrigins, env } from './config/env.js';
 import { logger } from './lib/logger.js';
 import { auditLog } from './middleware/audit.js';
 import { errorHandler, notFoundHandler } from './middleware/error.js';
@@ -30,9 +30,17 @@ import { settingsRouter } from './modules/settings/settings.routes.js';
 import { payoutsRouter } from './modules/payouts/payouts.routes.js';
 import { paymentsRouter } from './modules/payments/payments.routes.js';
 import { publicRouter } from './modules/public/public.routes.js';
+import { docsRouter } from './modules/docs/docs.routes.js';
+import { limiteGeneral, limitePublico, limiteSondeoDeKeys } from './middleware/rate-limit.js';
 
 export function createApp() {
   const app = express();
+
+  // Cuantos proxies hay delante. Sin esto, en produccion todas las
+  // peticiones parecen venir del proxy y el limite por IP las cuenta como
+  // si fueran un unico visitante: el primero que se pase deja fuera a todo
+  // el mundo. En local no hay proxy, asi que el valor por defecto es 0.
+  app.set('trust proxy', env.TRUST_PROXY);
 
   app.use(helmet());
   app.use(
@@ -47,35 +55,61 @@ export function createApp() {
   app.use(express.json({ limit: '5mb' }));
   app.use(pinoHttp({ logger }));
 
+  // El health check va ANTES de cualquier limite: lo consultan los sistemas
+  // de monitorizacion cada pocos segundos, y que un pico de trafico lo
+  // dejara sin responder haria que el servicio pareciera caido justo cuando
+  // mas falta hace saber que sigue en pie.
   app.get('/health', (_req, res) => res.json({ status: 'ok', uptime: process.uptime() }));
+
+  // Corta el sondeo de API keys. Los limites por credencial van despues,
+  // ruta por ruta.
+  app.use(limiteSondeoDeKeys);
 
   // Va antes de los routers para poder engancharse al final de la respuesta,
   // y despues de express.json para ver el body ya parseado.
   app.use(auditLog);
 
+  // Documentacion. La CSP global de helmet solo permite scripts propios;
+  // el visor carga el suyo desde un CDN, asi que se relaja aqui y solo
+  // aqui, y unicamente para ese origen.
+  app.use(
+    '/docs',
+    helmet.contentSecurityPolicy({
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", 'https://cdn.jsdelivr.net'],
+        styleSrc: ["'self'", "'unsafe-inline'", 'https://cdn.jsdelivr.net', 'https://fonts.googleapis.com'],
+        fontSrc: ["'self'", 'data:', 'https://fonts.gstatic.com', 'https://cdn.jsdelivr.net'],
+        imgSrc: ["'self'", 'data:', 'https:'],
+        connectSrc: ["'self'"],
+      },
+    }),
+    docsRouter,
+  );
+
   // Catalogo publico: va antes que el resto, no lleva auth.
-  app.use('/public', publicRouter);
+  app.use('/public', limitePublico, publicRouter);
 
   app.use('/auth', authRouter);
-  app.use('/api-keys', apiKeysRouter);
-  app.use('/users', usersRouter);
-  app.use('/channels', channelsRouter);
-  app.use('/companies', companiesRouter);
-  app.use('/crm-companies', crmCompaniesRouter);
-  app.use('/contacts', contactsRouter);
-  app.use('/opportunities', opportunitiesRouter);
-  app.use('/experiences', experiencesRouter);
-  app.use('/reservations', reservationsRouter);
-  app.use('/quotes', quotesRouter);
-  app.use('/availabilities', availabilitiesRouter);
-  app.use('/locations', locationsRouter);
-  app.use('/integrations', integrationsRouter);
-  app.use('/dashboard', dashboardRouter);
-  app.use('/uploads', uploadsRouter);
-  app.use('/audit-logs', auditRouter);
-  app.use('/settings', settingsRouter);
-  app.use('/payouts', payoutsRouter);
-  app.use('/payments', paymentsRouter);
+  app.use('/api-keys', limiteGeneral, apiKeysRouter);
+  app.use('/users', limiteGeneral, usersRouter);
+  app.use('/channels', limiteGeneral, channelsRouter);
+  app.use('/companies', limiteGeneral, companiesRouter);
+  app.use('/crm-companies', limiteGeneral, crmCompaniesRouter);
+  app.use('/contacts', limiteGeneral, contactsRouter);
+  app.use('/opportunities', limiteGeneral, opportunitiesRouter);
+  app.use('/experiences', limiteGeneral, experiencesRouter);
+  app.use('/reservations', limiteGeneral, reservationsRouter);
+  app.use('/quotes', limiteGeneral, quotesRouter);
+  app.use('/availabilities', limiteGeneral, availabilitiesRouter);
+  app.use('/locations', limiteGeneral, locationsRouter);
+  app.use('/integrations', limiteGeneral, integrationsRouter);
+  app.use('/dashboard', limiteGeneral, dashboardRouter);
+  app.use('/uploads', limiteGeneral, uploadsRouter);
+  app.use('/audit-logs', limiteGeneral, auditRouter);
+  app.use('/settings', limiteGeneral, settingsRouter);
+  app.use('/payouts', limiteGeneral, payoutsRouter);
+  app.use('/payments', limiteGeneral, paymentsRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);
