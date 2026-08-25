@@ -41,6 +41,9 @@ const pricingSchema = z.object({
 export const createReservationSchema = z.object({
   reservationNumber: z.string().optional(), // si no viene, lo generamos
   experience: z.string().min(1), // experienceId
+  // Revendedor que trae la venta, por slug o id. Solo lo usa el catalogo
+  // publico: en /reservations la empresa sale de la API key.
+  reseller: z.string().min(1).optional(),
   company: z.string().min(1).optional(), // si no viene, derivamos del experience
   client: clientSchema,
   clientType: clientTypeEnum.optional().default('GUEST'),

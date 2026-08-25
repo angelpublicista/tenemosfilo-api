@@ -7,6 +7,12 @@ import {
 } from '../../lib/commissions.js';
 import { BadRequest, Forbidden, NotFound } from '../../lib/errors.js';
 import { construirCheckout } from '../payments/payments.service.js';
+import {
+  avisarCambioDeEstado,
+  avisarNuevaReserva,
+  avisarPago,
+  datosDeReserva,
+} from '../../lib/notify.js';
 import type {
   CancelInput,
   CreateReservationInput,
@@ -148,6 +154,36 @@ async function verificarAforo(
 }
 
 /**
+ * Empresa revendedora que trae la venta, o null si es venta directa.
+ *
+ * Devuelve null en vez de fallar cuando el identificador no corresponde a
+ * ninguna empresa: un enlace de referido viejo o mal copiado debe seguir
+ * dejando reservar, simplemente sin atribuir la comision a nadie.
+ */
+async function resolverRevendedor(
+  identificador: string | undefined,
+  companyIdDelAnfitrion: string,
+): Promise<string | null> {
+  if (!identificador) return null;
+
+  const empresa = await prisma.company.findFirst({
+    where: {
+      deletedAt: null,
+      isActive: true,
+      OR: [{ slug: identificador }, { previousSlugs: { has: identificador } }, { id: identificador }],
+    },
+    select: { id: true },
+  });
+  if (!empresa) return null;
+
+  // Un anfitrion no se revende a si mismo: seria cobrarse una comision por
+  // su propia venta y descontarsela de lo que recibe.
+  if (empresa.id === companyIdDelAnfitrion) return null;
+
+  return empresa.id;
+}
+
+/**
  * Precio de una reserva calculado DESDE LA EXPERIENCIA.
  *
  * En el catalogo publico quien reserva no tiene sesion y el precio no puede
@@ -190,6 +226,9 @@ async function precioDesdeExperiencia(
   const total = subtotal + addonsTotal;
   return { basePrice, subtotal, addons, addonsTotal, discount: 0, tax: 0, total };
 }
+
+/** El mapeo vive en notify.ts: lo comparte con el webhook de la pasarela. */
+const paraAvisos = datosDeReserva;
 
 export const reservationsService = {
   async create(
@@ -237,7 +276,7 @@ export const reservationsService = {
       bloquearLleno,
     );
 
-    return prisma.reservation.create({
+    const creada = await prisma.reservation.create({
       data: {
         reservationNumber: input.reservationNumber ?? generateReservationNumber(),
         experience: { connect: { id: input.experience } },
@@ -265,6 +304,9 @@ export const reservationsService = {
       },
       include: fullInclude,
     });
+
+    void avisarNuevaReserva(paraAvisos(creada));
+    return creada;
   },
 
   async createPublic(input: CreateReservationInput) {
@@ -286,17 +328,29 @@ export const reservationsService = {
       input.pricing?.addons as AddonElegido[] | undefined,
     );
 
-    // Sin comision de revendedor: el enlace publico es el que comparte el
-    // propio anfitrion y aqui no se conecta ninguna `resellerCompany`.
-    // Cobrarla igual le descontaba al anfitrion un porcentaje que despues
-    // no le tocaba a nadie en las dispersiones.
+    // Si quien reserva ya tiene cuenta, la reserva queda vinculada a ella.
+    // Sin esto un comensal registrado no puede ver en su panel lo que
+    // acaba de reservar: la reserva solo guarda su email suelto.
+    const cliente = input.client as { email?: string } | undefined;
+    const cuenta = cliente?.email
+      ? await prisma.user.findFirst({
+          where: { email: cliente.email, deletedAt: null, isActive: true },
+          select: { id: true },
+        })
+      : null;
+
+    // Atribucion. El enlace del catalogo de un revendedor manda su `slug`;
+    // el del propio anfitrion no manda nada y la venta es directa.
     //
-    // Cuando exista atribucion (un enlace de referido que identifique al
-    // revendedor) hay que conectar `resellerCompany` y pasar true aqui.
+    // Solo se cobra comision de revendedor cuando hay uno de verdad: sin
+    // esto se le descontaba al anfitrion un porcentaje que despues no le
+    // tocaba a nadie en las dispersiones.
+    const revendedor = await resolverRevendedor(input.reseller, companyId);
+
     const pricing = await conComisiones(
       input.experience,
       precio as unknown as CreateReservationInput['pricing'],
-      false,
+      revendedor !== null,
     );
 
     // Los ajustes de la empresa mandan sobre como entra la reserva.
@@ -309,8 +363,9 @@ export const reservationsService = {
         reservationNumber: input.reservationNumber ?? generateReservationNumber(),
         experience: { connect: { id: input.experience } },
         company: { connect: { id: companyId } },
+        ...(revendedor ? { resellerCompany: { connect: { id: revendedor } } } : {}),
         client: input.client as Prisma.InputJsonValue,
-        clientType: 'GUEST',
+        ...(cuenta ? { user: { connect: { id: cuenta.id } }, clientType: 'REGISTERED' as const } : { clientType: 'GUEST' as const }),
         source: 'BOOKING_ENGINE',
         reservationDate: fecha,
         duration: input.duration ?? null,
@@ -328,11 +383,53 @@ export const reservationsService = {
       select: { reservationNumber: true },
     });
 
+    // El aviso necesita mas campos de los que devuelve el alta; se relee
+    // una vez en vez de inflar el select del create. Va el include completo
+    // porque el correo al comensal lleva el nombre del anfitrion y el lugar,
+    // y esta es la via por la que entran las reservas del publico.
+    const completa = await prisma.reservation.findUnique({
+      where: { reservationNumber: creada.reservationNumber },
+      include: fullInclude,
+    });
+    if (completa) void avisarNuevaReserva(paraAvisos(completa));
+
     // Si la pasarela esta activa, devolvemos ya los datos firmados para
     // cobrar. Asi el cliente paga sin un endpoint publico adicional, que
     // seria una via para enumerar reservas ajenas.
     const payment = await construirCheckout(creada.reservationNumber);
     return { ...creada, payment };
+  },
+
+  /**
+   * Las reservas de quien llama, como cliente.
+   *
+   * Busca por cuenta vinculada y tambien por email: las reservas hechas
+   * antes de registrarse no tienen `userId`, pero son suyas igual y no
+   * tendria sentido esconderselas.
+   */
+  async mias(userId: string, email: string) {
+    return prisma.reservation.findMany({
+      where: {
+        OR: [{ userId }, { client: { path: ['email'], equals: email } }],
+      },
+      select: {
+        id: true,
+        reservationNumber: true,
+        reservationDate: true,
+        participants: true,
+        status: true,
+        paymentStatus: true,
+        pricing: true,
+        isVirtual: true,
+        specialRequirements: true,
+        experience: { select: { id: true, title: true, duration: true, featuredImage: true } },
+        // Con quien va a cenar y como contactarlo. Nada de finanzas del
+        // anfitrion: al cliente le toca su reserva, no el negocio ajeno.
+        company: { select: { companyName: true, companyEmail: true, companyPhone: true } },
+        location: { select: { name: true, address: true } },
+      },
+      orderBy: { reservationDate: 'desc' },
+    });
   },
 
   async getById(id: string) {
@@ -421,7 +518,15 @@ export const reservationsService = {
 
   async updateStatus(id: string, requesterCompanyId: string | null | undefined, status: ReservationStatus) {
     await assertCanManage(id, requesterCompanyId);
-    return prisma.reservation.update({ where: { id }, data: { status }, include: fullInclude });
+    const actualizada = await prisma.reservation.update({
+      where: { id },
+      data: { status },
+      include: fullInclude,
+    });
+    // Sin await: el cliente que confirma no tiene que esperar a que se
+    // escriba el aviso, y si falla no debe romperse la confirmacion.
+    void avisarCambioDeEstado(paraAvisos(actualizada), status);
+    return actualizada;
   },
 
   async updatePaymentStatus(
@@ -430,16 +535,18 @@ export const reservationsService = {
     paymentStatus: PaymentStatus,
   ) {
     await assertCanManage(id, requesterCompanyId);
-    return prisma.reservation.update({
+    const actualizada = await prisma.reservation.update({
       where: { id },
       data: { paymentStatus },
       include: fullInclude,
     });
+    if (paymentStatus === 'PAID') void avisarPago(paraAvisos(actualizada));
+    return actualizada;
   },
 
   async cancel(id: string, requesterCompanyId: string | null | undefined, input: CancelInput) {
     await assertCanManage(id, requesterCompanyId);
-    return prisma.reservation.update({
+    const cancelada = await prisma.reservation.update({
       where: { id },
       data: {
         status: 'CANCELLED',
@@ -453,6 +560,8 @@ export const reservationsService = {
       },
       include: fullInclude,
     });
+    void avisarCambioDeEstado(paraAvisos(cancelada), 'CANCELLED', input.reason);
+    return cancelada;
   },
 
   async reschedule(
@@ -461,7 +570,7 @@ export const reservationsService = {
     input: RescheduleInput,
   ) {
     const existing = await assertCanManage(id, requesterCompanyId);
-    return prisma.reservation.update({
+    const reprogramada = await prisma.reservation.update({
       where: { id },
       data: {
         status: 'RESCHEDULED',
@@ -475,6 +584,8 @@ export const reservationsService = {
       },
       include: fullInclude,
     });
+    void avisarCambioDeEstado(paraAvisos(reprogramada), 'RESCHEDULED', input.reason);
+    return reprogramada;
   },
 
   async remove(id: string, requesterCompanyId: string | null | undefined) {

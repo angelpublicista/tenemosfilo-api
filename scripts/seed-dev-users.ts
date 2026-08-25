@@ -18,8 +18,12 @@ type SeedUser = {
   email: string;
   name: string;
   role: UserRole;
-  /** Si esta, el user queda como dueño y miembro de esta empresa. */
-  empresa?: { nombre: string; slug: string; experiencia: string; expSlug: string };
+  /**
+   * Si esta, el user queda como titular y miembro de esta empresa. Sin
+   * `experiencia` no se le crea ninguna: es el caso de un canal de venta,
+   * que no cocina, solo revende lo de otros.
+   */
+  empresa?: { nombre: string; slug: string; experiencia?: string; expSlug?: string };
 };
 
 // Dos empresas a proposito: con una sola no se distingue si el panel de
@@ -49,7 +53,15 @@ const USERS: SeedUser[] = [
     },
   },
   { email: 'guest@filo.test', name: 'Guest Demo', role: 'GUEST' },
-  { email: 'reseller@filo.test', name: 'Reseller Demo', role: 'RESELLER' },
+  {
+    email: 'reseller@filo.test',
+    name: 'Reseller Demo',
+    role: 'RESELLER',
+    // Empresa propia y sin experiencias: un canal de venta no cocina,
+    // revende lo de los anfitriones. Es titular, asi que administra su
+    // marca — que es la que ve el cliente en su catalogo /r/canal-andino.
+    empresa: { nombre: 'Canal Andino', slug: 'canal-andino' },
+  },
 ];
 
 /**
@@ -100,6 +112,7 @@ async function main() {
       // vacias y se note la diferencia entre ver "lo mio" y ver "todo".
       // Con duracion y capacidad: sin ellas el motor de reservas no deja
       // pasar del primer paso.
+      if (u.empresa.experiencia && u.empresa.expSlug) {
       const datosExperiencia = {
         title: u.empresa.experiencia,
         status: 'ACTIVE' as const,
@@ -114,6 +127,7 @@ async function main() {
         update: datosExperiencia,
         create: { ...datosExperiencia, slug: u.empresa.expSlug, companyId: company.id },
       });
+      }
 
       empresa = company.companyName;
     }

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { requireAuth, requireRole } from '../../middleware/auth.js';
+import { requireAuth, requireHumanAuth, requireRole } from '../../middleware/auth.js';
 import { requireScope } from '../../middleware/scope.js';
 import { limiteReservaPublica } from '../../middleware/rate-limit.js';
 import { validate } from '../../middleware/validate.js';
@@ -28,6 +28,11 @@ reservationsRouter.post(
 
 // El resto requiere auth
 reservationsRouter.use(requireAuth);
+
+// Las reservas de quien llama, como cliente. Sin requireRole: cualquiera
+// que reserve — comensal, anfitrion o revendedor — puede ver las suyas.
+// Va antes de /:id para que "mine" no se tome por un id.
+reservationsRouter.get('/mine', requireHumanAuth, reservationsController.mias);
 
 reservationsRouter.get(
   '/stats/by-company/:companyId',

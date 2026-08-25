@@ -17,6 +17,29 @@ export const publicRouter = Router();
 
 const paramsSchema = z.object({ slug: z.string().min(1) });
 
+/** Lo que necesita el motor de reservas para funcionar de principio a fin. */
+const experienciaPublica = {
+  company: { select: { id: true, companyName: true } },
+  locations: {
+    where: { deletedAt: null },
+    select: { id: true, name: true, isMain: true, address: true },
+  },
+  // Sin esto el paso de fecha y hora no tiene horarios que ofrecer y el
+  // cliente no puede completar la reserva.
+  availabilities: {
+    where: { deletedAt: null, isActive: true },
+    select: {
+      id: true,
+      name: true,
+      weeklySchedule: true,
+      bufferTime: true,
+      minimumNotice: true,
+      blockedDates: true,
+      locationId: true,
+    },
+  },
+} as const;
+
 /** Solo lo que necesita pintar el catalogo. Nada de documentos ni finanzas. */
 const companiaPublica = {
   id: true,
@@ -52,6 +75,42 @@ publicRouter.get(
   },
 );
 
+/**
+ * Catalogo de un revendedor.
+ *
+ * A diferencia del catalogo de un anfitrion, aqui salen las experiencias
+ * ACTIVAS de toda la plataforma: el revendedor no publica las suyas, vende
+ * las de otros. Las reservas que entren por aqui llevan su atribucion y le
+ * generan comision.
+ */
+publicRouter.get(
+  '/reseller/:slug',
+  validate(paramsSchema, 'params'),
+  async (req: Request, res: Response) => {
+    const { slug } = req.params as unknown as z.infer<typeof paramsSchema>;
+
+    const reseller = await prisma.company.findFirst({
+      where: dondeEstaElCatalogo(slug),
+      select: companiaPublica,
+    });
+    if (!reseller) throw NotFound('Catálogo no encontrado');
+
+    const experiences = await prisma.experience.findMany({
+      // Sin filtro de empresa: es el catalogo de todo lo vendible.
+      where: { deletedAt: null, status: 'ACTIVE', company: { deletedAt: null, isActive: true } },
+      include: experienciaPublica,
+      orderBy: [{ isFeatured: 'desc' }, { createdAt: 'desc' }],
+    });
+
+    const ajustes = await getPlatformSettings();
+    const paymentsEnabled = Boolean(
+      ajustes.wompiEnabled && ajustes.wompiPublicKey && ajustes.wompiIntegritySecret,
+    );
+
+    res.json({ data: { company: reseller, experiences, paymentsEnabled, esReseller: true } });
+  },
+);
+
 publicRouter.get(
   '/catalog/:slug',
   validate(paramsSchema, 'params'),
@@ -69,27 +128,7 @@ publicRouter.get(
     const experiences = await prisma.experience.findMany({
       // Solo las publicadas: un borrador no debe verse desde fuera.
       where: { companyId: company.id, deletedAt: null, status: 'ACTIVE' },
-      include: {
-        company: { select: { id: true, companyName: true } },
-        locations: {
-          where: { deletedAt: null },
-          select: { id: true, name: true, isMain: true, address: true },
-        },
-        // Sin esto el paso de fecha y hora no tiene horarios que ofrecer y
-        // el cliente no puede completar la reserva.
-        availabilities: {
-          where: { deletedAt: null, isActive: true },
-          select: {
-            id: true,
-            name: true,
-            weeklySchedule: true,
-            bufferTime: true,
-            minimumNotice: true,
-            blockedDates: true,
-            locationId: true,
-          },
-        },
-      },
+      include: experienciaPublica,
       orderBy: [{ isFeatured: 'desc' }, { createdAt: 'desc' }],
     });
 

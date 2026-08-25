@@ -35,6 +35,11 @@ export const reservationsController = {
     res.status(201).json({ data: r });
   },
 
+  async mias(req: Request, res: Response) {
+    const items = await reservationsService.mias(req.user!.id, req.user!.email);
+    res.json({ data: items });
+  },
+
   async getById(req: Request, res: Response) {
     const { id } = p<{ id: string }>(req);
     const r = await reservationsService.getById(id);
