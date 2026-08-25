@@ -31,6 +31,7 @@ import { payoutsRouter } from './modules/payouts/payouts.routes.js';
 import { paymentsRouter } from './modules/payments/payments.routes.js';
 import { publicRouter } from './modules/public/public.routes.js';
 import { docsRouter } from './modules/docs/docs.routes.js';
+import { notificationsRouter } from './modules/notifications/notifications.routes.js';
 import { limiteGeneral, limitePublico, limiteSondeoDeKeys } from './middleware/rate-limit.js';
 
 export function createApp() {
@@ -110,6 +111,7 @@ export function createApp() {
   app.use('/settings', limiteGeneral, settingsRouter);
   app.use('/payouts', limiteGeneral, payoutsRouter);
   app.use('/payments', limiteGeneral, paymentsRouter);
+  app.use('/notifications', limiteGeneral, notificationsRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

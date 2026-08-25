@@ -12,6 +12,7 @@ import { BadRequest, NotFound } from '../../lib/errors.js';
 import { logger } from '../../lib/logger.js';
 import { prisma } from '../../config/prisma.js';
 import { aEstadoDePago, webhookValido } from '../../lib/wompi.js';
+import { avisarCambioDeEstado, avisarPago, cargarDatosDeReserva } from '../../lib/notify.js';
 import { construirCheckout } from './payments.service.js';
 
 export const paymentsRouter = Router();
@@ -81,6 +82,22 @@ paymentsRouter.post('/wompi/webhook', async (req: Request, res: Response) => {
   });
 
   logger.info({ referencia, estado, nuevoEstado }, 'Pago de Wompi procesado');
+
+  // Avisar de un pago en linea.
+  //
+  // Es el camino por el que entra la mayoria de los pagos reales, y hasta
+  // ahora no notificaba nada: el comensal pagaba y no recibia ni el
+  // comprobante ni la confirmacion. Solo si el estado CAMBIO a pagado, para
+  // que un reintento del webhook —Wompi los manda— no duplique los correos.
+  if (nuevoEstado === 'PAID' && reserva.paymentStatus !== 'PAID') {
+    void (async () => {
+      const datos = await cargarDatosDeReserva(reserva.id);
+      if (!datos) return;
+      await avisarPago(datos);
+      await avisarCambioDeEstado(datos, 'CONFIRMED');
+    })();
+  }
+
   res.status(200).json({ received: true });
 });
 

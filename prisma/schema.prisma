@@ -98,6 +98,8 @@ model User {
   passwordResetTokens   PasswordResetToken[]
 
   isActive  Boolean   @default(true)
+  notifications Notification[]
+
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
@@ -841,4 +843,43 @@ model ChannelListing {
   // Una experiencia no puede estar dos veces en el mismo canal.
   @@unique([experienceId, channel])
   @@index([companyId, channel])
+}
+
+
+// ─── Notificaciones ────────────────────────────────────────────────────────
+
+enum NotificationType {
+  NEW_RESERVATION
+  RESERVATION_CONFIRMED
+  RESERVATION_CANCELLED
+  RESERVATION_RESCHEDULED
+  PAYMENT_RECEIVED
+  REVIEW_RECEIVED
+  SYSTEM
+}
+
+// Aviso dirigido a una persona concreta.
+//
+// El texto se guarda ya escrito, no se compone al leerlo: si mañana cambia
+// el nombre de una experiencia, la notificacion debe seguir contando lo que
+// paso entonces, no reescribir la historia.
+model Notification {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type    NotificationType
+  title   String
+  message String           @db.Text
+
+  read   Boolean   @default(false)
+  readAt DateTime?
+
+  // A donde lleva al pulsarla: id de la reserva, de la experiencia...
+  data Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, read])
+  @@index([userId, createdAt])
 }

@@ -40,11 +40,19 @@ const envSchema = z.object({
   GOOGLE_CLIENT_SECRET: z.string().optional().default(''),
   CORS_ORIGIN: z.string().default('http://localhost:3000'),
 
-  // ──────── Correo transaccional (Brevo) ────────
-  // Necesario para la recuperacion de contraseña. Si faltan, el endpoint
-  // sigue respondiendo 204 pero no se envia nada (queda en el log).
-  BREVO_API_KEY: z.string().optional().default(''),
-  BREVO_FROM_EMAIL: z.string().optional().default(''),
+  // ──────── Correo transaccional (ZeptoMail) ────────
+  // Necesario para la recuperacion de contraseña y los avisos de reserva.
+  // Si faltan, el endpoint sigue respondiendo 204 pero no se envia nada
+  // (queda en el log); ninguna reserva se cae por no poder avisar.
+  //
+  // El token es el "Send Mail Token" del agente, no la API key de Zoho.
+  ZEPTOMAIL_TOKEN: z.string().optional().default(''),
+  // Tiene que ser un remitente verificado en el dominio del agente.
+  ZEPTOMAIL_FROM_EMAIL: z.string().optional().default(''),
+  ZEPTOMAIL_FROM_NAME: z.string().default('Tenemos Filo'),
+  // ZeptoMail tiene centros de datos por region con host propio (.eu, .in).
+  // Si la cuenta no es la global, se cambia aqui sin tocar codigo.
+  ZEPTOMAIL_API_URL: z.string().url().default('https://api.zeptomail.com/v1.1/email'),
   // Base para armar el enlace del correo: {APP_URL}/reset-password?token=...
   APP_URL: z.string().url().default('http://localhost:3000'),
 
