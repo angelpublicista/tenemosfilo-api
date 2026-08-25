@@ -12,7 +12,7 @@
 // limite real sera N veces mayor. Para eso hara falta un store compartido
 // (Redis), pero no vamos a montar esa pieza antes de necesitarla.
 import { createHash } from 'node:crypto';
-import rateLimit, { type Options } from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator, type Options } from 'express-rate-limit';
 import type { Request, Response } from 'express';
 import { isApiKeyToken } from '../lib/api-key.js';
 import { logger } from '../lib/logger.js';
@@ -45,7 +45,14 @@ function porCredencial(req: Request): string {
     if (token) return `tok:${createHash('sha256').update(token).digest('hex').slice(0, 32)}`;
   }
 
-  return `ip:${req.ip ?? 'desconocida'}`;
+  // Por IP, y agrupando IPv6 por prefijo en vez de por direccion exacta.
+  //
+  // A un cliente IPv6 el proveedor le asigna un bloque entero: puede cambiar
+  // de direccion en cada peticion sin cambiar de red. Contar por direccion
+  // completa haria que el limite no limitara nada. ipKeyGenerator normaliza
+  // al prefijo, que es lo que de verdad identifica a quien llama.
+  if (!req.ip) return 'ip:desconocida';
+  return `ip:${ipKeyGenerator(req.ip)}`;
 }
 
 /** Respuesta 429 con el mismo formato de error que el resto del API. */
