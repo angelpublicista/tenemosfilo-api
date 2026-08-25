@@ -61,11 +61,15 @@ const defaultInclude = {
 
 export const companiesService = {
   /**
-   * Valida que un usuario pueda ser dueño de una empresa.
+   * Valida que un usuario pueda ser titular de una empresa.
    *
-   * Las empresas son de anfitriones. Un ADMIN queda excluido a proposito:
-   * gestiona la plataforma y opera sobre empresas ajenas con el selector,
-   * pero no tiene experiencias propias.
+   * Anfitriones y revendedores: los dos operan un negocio dentro de la
+   * plataforma, uno vendiendo lo suyo y otro lo de terceros, y los dos
+   * necesitan una empresa a la que atribuir ventas y liquidar.
+   *
+   * El ADMIN queda excluido a proposito: gestiona la plataforma y opera
+   * sobre empresas ajenas con el selector, pero no tiene negocio propio.
+   * Un GUEST tampoco: es quien reserva.
    */
   async assertPuedeSerDuenio(userId: string) {
     const user = await prisma.user.findFirst({
@@ -74,12 +78,52 @@ export const companiesService = {
     });
     if (!user) throw NotFound('El usuario indicado no existe');
     if (!user.isActive) throw BadRequest('El usuario indicado esta inactivo');
-    if (user.role !== 'HOST') {
+    if (user.role !== 'HOST' && user.role !== 'RESELLER') {
       throw BadRequest(
-        `El dueño de una empresa debe tener rol Anfitrión (el elegido es ${user.role}).`,
+        `El titular de una empresa debe ser Anfitrión o Revendedor (el elegido es ${user.role}).`,
       );
     }
     return user;
+  },
+
+  /**
+   * Cambia el titular de una empresa.
+   *
+   * Hasta ahora el titular se fijaba al crearla y no habia forma de
+   * moverlo: si el anfitrion vendia el negocio o dejaba la sociedad, la
+   * empresa quedaba atada a una cuenta que ya no la operaba. Solo el ADMIN,
+   * porque es un cambio de control sobre datos y dinero ajenos.
+   */
+  async transferirTitularidad(companyId: string, nuevoOwnerId: string) {
+    const company = await prisma.company.findFirst({
+      where: { id: companyId, deletedAt: null },
+      select: { id: true, ownerId: true, companyName: true },
+    });
+    if (!company) throw NotFound('Company no encontrada');
+    if (company.ownerId === nuevoOwnerId) {
+      throw BadRequest('Ese usuario ya es el titular de esta empresa');
+    }
+
+    await this.assertPuedeSerDuenio(nuevoOwnerId);
+
+    const actualizada = await prisma.company.update({
+      where: { id: companyId },
+      data: { ownerId: nuevoOwnerId },
+      include: defaultInclude,
+    });
+
+    // Si el nuevo titular no estaba trabajando en ninguna empresa, se le
+    // deja esta como activa. Si ya tenia otra, no se le cambia por debajo:
+    // para moverse entre las suyas usa el selector.
+    const nuevo = await prisma.user.findUnique({
+      where: { id: nuevoOwnerId },
+      select: { companyId: true },
+    });
+    if (!nuevo?.companyId) {
+      await prisma.user.update({ where: { id: nuevoOwnerId }, data: { companyId } });
+    }
+
+    return actualizada;
   },
 
   async create(ownerId: string, input: CreateCompanyInput) {

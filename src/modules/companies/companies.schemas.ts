@@ -125,3 +125,10 @@ export const listCompaniesQuerySchema = z.object({
 export type CreateCompanyInput = z.infer<typeof createCompanyAsAdminSchema>;
 export type UpdateCompanyInput = z.infer<typeof updateCompanySchema>;
 export type ListCompaniesQuery = z.infer<typeof listCompaniesQuerySchema>;
+
+/** Cambio de titular. Solo ADMIN. */
+export const transferirTitularidadSchema = z.object({
+  ownerId: z.string().min(1),
+});
+
+export type TransferirTitularidadInput = z.infer<typeof transferirTitularidadSchema>;

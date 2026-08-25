@@ -5,6 +5,7 @@ import type {
   CreateCompanyInput,
   EmbedDomainsInput,
   ListCompaniesQuery,
+  TransferirTitularidadInput,
   UpdateCompanyInput,
 } from './companies.schemas.js';
 
@@ -30,9 +31,23 @@ export const companiesController = {
 
     // Fuera del caso ADMIN el dueño es siempre quien crea, aunque el body
     // traiga otro ownerId.
+    //
+    // Y se valida igual que cuando lo hace un admin: sin esto, un comensal
+    // podia crearse una empresa a su nombre y quedar como titular de algo
+    // que su rol no le permite operar.
+    if (!esAdmin) {
+      await companiesService.assertPuedeSerDuenio(req.user!.id);
+    }
     const ownerId = esAdmin ? input.ownerId! : req.user!.id;
     const company = await companiesService.create(ownerId, input);
     res.status(201).json({ data: company });
+  },
+
+  async transferirTitularidad(req: Request, res: Response) {
+    const { id } = req.params as { id: string };
+    const { ownerId } = req.body as TransferirTitularidadInput;
+    const company = await companiesService.transferirTitularidad(id, ownerId);
+    res.json({ data: company });
   },
 
   async getMine(req: Request, res: Response) {

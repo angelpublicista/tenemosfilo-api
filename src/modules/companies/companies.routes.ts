@@ -9,6 +9,7 @@ import {
   createCompanyAsAdminSchema,
   embedDomainsSchema,
   listCompaniesQuerySchema,
+  transferirTitularidadSchema,
   updateCompanySchema,
 } from './companies.schemas.js';
 
@@ -61,9 +62,12 @@ companiesRouter.post(
   companiesController.create,
 );
 
+// Tambien RESELLER: desde que puede ser titular de una empresa, tiene que
+// poder administrarla. Quien no sea su dueño se queda fuera igualmente —
+// el servicio comprueba la propiedad, no basta con el rol.
 companiesRouter.patch(
   '/:id',
-  requireRole('HOST', 'ADMIN'),
+  requireRole('HOST', 'RESELLER', 'ADMIN'),
   validate(companyIdParamsSchema, 'params'),
   validate(updateCompanySchema),
   companiesController.update,
@@ -84,6 +88,16 @@ companiesRouter.delete(
   requireRole('ADMIN'),
   validate(companyIdParamsSchema, 'params'),
   companiesController.remove,
+);
+
+// Cambio de titular: mover una empresa a otra cuenta. Solo ADMIN, porque
+// es un cambio de control sobre datos y dinero ajenos.
+companiesRouter.patch(
+  '/:id/owner',
+  requireRole('ADMIN'),
+  validate(companyIdParamsSchema, 'params'),
+  validate(transferirTitularidadSchema),
+  companiesController.transferirTitularidad,
 );
 
 companiesRouter.patch(
