@@ -11,17 +11,17 @@ info:
   title: API de Tenemos Filo
   version: "1.0.0"
   description: |
-    API para vender experiencias gastronomicas de los anfitriones de
+    API para vender experiencias gastronómicas de los anfitriones de
     Tenemos Filo desde tu propia plataforma.
 
-    ## Como funciona
+    ## Cómo funciona
 
-    Tu empresa recibe una **API key**. Con ella puedes consultar el catalogo
+    Tu empresa recibe una **API key**. Con ella puedes consultar el catálogo
     de experiencias y crear reservas a nombre de tus clientes. Cada reserva
-    que crees queda atribuida a tu empresa como revendedora, y su comision
-    se calcula y liquida automaticamente.
+    que crees queda atribuida a tu empresa como revendedora, y su comisión
+    se calcula y liquida automáticamente.
 
-    ## Autenticacion
+    ## Autenticación
 
     Manda la key en la cabecera `Authorization`:
 
@@ -29,10 +29,10 @@ info:
     Authorization: Bearer tf_live_xxxxxxxxxxxxxxxx
     ```
 
-    La key se muestra **una sola vez**, al crearla. Guardala en un gestor de
+    La key se muestra **una sola vez**, al crearla. Guárdala en un gestor de
     secretos: no la podemos recuperar, solo revocarla y emitir otra.
 
-    Nunca la pongas en codigo de navegador. Es una credencial de servidor:
+    Nunca la pongas en código de navegador. Es una credencial de servidor:
     quien la tenga puede reservar en tu nombre.
 
     ## Permisos
@@ -68,7 +68,7 @@ info:
     { "error": { "code": "BAD_REQUEST", "message": "Explicacion en claro" } }
     ```
 
-    | Codigo HTTP | Que significa |
+    | Código HTTP | Que significa |
     |---|---|
     | 400 | Faltan datos o son invalidos. `details` trae el campo concreto |
     | 401 | Key ausente, invalida, caducada o revocada |
@@ -99,7 +99,7 @@ tags:
   - name: Cotizaciones
     description: Propuestas para grupos y eventos.
   - name: Catalogo publico
-    description: Sin credenciales. Es lo que alimenta la pagina publica de cada anfitrion.
+    description: Sin credenciales. Es lo que alimenta la pagina pública de cada anfitrion.
 
 paths:
   /experiences:
@@ -108,7 +108,7 @@ paths:
       tags: [Experiencias]
       summary: Listar experiencias
       description: |
-        Devuelve las experiencias publicadas. Empieza por aqui: el `id` de
+        Devuelve las experiencias publicadas. Empieza por aquí: el `id` de
         cada una es lo que necesitas para reservar.
       security:
         - ApiKey: [experiences:read]
@@ -260,11 +260,11 @@ paths:
 
         **El precio lo calcula el servidor.** Manda `pricing` con lo que le
         mostraste al cliente, pero las comisiones y el reparto se recalculan
-        aqui a partir de la experiencia: no puedes fijar cuanto se lleva
+        aquí a partir de la experiencia: no puedes fijar cuanto se lleva
         cada parte.
 
         Si el anfitrion tiene activado el control de aforo y no quedan
-        plazas para esa fecha, la respuesta es `400` diciendo cuantas
+        plazas para esa fecha, la respuesta es `400` diciendo cuántas
         quedan.
       security:
         - ApiKey: [reservations:write]
@@ -317,7 +317,7 @@ paths:
       operationId: buscarExperienciasParaCotizar
       tags: [Cotizaciones]
       summary: Buscar experiencias para un grupo
-      description: Filtra las experiencias de un anfitrion por numero de comensales, fecha y sede.
+      description: Filtra las experiencias de un anfitrion por número de comensales, fecha y sede.
       security:
         - ApiKey: [experiences:read]
       parameters:
@@ -376,21 +376,21 @@ paths:
     get:
       operationId: obtenerCatalogoPublico
       tags: [Catalogo publico]
-      summary: Catalogo de un anfitrion
+      summary: Catálogo de un anfitrion
       description: |
         Sin credenciales. Devuelve la empresa y sus experiencias activas con
         sedes y disponibilidad: todo lo que hace falta para montar una
         pagina de reservas.
 
-        Acepta el slug de la empresa o su id. Los slugs anteriores tambien
+        Acepta el slug de la empresa o su id. Los slugs anteriores también
         funcionan: si el anfitrion se renombra, los enlaces ya compartidos
-        siguen abriendo su catalogo.
+        siguen abriendo su catálogo.
       security: []
       parameters:
         - { name: slug, in: path, required: true, schema: { type: string } }
       responses:
         "200":
-          description: El catalogo
+          description: El catálogo
           content:
             application/json:
               schema:
@@ -412,7 +412,7 @@ paths:
     get:
       operationId: obtenerPoliticaDeIframe
       tags: [Catalogo publico]
-      summary: Dominios autorizados a insertar el catalogo
+      summary: Dominios autorizados a insertar el catálogo
       description: Lista vacia significa que cualquiera puede insertarlo en un iframe.
       security: []
       parameters:
@@ -438,11 +438,11 @@ paths:
       tags: [Catalogo publico]
       summary: Reservar sin credenciales
       description: |
-        El endpoint que usa la pagina publica de cada anfitrion. **No lo uses
+        El endpoint que usa la pagina pública de cada anfitrion. **No lo uses
         para integrar tu plataforma**: no atribuye la venta a nadie, asi que
-        no genera comision. Para vender usa `POST /reservations` con tu key.
+        no genera comisión. Para vender usa `POST /reservations` con tu key.
 
-        Aqui el precio se calcula entero en el servidor a partir de la
+        Aquí el precio se calcula entero en el servidor a partir de la
         experiencia; lo que mandes en `pricing` se ignora.
 
         Limite: 15 reservas cada 10 minutos por IP.
@@ -567,7 +567,7 @@ components:
         weeklySchedule:
           type: object
           description: |
-            Un dia por clave, en ingles y minusculas (`monday`…`sunday`).
+            Un día por clave, en ingles y minusculas (`monday`…`sunday`).
           additionalProperties:
             type: object
             properties:
