@@ -29,7 +29,15 @@ export const createUserSchema = z.object({
   // el titular llega a conocerla. Se acepta igualmente que un admin la fije
   // para casos puntuales —una cuenta de servicio, una migracion—, pero no
   // es el camino normal.
-  password: z.string().min(8, 'Minimo 8 caracteres').optional(),
+  //
+  // La cadena vacia se trata como ausencia. Un formulario que deja el campo
+  // sin tocar manda "" y no undefined; rechazarlo con "minimo 8 caracteres"
+  // seria un error incomprensible para quien no queria poner ninguna.
+  password: z
+    .string()
+    .transform((v) => (v.trim() === '' ? undefined : v))
+    .pipe(z.string().min(8, 'Minimo 8 caracteres').optional())
+    .optional(),
   name: z.string().min(1).optional(),
   role: userRoleSchema.default('GUEST'),
   phone: z.string().optional(),
