@@ -85,19 +85,19 @@ model User {
   sessions Session[]
 
   // Relaciones de dominio
-  ownedCompanies        Company[]     @relation("CompanyOwner")
-  contactsAssigned      Contact[]     @relation("ContactAssignedTo")
-  contactsCreated       Contact[]     @relation("ContactCreatedBy")
-  crmCompaniesAssigned  CrmCompany[]  @relation("CrmCompanyAssignedTo")
-  opportunitiesAssigned Opportunity[] @relation("OpportunityAssignedTo")
-  opportunitiesCreated  Opportunity[] @relation("OpportunityCreatedBy")
+  ownedCompanies        Company[]            @relation("CompanyOwner")
+  contactsAssigned      Contact[]            @relation("ContactAssignedTo")
+  contactsCreated       Contact[]            @relation("ContactCreatedBy")
+  crmCompaniesAssigned  CrmCompany[]         @relation("CrmCompanyAssignedTo")
+  opportunitiesAssigned Opportunity[]        @relation("OpportunityAssignedTo")
+  opportunitiesCreated  Opportunity[]        @relation("OpportunityCreatedBy")
   reservations          Reservation[]
-  quotes                Quote[]       @relation("QuoteHost")
+  quotes                Quote[]              @relation("QuoteHost")
   integrations          Integration[]
-  apiKeysCreated        ApiKey[]      @relation("ApiKeyCreatedBy")
+  apiKeysCreated        ApiKey[]             @relation("ApiKeyCreatedBy")
   passwordResetTokens   PasswordResetToken[]
 
-  isActive  Boolean   @default(true)
+  isActive      Boolean        @default(true)
   notifications Notification[]
 
   createdAt DateTime  @default(now())
@@ -146,7 +146,7 @@ model Company {
   // Origenes autorizados a insertar el catalogo en un iframe.
   // Lista VACIA = cualquiera puede: es el comportamiento previo y cambiarlo
   // por defecto romperia los embeds que ya estan publicados.
-  embedDomains String[] @default([])
+  embedDomains   String[]      @default([])
 
   // Frase corta de la empresa; sale en su catalogo publico.
   tagline String?
@@ -168,23 +168,28 @@ model Company {
   autoConfirmReservations Boolean @default(false)
   blockWhenFull           Boolean @default(true)
 
-  employeeCount  String? // enum-like; lo dejamos string para flexibilidad de UI
-  annualRevenue  String?
-  businessYears  String?
+  employeeCount String? // enum-like; lo dejamos string para flexibilidad de UI
+  annualRevenue String?
+  businessYears String?
 
-  users         User[]        @relation("CompanyUsers")
-  locations     Location[]
-  experiences   Experience[]
-  reservations  Reservation[]
+  users                  User[]           @relation("CompanyUsers")
+  locations              Location[]
+  experiences            Experience[]
+  reservations           Reservation[]
   // Reservas que esta empresa vendio como revendedora.
-  reservationsAsReseller Reservation[] @relation("ReservationReseller")
+  reservationsAsReseller Reservation[]    @relation("ReservationReseller")
   payouts                Payout[]
   channelListings        ChannelListing[]
-  quotes        Quote[]
-  contacts      Contact[]
-  crmCompanies  CrmCompany[]
-  opportunities Opportunity[]
-  apiKeys       ApiKey[]
+
+  // Inverso de PlatformSettings.platformCompany: la empresa que representa
+  // a la plataforma. Es una lista por exigencia de Prisma, pero solo puede
+  // haber una fila de ajustes, asi que en la practica es cero o una.
+  comoPlataforma PlatformSettings[] @relation("EmpresaDeLaPlataforma")
+  quotes         Quote[]
+  contacts       Contact[]
+  crmCompanies   CrmCompany[]
+  opportunities  Opportunity[]
+  apiKeys        ApiKey[]
 
   isActive  Boolean   @default(true)
   createdAt DateTime  @default(now())
@@ -250,7 +255,7 @@ model Payout {
   company   Company    @relation(fields: [companyId], references: [id])
   role      PayoutRole
 
-  amount    Decimal  @db.Decimal(14, 2)
+  amount    Decimal @db.Decimal(14, 2)
   reference String? // numero de transferencia, comprobante, etc.
   notes     String?
 
@@ -282,14 +287,26 @@ model PlatformSettings {
   // ──────── Pasarela de pagos (Wompi) ────────
   // Solo el ADMIN configura esto. Las llaves privadas NUNCA salen del API:
   // el GET de ajustes devuelve unicamente si estan puestas.
-  wompiEnabled     Boolean          @default(false)
-  wompiEnvironment WompiEnvironment @default(SANDBOX)
+  wompiEnabled         Boolean          @default(false)
+  wompiEnvironment     WompiEnvironment @default(SANDBOX)
   // Publica por diseño: viaja al navegador para abrir el checkout.
-  wompiPublicKey String?
+  wompiPublicKey       String?
   // Secretos:
   wompiPrivateKey      String?
   wompiIntegritySecret String? // firma los datos del checkout
   wompiEventsSecret    String? // valida los webhooks entrantes
+
+  // ──────── La empresa que representa a la plataforma ────────
+  // Filo tambien vende: tiene su propio canal, y las reservas que entran por
+  // el se le atribuyen como revendedora. Necesita entonces una empresa
+  // propia de la que cuelguen sus claves API y sus liquidaciones.
+  //
+  // Vive aqui y no como un rol o un flag en Company porque es configuracion
+  // de la plataforma: cual de las empresas es "la casa". Los usuarios ADMIN
+  // siguen SIN companyId a proposito, para conservar la vista global; media
+  // aplicacion filtra por la empresa del usuario cuando la tiene.
+  platformCompanyId String?
+  platformCompany   Company? @relation("EmpresaDeLaPlataforma", fields: [platformCompanyId], references: [id])
 
   updatedAt DateTime @updatedAt
 }
@@ -418,7 +435,7 @@ model Contact {
   source      String?
   address     Json?
   avatar      String?
-  notes       String? @db.Text
+  notes       String?       @db.Text
   tags        String[]
   socialMedia Json? // { linkedin, twitter, facebook, instagram }
 
@@ -569,7 +586,7 @@ enum QuoteStatus {
 }
 
 model Quote {
-  id            String      @id @default(cuid())
+  id            String    @id @default(cuid())
   customerName  String
   customerEmail String
   customerPhone String?
@@ -577,7 +594,7 @@ model Quote {
   eventTime     String?
   guests        Int?
   location      String?
-  notes         String?     @db.Text
+  notes         String?   @db.Text
 
   companyId String
   company   Company @relation(fields: [companyId], references: [id])
@@ -715,10 +732,10 @@ model Integration {
 // ============================================================
 
 model ApiKey {
-  id      String  @id @default(cuid())
+  id      String   @id @default(cuid())
   name    String
-  prefix  String  @unique // "tf_live_<8 chars>" visible para identificar la key
-  keyHash String  @unique // sha256(token) en hex
+  prefix  String   @unique // "tf_live_<8 chars>" visible para identificar la key
+  keyHash String   @unique // sha256(token) en hex
   scopes  String[]
 
   companyId String
@@ -774,7 +791,7 @@ model AuditLog {
 }
 
 model PasswordResetToken {
-  id String @id @default(cuid())
+  id        String @id @default(cuid())
   // sha256(token) en hex. El token plano solo existe en el correo que
   // recibe el usuario: si se filtra la BD, no sirve para resetear nada.
   tokenHash String @unique
@@ -788,7 +805,6 @@ model PasswordResetToken {
 
   @@index([userId])
 }
-
 
 // ─── Distribucion en canales externos ──────────────────────────────────────
 
@@ -844,7 +860,6 @@ model ChannelListing {
   @@unique([experienceId, channel])
   @@index([companyId, channel])
 }
-
 
 // ─── Notificaciones ────────────────────────────────────────────────────────
 

@@ -27,18 +27,34 @@ function ambito(req: Request): string | null {
 /**
  * A que empresa pertenece la llave que se va a crear.
  *
- * Un ADMIN no tiene empresa propia, asi que puede indicar cualquiera. El
- * resto solo emite para la suya, aunque mande otra en el cuerpo: fiarse del
- * companyId del cliente dejaria que un revendedor creara llaves a nombre de
- * otra empresa y le desviara las ventas.
+ * Un ADMIN emite a nombre de la empresa de la plataforma: Filo tambien vende
+ * por su propio canal, y esas ventas se le atribuyen. No se le pide elegir
+ * porque su empresa es siempre la misma; puede indicar otra explicitamente
+ * para emitir en nombre de un tercero, pero no es el caso normal.
+ *
+ * Los admins NO tienen companyId propio a proposito: media aplicacion filtra
+ * por la empresa del usuario cuando la tiene, y darsela les estrecharia la
+ * vista global del panel.
+ *
+ * El resto de roles solo emite para su empresa, aunque mande otra en el
+ * cuerpo: fiarse del companyId del cliente dejaria que un revendedor creara
+ * llaves a nombre de otra empresa y le desviara las ventas.
  */
 async function empresaDeLaLlave(req: Request): Promise<string> {
   const pedida = (req.body as { companyId?: string }).companyId;
+
   if (!pedida) {
-    // Un admin sin empresa no tiene a quien atribuir la llave. Es mejor
-    // decirselo que crearla colgando de la nada.
     if (req.user?.role === 'ADMIN' && !req.user.companyId) {
-      throw BadRequest('Indica para que empresa es la llave');
+      const ajustes = await prisma.platformSettings.findUnique({
+        where: { id: 'default' },
+        select: { platformCompanyId: true },
+      });
+      if (!ajustes?.platformCompanyId) {
+        throw BadRequest(
+          'No hay una empresa de plataforma configurada. Créala antes de emitir claves.',
+        );
+      }
+      return ajustes.platformCompanyId;
     }
     return requireCompany(req);
   }
