@@ -24,7 +24,12 @@ export const userIdParamsSchema = z.object({
  */
 export const createUserSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(8, 'Minimo 8 caracteres'),
+  // Opcional a proposito. Sin contraseña, la cuenta se crea "vacia" y se
+  // envia una invitacion para que la persona elija la suya: nadie mas que
+  // el titular llega a conocerla. Se acepta igualmente que un admin la fije
+  // para casos puntuales —una cuenta de servicio, una migracion—, pero no
+  // es el camino normal.
+  password: z.string().min(8, 'Minimo 8 caracteres').optional(),
   name: z.string().min(1).optional(),
   role: userRoleSchema.default('GUEST'),
   phone: z.string().optional(),

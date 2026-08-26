@@ -2,7 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { OAuth2Client } from 'google-auth-library';
 import { env } from '../../config/env.js';
 import { prisma } from '../../config/prisma.js';
-import { passwordResetEmailHtml, sendEmail } from '../../lib/email.js';
+import { invitationEmailHtml, passwordResetEmailHtml, sendEmail } from '../../lib/email.js';
 import { BadRequest, Conflict, NotFound, Unauthorized } from '../../lib/errors.js';
 import { logger } from '../../lib/logger.js';
 import { hashPassword, verifyPassword } from '../../lib/password.js';
@@ -20,6 +20,12 @@ const googleClient = env.GOOGLE_CLIENT_ID ? new OAuth2Client(env.GOOGLE_CLIENT_I
 // Ventana corta: el enlace de reset es una credencial temporal.
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hora
 const RESET_TOKEN_BYTES = 32;
+
+// La invitacion dura mucho mas que un reset. Quien pide recuperar su
+// contraseña esta delante de la pantalla esperando el correo; a quien le
+// crean una cuenta puede que le llegue un viernes y la abra el lunes. Una
+// hora convertiria casi todas las invitaciones en un enlace caducado.
+const INVITE_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 dias
 
 /** Guardamos solo el sha256; el token plano viaja unicamente en el correo. */
 function hashResetToken(token: string): string {
@@ -146,6 +152,61 @@ export const authService = {
   },
 
   /** Paso 2 del reset: canjea el token por una contraseña nueva. */
+  /**
+   * Invitacion a una cuenta creada por un administrador.
+   *
+   * Reutiliza el mismo mecanismo que la recuperacion de contraseña: un token
+   * de un solo uso del que solo se guarda el sha256. Cambian el texto y la
+   * caducidad, no la maquinaria — y asi el endpoint que fija la contraseña
+   * sirve para los dos casos sin tocarlo.
+   *
+   * No lanza si falla el envio: la cuenta ya esta creada, y que el correo no
+   * salga no debe convertir en error una operacion que si ocurrio. Queda en
+   * el log, y siempre se puede reenviar.
+   */
+  async enviarInvitacion(userId: string): Promise<boolean> {
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, email: true, name: true, isActive: true, deletedAt: true },
+      });
+      if (!user || !user.isActive || user.deletedAt) return false;
+
+      const { token, tokenHash } = generateResetToken();
+
+      // Como en el reset: solo el ultimo enlace emitido sirve.
+      await prisma.passwordResetToken.updateMany({
+        where: { userId: user.id, usedAt: null },
+        data: { usedAt: new Date() },
+      });
+      await prisma.passwordResetToken.create({
+        data: {
+          tokenHash,
+          userId: user.id,
+          expiresAt: new Date(Date.now() + INVITE_TOKEN_TTL_MS),
+        },
+      });
+
+      // El parametro `invitacion` solo cambia lo que dice la pantalla: para
+      // el API el token es el mismo. Si se pierde por el camino, la persona
+      // vera el texto de recuperacion y podra elegir contraseña igualmente.
+      const url = `${env.APP_URL}/reset-password?token=${token}&invitacion=1`;
+      const enviado = await sendEmail({
+        to: user.email,
+        subject: 'Tu cuenta en Tenemos Filo',
+        html: invitationEmailHtml(url, user.name),
+      });
+
+      if (!enviado) {
+        logger.error({ userId, email: user.email }, 'no se pudo enviar la invitacion');
+      }
+      return enviado;
+    } catch (err) {
+      logger.error({ err, userId }, 'fallo al preparar la invitacion');
+      return false;
+    }
+  },
+
   async resetPassword({ token, password }: ResetPasswordInput) {
     const record = await prisma.passwordResetToken.findUnique({
       where: { tokenHash: hashResetToken(token) },

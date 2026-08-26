@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express';
+import { authService } from '../auth/auth.service.js';
 import { usersService } from './users.service.js';
 import type { CreateUserInput, ListUsersQuery, UpdateUserInput } from './users.schemas.js';
 
@@ -14,8 +15,42 @@ export const usersController = {
   },
 
   async create(req: Request, res: Response) {
-    const user = await usersService.create(req.body as CreateUserInput);
-    res.status(201).json({ data: user });
+    const input = req.body as CreateUserInput;
+    const user = await usersService.create(input);
+
+    // Si el admin no fijo contraseña, la cuenta nace inaccesible y hay que
+    // invitar a su titular a elegir una. Se espera al envio —a diferencia de
+    // los avisos de reserva— para poder decir en la respuesta si el correo
+    // salio: quien acaba de crear la cuenta necesita saber si la persona va
+    // a recibir el enlace o si tiene que buscar otra via.
+    const invitado = input.password ? false : await authService.enviarInvitacion(user.id);
+
+    res.status(201).json({
+      data: user,
+      meta: { invitacionEnviada: invitado },
+    });
+  },
+
+  /**
+   * Reenviar la invitacion.
+   *
+   * Emite un enlace nuevo e invalida el anterior. Sirve tambien para quien ya
+   * tiene contraseña: el enlace le permite fijar otra, que es lo mismo que
+   * hace la recuperacion. No se comprueba si la cuenta ya se activo porque
+   * negarselo no protegeria de nada y dejaria al admin sin salida.
+   */
+  async reinvitar(req: Request, res: Response) {
+    const { id } = p<{ id: string }>(req);
+    const enviado = await authService.enviarInvitacion(id);
+    if (!enviado) {
+      return res.status(502).json({
+        error: {
+          code: 'INVITE_NOT_SENT',
+          message: 'No se pudo enviar la invitación. Revisa que la cuenta esté activa y el correo configurado.',
+        },
+      });
+    }
+    res.json({ data: { invitacionEnviada: true } });
   },
 
   async list(req: Request, res: Response) {

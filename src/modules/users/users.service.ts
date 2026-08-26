@@ -39,7 +39,10 @@ export const usersService = {
     return prisma.user.create({
       data: {
         email: input.email,
-        password: await hashPassword(input.password),
+        // Sin contraseña la cuenta queda inaccesible hasta que su titular
+        // la elija por el enlace de invitacion. login() ya lo contempla:
+        // rechaza a quien no tiene contraseña, sin caso especial.
+        password: input.password ? await hashPassword(input.password) : null,
         name: input.name ?? null,
         role: input.role,
         phone: input.phone ?? null,

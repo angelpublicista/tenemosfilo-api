@@ -71,6 +71,82 @@ export async function sendEmail({ to, subject, html }: SendEmailInput): Promise<
   }
 }
 
+/**
+ * Plantilla de la invitacion a una cuenta creada por un administrador.
+ *
+ * No lleva contraseña: el enlace deja que la persona elija la suya. Mandarle
+ * una que eligio otro significaria que dos personas la conocen y que queda
+ * escrita para siempre en dos buzones.
+ */
+export function invitationEmailHtml(inviteUrl: string, nombre?: string | null): string {
+  const saludo = nombre ? `Hola ${escaparHtml(nombre)},` : 'Hola,';
+  return `
+    <!DOCTYPE html>
+    <html lang="es">
+      <head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /></head>
+      <body style="margin:0;padding:0;background-color:#f3f4f6;">
+        <table role="presentation" cellpadding="0" cellspacing="0" width="100%"
+               style="background-color:#f3f4f6;padding:24px 12px;">
+          <tr><td align="center">
+            <table role="presentation" cellpadding="0" cellspacing="0" width="600"
+                   style="max-width:600px;width:100%;background-color:#ffffff;border-radius:12px;
+                          overflow:hidden;font-family:Arial,Helvetica,sans-serif;">
+              <tr>
+                <td style="background-color:#F26726;padding:28px 32px;">
+                  <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:700;">
+                    Tu cuenta está lista
+                  </h1>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:32px;color:#374151;font-size:15px;line-height:1.6;">
+                  <p style="margin:0 0 16px;">${saludo}</p>
+                  <p style="margin:0 0 16px;">
+                    Te crearon una cuenta en <strong>Tenemos Filo</strong>. Solo falta que
+                    elijas tu contraseña para entrar.
+                  </p>
+                  <p style="text-align:center;margin:28px 0 8px;">
+                    <a href="${escaparHtml(inviteUrl)}"
+                       style="display:inline-block;background-color:#F26726;color:#ffffff;
+                              padding:13px 28px;text-decoration:none;border-radius:6px;
+                              font-weight:600;font-size:15px;">
+                      Elegir mi contraseña
+                    </a>
+                  </p>
+                  <p style="font-size:13px;color:#6b7280;margin:24px 0 0;">
+                    El enlace caduca en 7 días y solo puede usarse una vez. Si caduca,
+                    pide uno nuevo desde "¿Olvidaste tu contraseña?" en la pantalla de acceso.
+                  </p>
+                  <p style="font-size:13px;color:#6b7280;margin:12px 0 0;">
+                    Si no esperabas este correo, puedes ignorarlo: sin elegir contraseña,
+                    la cuenta no se puede usar.
+                  </p>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:20px 32px;background-color:#f9fafb;color:#9ca3af;
+                           font-size:12px;text-align:center;">
+                  Tenemos Filo · experiencias gastronómicas
+                </td>
+              </tr>
+            </table>
+          </td></tr>
+        </table>
+      </body>
+    </html>
+  `;
+}
+
+/** El nombre lo teclea un administrador, pero acaba en el correo de otro. */
+function escaparHtml(valor: string): string {
+  return valor
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 /** Plantilla del correo de recuperacion de contraseña. */
 export function passwordResetEmailHtml(resetUrl: string): string {
   return `

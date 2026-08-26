@@ -23,6 +23,15 @@ usersRouter.get('/', requireRole('ADMIN'), validate(listUsersQuerySchema, 'query
 // admite HOST/GUEST; esta admite cualquier rol y empresa.
 usersRouter.post('/', requireRole('ADMIN'), validate(createUserSchema), usersController.create);
 
+// Reenviar la invitacion: el enlace caduca en 7 dias y los correos se
+// pierden. Sin esto, la unica salida seria borrar al usuario y recrearlo.
+usersRouter.post(
+  '/:id/invite',
+  requireRole('ADMIN'),
+  validate(userIdParamsSchema, 'params'),
+  usersController.reinvitar,
+);
+
 usersRouter.get('/:id', validate(userIdParamsSchema, 'params'), usersController.getById);
 
 usersRouter.patch(
