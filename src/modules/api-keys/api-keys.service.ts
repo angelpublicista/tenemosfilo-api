@@ -17,10 +17,20 @@ const safeSelect = {
   updatedAt: true,
 } as const;
 
-async function assertOwner(id: string, companyId: string) {
+/**
+ * `null` significa "sin restringir a una empresa", y solo lo pasa un ADMIN.
+ *
+ * Un admin no tiene empresa propia: si se le exigiera una, no podria ni ver
+ * ni revocar las llaves que el mismo emite para otros.
+ */
+type Ambito = string | null;
+
+async function assertOwner(id: string, companyId: Ambito) {
   const key = await prisma.apiKey.findUnique({ where: { id }, select: { companyId: true } });
   if (!key) throw NotFound('API key no encontrada');
-  if (key.companyId !== companyId) throw Forbidden('Esta key no pertenece a tu company');
+  if (companyId !== null && key.companyId !== companyId) {
+    throw Forbidden('Esta key no pertenece a tu company');
+  }
 }
 
 export const apiKeysService = {
@@ -44,22 +54,29 @@ export const apiKeysService = {
     return { ...key, token };
   },
 
-  async list(companyId: string) {
+  async list(companyId: Ambito) {
     return prisma.apiKey.findMany({
-      where: { companyId },
-      select: safeSelect,
+      where: companyId === null ? {} : { companyId },
+      // El admin ve llaves de varias empresas a la vez: sin el nombre, la
+      // lista serian identificadores indistinguibles.
+      select: { ...safeSelect, company: { select: { id: true, companyName: true } } },
       orderBy: { createdAt: 'desc' },
     });
   },
 
-  async getById(id: string, companyId: string) {
-    const key = await prisma.apiKey.findUnique({ where: { id }, select: safeSelect });
+  async getById(id: string, companyId: Ambito) {
+    const key = await prisma.apiKey.findUnique({
+      where: { id },
+      select: { ...safeSelect, company: { select: { id: true, companyName: true } } },
+    });
     if (!key) throw NotFound('API key no encontrada');
-    if (key.companyId !== companyId) throw Forbidden('Esta key no pertenece a tu company');
+    if (companyId !== null && key.companyId !== companyId) {
+      throw Forbidden('Esta key no pertenece a tu company');
+    }
     return key;
   },
 
-  async update(id: string, companyId: string, input: UpdateApiKeyInput) {
+  async update(id: string, companyId: Ambito, input: UpdateApiKeyInput) {
     await assertOwner(id, companyId);
     return prisma.apiKey.update({
       where: { id },
@@ -74,7 +91,7 @@ export const apiKeysService = {
     });
   },
 
-  async revoke(id: string, companyId: string) {
+  async revoke(id: string, companyId: Ambito) {
     await assertOwner(id, companyId);
     await prisma.apiKey.update({
       where: { id },
