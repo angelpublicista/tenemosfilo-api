@@ -69,6 +69,12 @@ export type DatosCorreoReserva = {
   lugar?: string | null;
   peticiones?: string | null;
   total?: number;
+  /**
+   * Logo del anfitrion de la experiencia reservada. El correo lo manda Filo,
+   * pero quien presta el servicio es el anfitrion: es su marca la que el
+   * comensal reconoce. Si no tiene logo, se queda su nombre en el texto.
+   */
+  logoEmpresa?: string | null;
 };
 
 type Fila = { etiqueta: string; valor: string };
@@ -109,8 +115,37 @@ function boton(texto: string, url: string): string {
     </p>`;
 }
 
-/** Marco comun: cabecera de color, contenido y pie. */
-function marco(opts: { titulo: string; color: string; contenido: string }): string {
+/**
+ * La marca del anfitrion, sobre banda blanca.
+ *
+ * No va dentro de la cabecera de color porque ese color cambia segun el
+ * mensaje —verde si se confirma, rojo si se cancela— y el logo lo pone cada
+ * anfitrion: no hay forma de saber si contrastara. Sobre blanco funciona
+ * siempre.
+ *
+ * El alt lleva el nombre de la empresa a proposito: muchos clientes de correo
+ * bloquean las imagenes por defecto, y asi lo que se ve en su lugar sigue
+ * diciendo de quien es el correo.
+ */
+function bandaDeMarca(logo: string | null | undefined, empresa: string): string {
+  if (!logo) return '';
+  return `
+            <tr>
+              <td style="padding:24px 32px 8px;text-align:center;background-color:#ffffff;">
+                <img src="${esc(logo)}" alt="${esc(empresa)}"
+                     style="max-height:52px;max-width:200px;height:auto;width:auto;" />
+              </td>
+            </tr>`;
+}
+
+/** Marco comun: marca del anfitrion, cabecera de color, contenido y pie. */
+function marco(opts: {
+  titulo: string;
+  color: string;
+  contenido: string;
+  logo?: string | null;
+  empresa?: string;
+}): string {
   return `<!DOCTYPE html>
 <html lang="es">
   <head>
@@ -126,6 +161,7 @@ function marco(opts: { titulo: string; color: string; contenido: string }): stri
           <table role="presentation" cellpadding="0" cellspacing="0" width="600"
                  style="max-width:600px;width:100%;background-color:#ffffff;border-radius:12px;overflow:hidden;
                         font-family:Arial,Helvetica,sans-serif;">
+            ${bandaDeMarca(opts.logo, opts.empresa ?? 'Tenemos Filo')}
             <tr>
               <td style="background-color:${opts.color};padding:28px 32px;">
                 <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:700;">${esc(
@@ -172,6 +208,8 @@ export function correoReservaComensal(d: DatosCorreoReserva) {
     subject: `Recibimos tu reserva · ${d.experienceTitle}`,
     html: marco({
       titulo: 'Tu reserva quedó registrada',
+      logo: d.logoEmpresa,
+      empresa: d.empresaNombre,
       color: NARANJA,
       contenido: `
         <p>Hola ${esc(d.clienteNombre)},</p>
@@ -195,6 +233,8 @@ export function correoReservaAnfitrion(d: DatosCorreoReserva) {
     subject: `Nueva reserva · ${d.experienceTitle} · ${fechaLarga(d.reservationDate)}`,
     html: marco({
       titulo: 'Tienes una reserva nueva',
+      logo: d.logoEmpresa,
+      empresa: d.empresaNombre,
       color: AZUL,
       contenido: `
         <p><strong>${esc(d.clienteNombre)}</strong> reservó ${esc(
@@ -220,6 +260,8 @@ export function correoReservaAdmin(d: DatosCorreoReserva) {
     subject: `[Filo] Reserva ${d.reservationNumber} · ${d.empresaNombre}`,
     html: marco({
       titulo: 'Reserva nueva en la plataforma',
+      logo: d.logoEmpresa,
+      empresa: d.empresaNombre,
       color: AZUL,
       contenido: `
         ${bloqueDatos([
@@ -243,6 +285,8 @@ export function correoConfirmadaComensal(d: DatosCorreoReserva) {
     subject: `Confirmada · ${d.experienceTitle} · ${fechaLarga(d.reservationDate)}`,
     html: marco({
       titulo: '¡Tu reserva está confirmada!',
+      logo: d.logoEmpresa,
+      empresa: d.empresaNombre,
       color: VERDE,
       contenido: `
         <p>Hola ${esc(d.clienteNombre)},</p>
@@ -258,6 +302,8 @@ export function correoCanceladaComensal(d: DatosCorreoReserva, motivo?: string) 
     subject: `Reserva cancelada · ${d.experienceTitle}`,
     html: marco({
       titulo: 'Tu reserva fue cancelada',
+      logo: d.logoEmpresa,
+      empresa: d.empresaNombre,
       color: ROJO,
       contenido: `
         <p>Hola ${esc(d.clienteNombre)},</p>
@@ -286,6 +332,8 @@ export function correoCanceladaAnfitrion(d: DatosCorreoReserva, motivo?: string)
     subject: `Cancelación · ${d.reservationNumber} · ${d.experienceTitle}`,
     html: marco({
       titulo: 'Se canceló una reserva',
+      logo: d.logoEmpresa,
+      empresa: d.empresaNombre,
       color: ROJO,
       contenido: `
         <p><strong>${esc(d.clienteNombre)}</strong> ya no asiste. El cupo queda libre.</p>
@@ -303,6 +351,8 @@ export function correoReprogramadaComensal(d: DatosCorreoReserva, motivo?: strin
     subject: `Nueva fecha · ${d.experienceTitle}`,
     html: marco({
       titulo: 'Cambió la fecha de tu reserva',
+      logo: d.logoEmpresa,
+      empresa: d.empresaNombre,
       color: NARANJA,
       contenido: `
         <p>Hola ${esc(d.clienteNombre)},</p>
@@ -326,6 +376,8 @@ export function correoPagoComensal(d: DatosCorreoReserva) {
     subject: `Pago confirmado · ${d.reservationNumber}`,
     html: marco({
       titulo: 'Recibimos tu pago',
+      logo: d.logoEmpresa,
+      empresa: d.empresaNombre,
       color: VERDE,
       contenido: `
         <p>Hola ${esc(d.clienteNombre)},</p>
@@ -345,6 +397,8 @@ export function correoPagoAnfitrion(d: DatosCorreoReserva) {
     subject: `Pago recibido · ${d.reservationNumber}`,
     html: marco({
       titulo: 'Entró un pago',
+      logo: d.logoEmpresa,
+      empresa: d.empresaNombre,
       color: VERDE,
       contenido: `
         ${bloqueDatos([

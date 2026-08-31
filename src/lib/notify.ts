@@ -181,6 +181,7 @@ type DatosReserva = {
   clienteEmail?: string | null;
   clienteTelefono?: string | null;
   empresaNombre?: string | null;
+  logoEmpresa?: string | null;
   lugar?: string | null;
   peticiones?: string | null;
 };
@@ -197,7 +198,7 @@ type ReservaCruda = {
   pricing?: unknown;
   client?: unknown;
   experience?: { title?: string } | null;
-  company?: { companyName?: string | null } | null;
+  company?: { companyName?: string | null; logo?: string | null } | null;
   location?: { name?: string | null; address?: unknown } | null;
   user?: { email?: string | null } | null;
   specialRequirements?: string | null;
@@ -248,6 +249,9 @@ export function datosDeReserva(r: ReservaCruda): DatosReserva {
     clienteEmail: cliente.email ?? r.user?.email ?? null,
     clienteTelefono: cliente.phone ?? null,
     empresaNombre: r.company?.companyName ?? null,
+    // El logo sale de la empresa dueña de la experiencia reservada: es el
+    // anfitrion que presta el servicio, no la plataforma que manda el correo.
+    logoEmpresa: r.company?.logo ?? null,
     lugar,
     peticiones: r.specialRequirements ?? null,
   };
@@ -260,7 +264,7 @@ export async function cargarDatosDeReserva(id: string): Promise<DatosReserva | n
       where: { id },
       include: {
         experience: { select: { title: true } },
-        company: { select: { companyName: true } },
+        company: { select: { companyName: true, logo: true } },
         location: { select: { name: true, address: true } },
         user: { select: { email: true } },
       },
@@ -278,6 +282,7 @@ function paraCorreo(r: DatosReserva): DatosCorreoReserva {
     reservationNumber: r.reservationNumber,
     experienceTitle: r.experienceTitle,
     empresaNombre: r.empresaNombre ?? 'Tenemos Filo',
+    logoEmpresa: r.logoEmpresa ?? null,
     reservationDate: r.reservationDate,
     participants: r.participants,
     clienteNombre: r.clienteNombre,
