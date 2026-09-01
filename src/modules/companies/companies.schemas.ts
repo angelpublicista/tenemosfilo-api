@@ -88,6 +88,9 @@ export const updateCompanySchema = z.object({
   // Ajustes de operacion: cambian como entran las reservas.
   autoConfirmReservations: z.boolean().optional(),
   blockWhenFull: z.boolean().optional(),
+  // nullable ademas de optional: null es "usar el valor de la plataforma",
+  // que es una eleccion distinta de no mandar el campo.
+  requirePayment: z.boolean().nullable().optional(),
 });
 
 export const companyIdParamsSchema = z.object({ id: z.string().min(1) });

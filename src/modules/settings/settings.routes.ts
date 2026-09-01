@@ -25,6 +25,7 @@ const updateSettingsSchema = z
     resellerCommissionValue: z.number().nonnegative().optional(),
 
     wompiEnabled: z.boolean().optional(),
+    requirePaymentDefault: z.boolean().optional(),
     wompiEnvironment: wompiEnvironmentEnum.optional(),
     wompiPublicKey: secreto,
     wompiPrivateKey: secreto,
@@ -55,6 +56,7 @@ function aRespuesta(s: Awaited<ReturnType<typeof getPlatformSettings>>) {
     resellerCommissionValue: s.resellerCommissionValue,
 
     wompiEnabled: s.wompiEnabled,
+    requirePaymentDefault: s.requirePaymentDefault,
     wompiEnvironment: s.wompiEnvironment,
     // La llave publica si se devuelve: es publica por diseño y el front la
     // necesita para abrir el checkout.
@@ -111,6 +113,9 @@ settingsRouter.patch('/', validate(updateSettingsSchema), async (req: Request, r
   const data = await prisma.platformSettings.update({
     where: { id: 'default' },
     data: {
+      ...(input.requirePaymentDefault !== undefined && {
+        requirePaymentDefault: input.requirePaymentDefault,
+      }),
       ...(input.filoCommissionType !== undefined && { filoCommissionType: input.filoCommissionType }),
       ...(input.filoCommissionValue !== undefined && {
         filoCommissionValue: input.filoCommissionValue,

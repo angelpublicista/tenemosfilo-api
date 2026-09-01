@@ -54,6 +54,10 @@ const companiaPublica = {
   companyEmail: true,
   companyPhone: true,
   website: true,
+  // Se lee para resolver si hay que pagar, pero no sale en la respuesta: su
+  // null significa "hereda de la plataforma", y publicarlo tal cual invita a
+  // leerlo como un "no".
+  requirePayment: true,
 } as const;
 
 /**
@@ -140,6 +144,15 @@ publicRouter.get(
       ajustes.wompiEnabled && ajustes.wompiPublicKey && ajustes.wompiIntegritySecret,
     );
 
-    res.json({ data: { company, experiences, paymentsEnabled } });
+    // Si hay que pagar para que la reserva valga. Lo decide la empresa; si no
+    // dice nada, el valor por defecto de la plataforma. Sin pasarela activa
+    // no puede exigirse: dejaria el catalogo sin forma de reservar.
+    const { requirePayment, ...empresaPublica } = company;
+    const paymentRequired =
+      paymentsEnabled && (requirePayment ?? ajustes.requirePaymentDefault ?? false);
+
+    res.json({
+      data: { company: empresaPublica, experiences, paymentsEnabled, paymentRequired },
+    });
   },
 );

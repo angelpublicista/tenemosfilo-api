@@ -96,13 +96,25 @@ type AddonElegido = { name?: string; quantity?: number };
  * ellos depende si una reserva entra y con que estado nace.
  */
 async function ajustesDeOperacion(companyId: string) {
-  const c = await prisma.company.findUnique({
-    where: { id: companyId },
-    select: { autoConfirmReservations: true, blockWhenFull: true },
-  });
+  const [c, plataforma] = await Promise.all([
+    prisma.company.findUnique({
+      where: { id: companyId },
+      select: { autoConfirmReservations: true, blockWhenFull: true, requirePayment: true },
+    }),
+    getPlatformSettings(),
+  ]);
+
+  // La empresa manda; si no dice nada, el valor por defecto de la plataforma.
+  // null y false no son lo mismo: sin esa distincion, cambiar el defecto no
+  // alcanzaria a las empresas ya creadas.
+  const exigePago = c?.requirePayment ?? plataforma.requirePaymentDefault ?? false;
+
   return {
     autoConfirmar: c?.autoConfirmReservations ?? false,
     bloquearLleno: c?.blockWhenFull ?? true,
+    // Exigir pago sin pasarela dejaria el catalogo sin forma de reservar:
+    // el ajuste solo surte efecto si de verdad se puede cobrar.
+    exigePago: exigePago && Boolean(plataforma.wompiEnabled),
   };
 }
 
@@ -118,6 +130,7 @@ async function verificarAforo(
   fecha: Date,
   participantes: number,
   bloquearLleno: boolean,
+  exigePago = false,
 ) {
   if (!bloquearLleno) return;
 
@@ -139,6 +152,13 @@ async function verificarAforo(
       experienceId,
       status: { notIn: ['CANCELLED', 'NO_SHOW'] },
       reservationDate: { gte: inicio, lt: fin },
+      // Con pago obligatorio, una reserva sin pagar no retiene el lugar: si
+      // lo hiciera, cada checkout abandonado bloquearia una plaza real que
+      // nadie mas podria comprar. Las cargadas a mano por el anfitrion si
+      // cuentan siempre: no pasaron por la pasarela y son decision suya.
+      ...(exigePago
+        ? { OR: [{ paymentStatus: 'PAID' }, { source: 'MANUAL' }] }
+        : {}),
     },
     _sum: { participants: true },
   });
@@ -268,12 +288,13 @@ export const reservationsService = {
 
     // Tambien aqui: una venta de revendedor o una reserva cargada a mano no
     // deberian poder pasarse del aforo si la empresa lo tiene bloqueado.
-    const { bloquearLleno } = await ajustesDeOperacion(companyId);
+    const { bloquearLleno, exigePago } = await ajustesDeOperacion(companyId);
     await verificarAforo(
       input.experience,
       new Date(input.reservationDate),
       input.participants,
       bloquearLleno,
+      exigePago,
     );
 
     const creada = await prisma.reservation.create({
@@ -355,8 +376,8 @@ export const reservationsService = {
 
     // Los ajustes de la empresa mandan sobre como entra la reserva.
     const fecha = new Date(input.reservationDate);
-    const { autoConfirmar, bloquearLleno } = await ajustesDeOperacion(companyId);
-    await verificarAforo(input.experience, fecha, input.participants, bloquearLleno);
+    const { autoConfirmar, bloquearLleno, exigePago } = await ajustesDeOperacion(companyId);
+    await verificarAforo(input.experience, fecha, input.participants, bloquearLleno, exigePago);
 
     const creada = await prisma.reservation.create({
       data: {

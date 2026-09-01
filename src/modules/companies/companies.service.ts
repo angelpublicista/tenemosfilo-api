@@ -375,6 +375,7 @@ export const companiesService = {
       data.autoConfirmReservations = input.autoConfirmReservations;
     }
     if (input.blockWhenFull !== undefined) data.blockWhenFull = input.blockWhenFull;
+    if (input.requirePayment !== undefined) data.requirePayment = input.requirePayment;
 
     return prisma.company.update({
       where: { id },

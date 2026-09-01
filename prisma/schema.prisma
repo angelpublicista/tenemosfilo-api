@@ -168,6 +168,11 @@ model Company {
   autoConfirmReservations Boolean @default(false)
   blockWhenFull           Boolean @default(true)
 
+  // Si hay que pagar para que la reserva valga. null = hereda el valor por
+  // defecto de la plataforma; una cena de degustacion puede querer prepago y
+  // un recorrido casual no.
+  requirePayment Boolean?
+
   employeeCount String? // enum-like; lo dejamos string para flexibilidad de UI
   annualRevenue String?
   businessYears String?
@@ -283,6 +288,13 @@ model PlatformSettings {
   // Comision del revendedor: solo se aplica si la reserva entra por esa via.
   resellerCommissionType  CommissionType @default(PERCENT)
   resellerCommissionValue Decimal        @default(0) @db.Decimal(12, 2)
+
+  // Valor por defecto de "hay que pagar para reservar". Cada empresa puede
+  // apartarse de el; esto es solo lo que se aplica si no dice nada.
+  //
+  // Exigir pago sin pasarela activa dejaria el catalogo sin forma de
+  // reservar, asi que solo surte efecto si wompiEnabled esta encendido.
+  requirePaymentDefault Boolean @default(false)
 
   // ──────── Pasarela de pagos (Wompi) ────────
   // Solo el ADMIN configura esto. Las llaves privadas NUNCA salen del API:
