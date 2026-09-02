@@ -57,6 +57,12 @@ export function dondeEstaElCatalogo(slugOrId: string): Prisma.CompanyWhereInput 
 
 const defaultInclude = {
   locations: { where: { deletedAt: null }, select: { id: true, name: true, isMain: true } },
+  // El rol del titular dice que clase de negocio es la empresa: el de un
+  // anfitrion que vende lo suyo o el de un revendedor que vende lo de
+  // otros. El panel lo necesita para saber que pantallas enseñar cuando se
+  // opera sobre ella, y con ownerId a secas no puede deducirlo. Solo el
+  // rol: el id ya viaja en ownerId y el resto del titular no hace falta.
+  owner: { select: { id: true, role: true } },
 } satisfies Prisma.CompanyInclude;
 
 export const companiesService = {
@@ -259,7 +265,7 @@ export const companiesService = {
           companyType: true,
           deletedAt: true,
           createdAt: true,
-          owner: { select: { id: true, name: true, email: true } },
+          owner: { select: { id: true, name: true, email: true, role: true } },
           // Conteos para la tabla del panel, sin traerse las filas.
           // Filtramos deletedAt: contar los borrados logicos mostraba mas
           // experiencias de las que la empresa tiene realmente.
