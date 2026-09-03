@@ -156,3 +156,32 @@ publicRouter.get(
     });
   },
 );
+
+/**
+ * Estado de una reserva, para la pagina a la que vuelve el cliente desde la
+ * pasarela.
+ *
+ * Publico porque quien paga no tiene cuenta: llega de vuelta de Wompi con
+ * su numero de reserva y nada mas.
+ *
+ * Devuelve SOLO el estado: ni cliente, ni importe, ni que reservo. El numero
+ * de reserva no es un secreto fuerte —tres caracteres al azar sobre una
+ * marca de tiempo— asi que lo que cuelgue de el tiene que ser lo minimo
+ * imprescindible para no mentirle a quien acaba de pagar. El limite de
+ * peticiones del catalogo publico aplica igual: /public va detras de el.
+ */
+publicRouter.get(
+  '/reservations/:reservationNumber/status',
+  validate(z.object({ reservationNumber: z.string().min(1) }), 'params'),
+  async (req: Request, res: Response) => {
+    const { reservationNumber } = req.params as { reservationNumber: string };
+
+    const reserva = await prisma.reservation.findUnique({
+      where: { reservationNumber },
+      select: { reservationNumber: true, status: true, paymentStatus: true },
+    });
+    if (!reserva) throw NotFound('Reserva no encontrada');
+
+    res.json({ data: reserva });
+  },
+);

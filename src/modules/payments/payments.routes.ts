@@ -55,7 +55,7 @@ paymentsRouter.post('/wompi/webhook', async (req: Request, res: Response) => {
   // La referencia que enviamos al checkout es el numero de reserva.
   const reserva = await prisma.reservation.findUnique({
     where: { reservationNumber: referencia },
-    select: { id: true, paymentStatus: true },
+    select: { id: true, paymentStatus: true, paymentDetails: true },
   });
   if (!reserva) {
     logger.warn({ referencia }, 'Webhook de Wompi para una reserva desconocida');
@@ -63,6 +63,29 @@ paymentsRouter.post('/wompi/webhook', async (req: Request, res: Response) => {
   }
 
   const nuevoEstado = aEstadoDePago(estado);
+  const idTransaccion = typeof transaccion?.id === 'string' ? transaccion.id : null;
+  const idQuePago =
+    (reserva.paymentDetails as { transactionId?: string | null } | null)?.transactionId ?? null;
+
+  // Un cobro hecho no se deshace por un evento de OTRA transaccion.
+  //
+  // Wompi reintenta las entregas que fallan, asi que los eventos pueden
+  // llegar desordenados. El caso real: al cliente le rechazan la tarjeta,
+  // reintenta y el segundo cobro entra; si la entrega del rechazo se
+  // reintenta despues, aterriza sobre una reserva ya pagada. Antes se
+  // aplicaba tal cual y la dejaba confirmada pero marcada como no pagada,
+  // con el dinero cobrado.
+  //
+  // La anulacion de la transaccion que SI pago —misma id, estado VOIDED—
+  // es otra cosa y tiene que entrar: ahi el dinero se devuelve de verdad.
+  if (reserva.paymentStatus === 'PAID' && nuevoEstado !== 'PAID' && idTransaccion !== idQuePago) {
+    logger.warn(
+      { referencia, estado, idTransaccion, idQuePago },
+      'Evento de Wompi descartado: la reserva ya esta pagada por otra transaccion',
+    );
+    return res.status(200).json({ received: true });
+  }
+
   await prisma.reservation.update({
     where: { id: reserva.id },
     data: {
