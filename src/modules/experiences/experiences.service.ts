@@ -21,7 +21,6 @@ async function uniqueSlug(base: string, ignoreId?: string) {
   const baseSlug = slugify(base) || 'experiencia';
   let candidate = baseSlug;
   let i = 1;
-  // eslint-disable-next-line no-constant-condition
   while (true) {
     const exists = await prisma.experience.findFirst({
       where: { slug: candidate, NOT: ignoreId ? { id: ignoreId } : undefined },

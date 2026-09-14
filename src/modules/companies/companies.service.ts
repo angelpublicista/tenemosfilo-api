@@ -23,7 +23,6 @@ async function uniqueSlug(base: string, ignoreId?: string): Promise<string> {
   let candidate = baseSlug;
   let i = 1;
   // Loop hasta encontrar uno libre. En la practica termina rapido.
-  // eslint-disable-next-line no-constant-condition
   while (true) {
     // Tambien se descartan los slugs que otra empresa tuvo antes. Un slug
     // liberado sigue vivo en enlaces compartidos: si se lo diera a otra

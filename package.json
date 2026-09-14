@@ -19,7 +19,7 @@
     "db:local:setup": "npm run db:local:create && DB_TARGET=local npm run prisma:deploy && npm run db:local:seed",
     "db:local:seed": "tsx scripts/seed-dev-users.ts && tsx scripts/seed-dev-data.ts",
     "db:local:seed:users": "tsx scripts/seed-dev-users.ts",
-    "lint": "eslint . --ext .ts",
+    "lint": "eslint .",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -48,6 +48,7 @@
     "pino-pretty": "^11.3.0",
     "prisma": "^5.22.0",
     "tsx": "^4.19.2",
-    "typescript": "^5.6.3"
+    "typescript": "^5.6.3",
+    "typescript-eslint": "^8.70.0"
   }
 }
