@@ -1,0 +1,196 @@
+# Compila el API en GitHub, lo entrega a la instancia y publica.
+#
+# Por que no se empaqueta node_modules aqui, como si hace el front: el API
+# depende de `bcrypt` (addon nativo) y de `@prisma/client` (motores por
+# plataforma). Lo que compila un runner x64 de GitHub no tiene por que valer
+# en la instancia. Asi que aqui solo se compila TypeScript, que es portable,
+# y las dependencias se instalan alli.
+name: Desplegar API
+
+# De momento solo a mano, desde la pestaña Actions. A diferencia del front,
+# este despliegue aplica migraciones a la base de produccion, asi que conviene
+# mirarlo de cerca las primeras veces.
+#
+# Para pasarlo a automatico, descomentar:
+#
+#   push:
+#     branches: [main]
+#
+on:
+  workflow_dispatch:
+
+# Si se lanzan dos seguidos, el segundo cancela al primero. Sin esto dos
+# despliegues podrian pisarse aplicando migraciones a la vez sobre la misma
+# base.
+concurrency:
+  group: desplegar-api
+  cancel-in-progress: true
+
+env:
+  RUTA_REMOTA: /srv/tenemosfilo-api
+  USUARIO_REMOTO: ubuntu
+
+jobs:
+  desplegar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      # Antes de tocar produccion. Un fallo de tipos aqui cuesta un minuto;
+      # descubierto en la instancia cuesta el API caido.
+      - name: Revisar tipos
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Compilar
+        run: npm run build
+
+      - name: Empaquetar
+        run: |
+          # Lo que necesita el API para funcionar:
+          #   dist/     el servidor compilado
+          #   prisma/   schema y migraciones (las aplica la instancia)
+          #   docs/     /docs lee openapi.yaml desde el cwd
+          #   scripts/  resolve-db-url.mjs, que elige la base en prisma:deploy
+          #   package*  para el npm ci de la instancia
+          mkdir -p paquete
+          cp -r dist paquete/dist
+          cp -r prisma paquete/prisma
+          cp -r docs paquete/docs
+          cp -r scripts paquete/scripts
+          cp package.json package-lock.json ecosystem.config.js paquete/
+          tar -czf api.tar.gz -C paquete .
+          echo "tamaño del paquete: $(du -h api.tar.gz | cut -f1)"
+
+      - name: Preparar el acceso SSH
+        env:
+          HOST_CRUDO: ${{ secrets.SSH_HOST }}
+          LLAVE: ${{ secrets.SSH_LLAVE_DESPLIEGUE }}
+        run: |
+          if [ -z "$LLAVE" ]; then
+            echo "Falta el secreto SSH_LLAVE_DESPLIEGUE en este repositorio." >&2
+            exit 1
+          fi
+
+          mkdir -p ~/.ssh
+          printf '%s\n' "$LLAVE" > ~/.ssh/despliegue
+          chmod 600 ~/.ssh/despliegue
+
+          # El secreto se pega a mano, asi que se normaliza en vez de confiar
+          # en que venga limpio: un salto de linea, un "https://" o el propio
+          # "ubuntu@" delante hacen que scp falle con "hostname contains
+          # invalid characters", que no dice donde esta el problema.
+          HOST=$(printf '%s' "$HOST_CRUDO" \
+            | tr -d '[:space:]' \
+            | sed -E 's#^[a-zA-Z]+://##; s#/+$##; s#^.*@##')
+
+          if [ -z "$HOST" ]; then
+            echo "El secreto SSH_HOST esta vacio o no es un host valido." >&2
+            exit 1
+          fi
+          echo "Desplegando en: $HOST"
+          echo "HOST=$HOST" >> "$GITHUB_ENV"
+
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Subir el paquete
+        run: |
+          scp -i ~/.ssh/despliegue -o StrictHostKeyChecking=accept-new api.tar.gz \
+            "$USUARIO_REMOTO@$HOST:/tmp/api-${{ github.sha }}.tar.gz"
+
+      - name: Publicar en la instancia
+        run: |
+          ssh -i ~/.ssh/despliegue -o StrictHostKeyChecking=accept-new "$USUARIO_REMOTO@$HOST" \
+            "RUTA='$RUTA_REMOTA' SHA='${{ github.sha }}' bash -s" <<'REMOTO'
+          set -euo pipefail
+
+          if [ ! -f "$RUTA/.env" ]; then
+            echo "No hay $RUTA/.env. El API no arrancaria sin configuracion." >&2
+            exit 1
+          fi
+
+          NUEVA="$RUTA/releases/$SHA"
+          rm -rf "$NUEVA" && mkdir -p "$NUEVA"
+          tar -xzf "/tmp/api-$SHA.tar.gz" -C "$NUEVA"
+          rm -f "/tmp/api-$SHA.tar.gz"
+
+          # El .env es de la instancia, no del repo: se enlaza en cada
+          # despliegue para que dotenv lo encuentre desde el cwd.
+          ln -sfn "$RUTA/.env" "$NUEVA/.env"
+
+          # node_modules se comparte entre despliegues en vez de instalarse en
+          # cada uno: son cientos de megas y el disco es de 6,7 GB. Se
+          # reinstala solo cuando cambia el lockfile.
+          mkdir -p "$RUTA/node_modules"
+          ln -sfn "$RUTA/node_modules" "$NUEVA/node_modules"
+
+          if ! cmp -s "$NUEVA/package-lock.json" "$RUTA/package-lock.json" 2>/dev/null; then
+            echo "El lockfile cambio: reinstalando dependencias."
+            cp "$NUEVA/package.json" "$NUEVA/package-lock.json" "$RUTA/"
+            # Con las de desarrollo: la CLI de Prisma es devDependency y es la
+            # que aplica las migraciones aqui mismo.
+            ( cd "$RUTA" && npm ci )
+          fi
+
+          # El cliente de Prisma se genera contra el schema de esta version.
+          ( cd "$NUEVA" && npx prisma generate )
+
+          # Las migraciones van ANTES de mover el enlace, con el codigo viejo
+          # todavia atendiendo. Eso obliga a que sean compatibles hacia atras
+          # —añadir tablas o columnas opcionales, no renombrar ni borrar—,
+          # porque si el arranque falla se vuelve a la version anterior pero la
+          # migracion ya esta aplicada y no se deshace sola.
+          ( cd "$NUEVA" && npm run prisma:deploy )
+
+          ANTERIOR_REAL=$(readlink -f "$RUTA/current" 2>/dev/null || echo "")
+
+          ln -sfn "$NUEVA" "$RUTA/current"
+
+          cd "$RUTA"
+          # startOrReload relee el ecosystem: hace falta para que PM2 resuelva
+          # de nuevo el enlace `current` y no siga sirviendo el anterior.
+          pm2 startOrReload "$NUEVA/ecosystem.config.js" --update-env
+          pm2 save --force
+
+          # Comprobar que responde de verdad antes de dar el despliegue por
+          # bueno. Si no levanta, se vuelve a la version anterior.
+          ok=0
+          for i in $(seq 1 15); do
+            if curl -fsS -o /dev/null http://127.0.0.1:4000/health; then ok=1; break; fi
+            sleep 2
+          done
+
+          if [ "$ok" != "1" ]; then
+            echo "La version nueva no responde. Volviendo a la anterior." >&2
+            if [ -n "$ANTERIOR_REAL" ] && [ -d "$ANTERIOR_REAL" ]; then
+              ln -sfn "$ANTERIOR_REAL" "$RUTA/current"
+              pm2 startOrReload "$ANTERIOR_REAL/ecosystem.config.js" --update-env
+              echo "Restaurada $ANTERIOR_REAL. OJO: las migraciones aplicadas NO se deshacen." >&2
+            else
+              echo "No hay version anterior a la que volver." >&2
+            fi
+            exit 1
+          fi
+
+          # Conservar solo las tres ultimas: el disco es de 6,7 GB.
+          ls -1dt "$RUTA"/releases/*/ | tail -n +4 | xargs -r rm -rf
+          echo "Publicado $SHA"
+          REMOTO
+
+      - name: Comprobar desde fuera
+        run: |
+          codigo=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 https://api.tenemosfilo.com/health)
+          echo "https://api.tenemosfilo.com/health -> $codigo"
+          [ "$codigo" = "200" ] || exit 1
