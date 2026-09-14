@@ -18,6 +18,8 @@ export const API_SCOPES = [
   'availabilities:write',
   'locations:read',
   'locations:write',
+  'menus:read',
+  'menus:write',
   'companies:read',
   'companies:write',
   'dashboard:read',

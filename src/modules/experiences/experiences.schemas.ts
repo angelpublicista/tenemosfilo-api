@@ -34,6 +34,7 @@ export const createExperienceSchema = z.object({
   featuredImage: optUrl,
   gallery: z.array(galleryItemSchema).optional().default([]),
   locations: z.array(z.string().min(1)).optional().default([]),
+  menus: z.array(z.string().min(1)).optional().default([]),
   availabilities: z.array(z.string().min(1)).optional().default([]),
   experienceType: experienceTypeEnum.optional().default('PRESENTIAL'),
   isVirtual: z.boolean().optional().default(false),

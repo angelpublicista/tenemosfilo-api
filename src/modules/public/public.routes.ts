@@ -24,6 +24,12 @@ const experienciaPublica = {
     where: { deletedAt: null },
     select: { id: true, name: true, isMain: true, address: true },
   },
+  // La carta. Solo los menus vivos: uno desactivado o borrado no debe
+  // seguir enseñandose a quien mira el catalogo.
+  menus: {
+    where: { deletedAt: null, isActive: true },
+    select: { id: true, name: true, description: true, sections: true },
+  },
   // Sin esto el paso de fecha y hora no tiene horarios que ofrecer y el
   // cliente no puede completar la reserva.
   availabilities: {

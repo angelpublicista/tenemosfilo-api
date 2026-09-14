@@ -179,6 +179,7 @@ model Company {
 
   users                  User[]           @relation("CompanyUsers")
   locations              Location[]
+  menus                  Menu[]
   experiences            Experience[]
   reservations           Reservation[]
   // Reservas que esta empresa vendio como revendedora.
@@ -220,6 +221,45 @@ model Location {
   experiences    Experience[]   @relation("ExperienceLocations")
   availabilities Availability[]
   reservations   Reservation[]
+
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([companyId])
+}
+
+// La carta de un anfitrion: que se come en sus experiencias.
+//
+// Es entidad propia y no texto dentro de la experiencia porque la misma carta
+// suele servir para varias: manteniendola en un solo sitio, cambiar un plato
+// no obliga a editar cada experiencia donde aparece.
+model Menu {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+
+  name        String
+  slug        String?
+  description String? @db.Text
+
+  // Secciones con sus platos, en un solo campo:
+  //   [{ name, items: [{ name, description?, price?, image? }] }]
+  //
+  // Van como JSON y no en tablas propias porque un menu se edita entero de
+  // una vez: el orden sale del array y guardar es un solo UPDATE. El precio
+  // del plato es informativo y opcional —en un menu de degustacion incluido
+  // en la experiencia no pinta nada—, y no entra en el total de la reserva.
+  //
+  // El precio de esto es que no se puede consultar por plato (buscar un
+  // ingrediente, filtrar por alergeno). Si eso hiciera falta, toca sacar
+  // secciones y platos a sus propias tablas.
+  sections Json?
+
+  // Una carta puede servir a varias experiencias, y una experiencia puede
+  // ofrecer varias (la normal y la vegetariana, por ejemplo).
+  experiences Experience[] @relation("ExperienceMenus")
 
   isActive  Boolean   @default(true)
   createdAt DateTime  @default(now())
@@ -373,6 +413,7 @@ model Experience {
   totalRevenue       Decimal          @default(0) @db.Decimal(14, 2)
 
   locations        Location[]              @relation("ExperienceLocations")
+  menus            Menu[]                  @relation("ExperienceMenus")
   availabilities   Availability[]          @relation("ExperienceAvailabilities")
   reservations     Reservation[]
   quotes           Quote[]                 @relation("QuoteExperiences")

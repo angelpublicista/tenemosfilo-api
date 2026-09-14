@@ -22,6 +22,7 @@ import { reservationsRouter } from './modules/reservations/reservations.routes.j
 import { quotesRouter } from './modules/quotes/quotes.routes.js';
 import { availabilitiesRouter } from './modules/availabilities/availabilities.routes.js';
 import { locationsRouter } from './modules/locations/locations.routes.js';
+import { menusRouter } from './modules/menus/menus.routes.js';
 import { integrationsRouter } from './modules/integrations/integrations.routes.js';
 import { dashboardRouter } from './modules/dashboard/dashboard.routes.js';
 import { uploadsRouter } from './modules/uploads/uploads.routes.js';
@@ -104,6 +105,7 @@ export function createApp() {
   app.use('/quotes', limiteGeneral, quotesRouter);
   app.use('/availabilities', limiteGeneral, availabilitiesRouter);
   app.use('/locations', limiteGeneral, locationsRouter);
+  app.use('/menus', limiteGeneral, menusRouter);
   app.use('/integrations', limiteGeneral, integrationsRouter);
   app.use('/dashboard', limiteGeneral, dashboardRouter);
   app.use('/uploads', limiteGeneral, uploadsRouter);

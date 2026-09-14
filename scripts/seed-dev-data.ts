@@ -179,6 +179,81 @@ async function main() {
   });
   resumen['Experiencias enriquecidas'] = 2;
 
+  // ─── Menus ───────────────────────────────────────────────────────────────
+  // Dos cartas para la misma cena: la normal y la vegetariana. Es el caso
+  // que justifica la relacion N:M, asi que conviene tenerlo sembrado.
+  const menus = [
+    {
+      companyId: filo.id,
+      name: 'Menú Degustación',
+      slug: 'menu-degustacion',
+      description: 'Cinco tiempos con maridaje.',
+      sections: [
+        {
+          name: 'Entradas',
+          items: [
+            { name: 'Ceviche de róbalo', description: 'Leche de tigre, camote y cancha' },
+            { name: 'Tartar de atún', description: 'Aguacate y ajonjolí tostado' },
+          ],
+        },
+        {
+          name: 'Fuertes',
+          items: [
+            { name: 'Lomo al trébol', description: 'Res madurada, papa criolla' },
+            { name: 'Risotto de hongos', description: 'Portobello y parmesano' },
+          ],
+        },
+        { name: 'Postres', items: [{ name: 'Tres leches de arequipe' }] },
+      ],
+    },
+    {
+      companyId: filo.id,
+      name: 'Menú Vegetariano',
+      slug: 'menu-vegetariano',
+      description: 'La misma cena, sin proteína animal.',
+      sections: [
+        {
+          name: 'Entradas',
+          items: [{ name: 'Carpaccio de remolacha', description: 'Queso de cabra y nueces' }],
+        },
+        {
+          name: 'Fuertes',
+          items: [{ name: 'Risotto de hongos', description: 'Portobello y parmesano' }],
+        },
+        { name: 'Postres', items: [{ name: 'Sorbete de maracuyá' }] },
+      ],
+    },
+  ] as const;
+
+  const menusCreados: Record<string, string> = {};
+  for (const m of menus) {
+    const existente = await prisma.menu.findFirst({
+      where: { companyId: m.companyId, name: m.name },
+    });
+    const menu = existente
+      ? await prisma.menu.update({
+          where: { id: existente.id },
+          data: { ...m, sections: m.sections as object[], deletedAt: null, isActive: true },
+        })
+      : await prisma.menu.create({ data: { ...m, sections: m.sections as object[] } });
+    menusCreados[m.name] = menu.id;
+  }
+  resumen['Menús'] = menus.length;
+
+  // La cena ofrece las dos cartas; el taller no tiene.
+  await prisma.experience.update({
+    where: { id: cena.id },
+    data: {
+      menus: {
+        set: [
+          { id: menusCreados['Menú Degustación']! },
+          { id: menusCreados['Menú Vegetariano']! },
+        ],
+      },
+    },
+  });
+
+
   // ─── Disponibilidad ──────────────────────────────────────────────────────
   // Sin esto el motor de reservas no ofrece horarios y no se puede reservar.
   const calendarios = [

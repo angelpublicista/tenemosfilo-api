@@ -39,6 +39,10 @@ const fullInclude = {
     where: { deletedAt: null },
     select: { id: true, name: true, address: true, isMain: true, capacity: true },
   },
+  menus: {
+    where: { deletedAt: null, isActive: true },
+    select: { id: true, name: true, description: true, sections: true },
+  },
   availabilities: {
     where: { deletedAt: null },
     select: {
@@ -56,6 +60,7 @@ const fullInclude = {
 const lightInclude = {
   company: { select: { id: true, companyName: true } },
   locations: { where: { deletedAt: null }, select: { id: true, name: true, isMain: true } },
+  menus: { where: { deletedAt: null, isActive: true }, select: { id: true, name: true } },
 } satisfies Prisma.ExperienceInclude;
 
 async function assertCanManage(
@@ -126,6 +131,10 @@ export const experiencesService = {
         locations:
           input.locations && input.locations.length
             ? { connect: input.locations.map((id) => ({ id })) }
+            : undefined,
+        menus:
+          input.menus && input.menus.length
+            ? { connect: input.menus.map((id) => ({ id })) }
             : undefined,
         availabilities:
           input.availabilities && input.availabilities.length
@@ -290,6 +299,9 @@ export const experiencesService = {
 
     if (input.locations !== undefined) {
       data.locations = { set: input.locations.map((id) => ({ id })) };
+    }
+    if (input.menus !== undefined) {
+      data.menus = { set: input.menus.map((id) => ({ id })) };
     }
     if (input.availabilities !== undefined) {
       data.availabilities = { set: input.availabilities.map((id) => ({ id })) };

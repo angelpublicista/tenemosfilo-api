@@ -231,6 +231,48 @@ paths:
                     type: array
                     items: { $ref: "#/components/schemas/Sede" }
 
+  /menus:
+    get:
+      operationId: listarMenus
+      tags: [Experiencias]
+      summary: Menus
+      description: Las cartas del anfitrion. Cada experiencia dice cuales ofrece.
+      security:
+        - ApiKey: [menus:read]
+      parameters:
+        - { name: includeInactive, in: query, schema: { type: boolean }, description: "Incluye las cartas desactivadas" }
+      responses:
+        "200":
+          description: Listado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Menu" }
+
+  /menus/{id}:
+    get:
+      operationId: obtenerMenu
+      tags: [Experiencias]
+      summary: Una carta
+      security:
+        - ApiKey: [menus:read]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: La carta
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Menu" }
+        "404": { description: No existe, o no es de tu empresa }
+
   /companies/me:
     get:
       operationId: obtenerMiEmpresa
@@ -602,6 +644,32 @@ components:
             city: { type: string }
             state: { type: string }
             country: { type: string }
+
+    Menu:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: [string, "null"] }
+        sections:
+          type: array
+          description: Secciones de la carta, en el orden en que se muestran.
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              description: { type: string }
+              items:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name: { type: string }
+                    description: { type: string }
+                    price:
+                      type: number
+                      description: Informativo y opcional. No entra en el total de la reserva.
+                    image: { type: string }
 
     Empresa:
       type: object
