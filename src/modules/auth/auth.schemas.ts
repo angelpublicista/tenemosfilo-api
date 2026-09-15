@@ -18,6 +18,10 @@ export const registerSchema = z.object({
   role: z.enum(['HOST', 'GUEST']).default('GUEST'),
   documentType: z.string().optional(),
   documentNumber: z.string().optional(),
+  // Token del widget. Opcional en el schema para no romper a quien ya llama a
+  // este endpoint; si la verificacion esta activa y no viene, se rechaza en el
+  // servicio.
+  recaptchaToken: z.string().optional(),
 });
 
 export const googleAuthSchema = z.object({

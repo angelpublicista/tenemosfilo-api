@@ -2,6 +2,7 @@ import { createApp } from './app.js';
 import { dbTarget, env } from './config/env.js';
 import { prisma } from './config/prisma.js';
 import { logger } from './lib/logger.js';
+import { recaptchaActivo } from './lib/recaptcha.js';
 
 /** Host de la BD sin credenciales, para saber de un vistazo contra que corres. */
 function dbHost(url: string): string {
@@ -19,6 +20,11 @@ async function bootstrap() {
   const server = app.listen(env.PORT, () => {
     logger.info(`API escuchando en http://localhost:${env.PORT} (${env.NODE_ENV})`);
     logger.info(`BD: ${dbTarget} -> ${dbHost(env.DATABASE_URL)}`);
+    // Que el registro no este filtrando nada es justo el tipo de cosa que se
+    // descubre tarde y mal. Se dice al arrancar, no cuando ya entraron bots.
+    if (!recaptchaActivo()) {
+      logger.warn('reCAPTCHA SIN verificar: falta RECAPTCHA_SECRET_KEY, el registro no filtra bots');
+    }
   });
 
   const shutdown = async (signal: string) => {

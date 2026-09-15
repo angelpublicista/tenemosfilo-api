@@ -40,6 +40,16 @@ const envSchema = z.object({
   GOOGLE_CLIENT_SECRET: z.string().optional().default(''),
   CORS_ORIGIN: z.string().default('http://localhost:3000'),
 
+  // ──────── reCAPTCHA ────────
+  // La clave SECRETA, pareja de la NEXT_PUBLIC_RECAPTCHA_SITE_KEY que usa el
+  // front para pintar el widget. Va aqui y no alli porque todo lo que el front
+  // marca como NEXT_PUBLIC_ acaba dentro del JS que ve el navegador.
+  //
+  // Si falta, el registro sigue funcionando pero sin filtrar nada, y se avisa
+  // al arrancar. Mismo criterio que ZeptoMail: una credencial ausente no debe
+  // tumbar el servicio, pero tampoco pasar desapercibida.
+  RECAPTCHA_SECRET_KEY: z.string().optional().default(''),
+
   // ──────── Correo transaccional (ZeptoMail) ────────
   // Necesario para la recuperacion de contraseña y los avisos de reserva.
   // Si faltan, el endpoint sigue respondiendo 204 pero no se envia nada

@@ -8,7 +8,9 @@ export const authController = {
   },
 
   async register(req: Request, res: Response) {
-    const user = await authService.register(req.body);
+    // La IP se pasa desde aqui porque es lo unico de esta comprobacion que
+    // vive en la request; el servicio no deberia saber de HTTP.
+    const user = await authService.register(req.body, req.ip);
     res.status(201).json({ data: user });
   },
 

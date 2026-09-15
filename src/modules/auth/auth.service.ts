@@ -6,6 +6,7 @@ import { invitationEmailHtml, passwordResetEmailHtml, sendEmail } from '../../li
 import { BadRequest, Conflict, NotFound, Unauthorized } from '../../lib/errors.js';
 import { logger } from '../../lib/logger.js';
 import { hashPassword, verifyPassword } from '../../lib/password.js';
+import { verificarRecaptcha } from '../../lib/recaptcha.js';
 import type {
   ChangePasswordInput,
   ForgotPasswordInput,
@@ -59,7 +60,14 @@ export const authService = {
     return this.toPublic(user);
   },
 
-  async register(input: RegisterInput) {
+  async register(input: RegisterInput, ip?: string) {
+    // Antes de mirar nada mas: si no es una persona, no seguimos.
+    const captcha = await verificarRecaptcha(input.recaptchaToken, ip);
+    if (!captcha.valido) {
+      logger.warn({ email: input.email, motivo: captcha.motivo }, 'registro rechazado por reCAPTCHA');
+      throw BadRequest('No pudimos verificar que no eres un robot. Vuelve a intentarlo.');
+    }
+
     const exists = await prisma.user.findUnique({ where: { email: input.email } });
     if (exists) throw Conflict('Ya existe un usuario con ese email');
 
