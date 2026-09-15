@@ -213,12 +213,6 @@ jobs:
               ln -sfn "$ANTERIOR_REAL" "$RUTA/current"
               pm2 startOrReload "$ANTERIOR_REAL/ecosystem.config.js" --update-env
               echo "Restaurada $ANTERIOR_REAL." >&2
-            elif [ -f "$RUTA/dist/server.js" ] && [ -f "$RUTA/ecosystem.config.js" ]; then
-              # Primer despliegue: todavia no hay una version anterior en
-              # releases/, pero si esta el clon de git desde el que se
-              # publicaba a mano. Sirve de red para esta vez y solo para esta.
-              echo "Sin version anterior; volviendo al clon de git de la instancia." >&2
-              pm2 startOrReload "$RUTA/ecosystem.config.js" --update-env
             else
               echo "No hay a donde volver. El API se queda caido: hay que mirarlo a mano." >&2
             fi
