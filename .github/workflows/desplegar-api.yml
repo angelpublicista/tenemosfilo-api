@@ -30,8 +30,7 @@ env:
   # La ruta sale del `cwd` de ecosystem.config.js: es donde vive el API en su
   # instancia, que no es la misma que la del front.
   RUTA_REMOTA: /srv/tenemosfilo-api
-  # El usuario por defecto de una AMI de Ubuntu. Si la instancia del API usa
-  # otro (ec2-user en Amazon Linux, admin en Debian), cambiarlo aqui.
+  # Comprobado en la instancia: Ubuntu 26.04, usuario ubuntu, x86_64.
   USUARIO_REMOTO: ubuntu
 
 jobs:
@@ -134,20 +133,19 @@ jobs:
           # despliegue para que dotenv lo encuentre desde el cwd.
           ln -sfn "$RUTA/.env" "$NUEVA/.env"
 
-          # node_modules se comparte entre despliegues en vez de instalarse en
-          # cada uno: con prisma y el SDK de AWS son cientos de megas, y
-          # multiplicarlos por cada version guardada no compensa. Se reinstala
-          # solo cuando cambia el lockfile.
-          mkdir -p "$RUTA/node_modules"
-          ln -sfn "$RUTA/node_modules" "$NUEVA/node_modules"
-
-          if ! cmp -s "$NUEVA/package-lock.json" "$RUTA/package-lock.json" 2>/dev/null; then
-            echo "El lockfile cambio: reinstalando dependencias."
-            cp "$NUEVA/package.json" "$NUEVA/package-lock.json" "$RUTA/"
-            # Con las de desarrollo: la CLI de Prisma es devDependency y es la
-            # que aplica las migraciones aqui mismo.
-            ( cd "$RUTA" && npm ci )
-          fi
+          # Cada despliegue instala sus propias dependencias (185 MB) en vez de
+          # compartir un node_modules entre todos.
+          #
+          # Compartirlo seria mas barato, pero `npm ci` empieza borrando el
+          # directorio: lo haria por debajo del proceso que esta atendiendo en
+          # ese momento, y cualquier `require` diferido —o el propio
+          # `prisma generate`, que escribe dentro— se lo encontraria a medias.
+          # Aislarlo cuesta disco y un par de minutos, y a cambio la version
+          # viva nunca depende de ficheros que este despliegue esta tocando.
+          #
+          # Con las de desarrollo: la CLI de Prisma es devDependency y es la
+          # que aplica las migraciones aqui mismo.
+          ( cd "$NUEVA" && npm ci )
 
           # El cliente de Prisma se genera contra el schema de esta version.
           ( cd "$NUEVA" && npx prisma generate )
@@ -182,17 +180,24 @@ jobs:
             if [ -n "$ANTERIOR_REAL" ] && [ -d "$ANTERIOR_REAL" ]; then
               ln -sfn "$ANTERIOR_REAL" "$RUTA/current"
               pm2 startOrReload "$ANTERIOR_REAL/ecosystem.config.js" --update-env
-              echo "Restaurada $ANTERIOR_REAL. OJO: las migraciones aplicadas NO se deshacen." >&2
+              echo "Restaurada $ANTERIOR_REAL." >&2
+            elif [ -f "$RUTA/dist/server.js" ] && [ -f "$RUTA/ecosystem.config.js" ]; then
+              # Primer despliegue: todavia no hay una version anterior en
+              # releases/, pero si esta el clon de git desde el que se
+              # publicaba a mano. Sirve de red para esta vez y solo para esta.
+              echo "Sin version anterior; volviendo al clon de git de la instancia." >&2
+              pm2 startOrReload "$RUTA/ecosystem.config.js" --update-env
             else
-              echo "No hay version anterior a la que volver." >&2
+              echo "No hay a donde volver. El API se queda caido: hay que mirarlo a mano." >&2
             fi
+            echo "OJO: las migraciones aplicadas NO se deshacen solas." >&2
             exit 1
           fi
 
-          # Conservar solo las tres ultimas. Con node_modules fuera, cada una
-          # ocupa poco, pero no hay motivo para acumularlas: con tres hay de
-          # sobra para volver atras.
-          ls -1dt "$RUTA"/releases/*/ | tail -n +4 | xargs -r rm -rf
+          # Solo la actual y la anterior: con node_modules dentro, cada una pesa
+          # unos 190 MB y en esta instancia quedan 1,7 GB libres. Dos bastan
+          # para volver atras, que es para lo unico que se guardan.
+          ls -1dt "$RUTA"/releases/*/ | tail -n +3 | xargs -r rm -rf
           echo "Publicado $SHA"
           REMOTO
 
