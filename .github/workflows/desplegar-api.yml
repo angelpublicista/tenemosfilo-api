@@ -162,13 +162,45 @@ jobs:
           ln -sfn "$NUEVA" "$RUTA/current"
 
           cd "$RUTA"
-          # startOrReload relee el ecosystem: hace falta para que PM2 resuelva
-          # de nuevo el enlace `current` y no siga sirviendo el anterior.
+
+          # PM2 recarga el proceso pero NO le cambia el cwd ni el script: eso
+          # solo se lee al crearlo. Mientras el cwd sea siempre `current` da
+          # igual, porque la cadena no cambia y el enlace se resuelve al
+          # arrancar. Pero al venir de la carpeta plana el cwd si cambia, y
+          # sin esto PM2 seguiria ejecutando el dist viejo con el despliegue
+          # dando el visto bueno.
+          cwd_de_pm2() {
+            pm2 jlist 2>/dev/null | node -e "
+              let s='';
+              process.stdin.on('data', d => s += d).on('end', () => {
+                try {
+                  const app = JSON.parse(s).find(x => x.name === 'filo-api');
+                  console.log(app ? (app.pm2_env.pm_cwd || '') : '');
+                } catch (e) { console.log(''); }
+              })"
+          }
+
+          ACTUAL=$(cwd_de_pm2)
+          if [ -n "$ACTUAL" ] && [ "$ACTUAL" != "$RUTA/current" ]; then
+            echo "El proceso corre desde $ACTUAL y debe pasar a $RUTA/current."
+            echo "Recreandolo, que es la unica forma de que PM2 lo asuma."
+            pm2 delete filo-api || true
+          fi
+
           pm2 startOrReload "$NUEVA/ecosystem.config.js" --update-env
           pm2 save --force
 
-          # Comprobar que responde de verdad antes de dar el despliegue por
-          # bueno. Si no levanta, se vuelve a la version anterior.
+          # Que responda no basta para dar el despliegue por bueno: si PM2 se
+          # hubiera quedado con el proceso anterior, ese tambien contesta 200
+          # y el despliegue mentiria. Primero se comprueba QUE esta corriendo.
+          FINAL=$(cwd_de_pm2)
+          if [ "$FINAL" != "$RUTA/current" ]; then
+            echo "PM2 sigue en '$FINAL' en vez de '$RUTA/current': lo nuevo no esta vivo." >&2
+            exit 1
+          fi
+
+          # Y ahora si, que ademas responda. Si no levanta, se vuelve a la
+          # version anterior.
           ok=0
           for i in $(seq 1 15); do
             if curl -fsS -o /dev/null http://127.0.0.1:4000/health; then ok=1; break; fi
