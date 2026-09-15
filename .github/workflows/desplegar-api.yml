@@ -27,7 +27,11 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  # La ruta sale del `cwd` de ecosystem.config.js: es donde vive el API en su
+  # instancia, que no es la misma que la del front.
   RUTA_REMOTA: /srv/tenemosfilo-api
+  # El usuario por defecto de una AMI de Ubuntu. Si la instancia del API usa
+  # otro (ec2-user en Amazon Linux, admin en Debian), cambiarlo aqui.
   USUARIO_REMOTO: ubuntu
 
 jobs:
@@ -131,8 +135,9 @@ jobs:
           ln -sfn "$RUTA/.env" "$NUEVA/.env"
 
           # node_modules se comparte entre despliegues en vez de instalarse en
-          # cada uno: son cientos de megas y el disco es de 6,7 GB. Se
-          # reinstala solo cuando cambia el lockfile.
+          # cada uno: con prisma y el SDK de AWS son cientos de megas, y
+          # multiplicarlos por cada version guardada no compensa. Se reinstala
+          # solo cuando cambia el lockfile.
           mkdir -p "$RUTA/node_modules"
           ln -sfn "$RUTA/node_modules" "$NUEVA/node_modules"
 
@@ -184,7 +189,9 @@ jobs:
             exit 1
           fi
 
-          # Conservar solo las tres ultimas: el disco es de 6,7 GB.
+          # Conservar solo las tres ultimas. Con node_modules fuera, cada una
+          # ocupa poco, pero no hay motivo para acumularlas: con tres hay de
+          # sobra para volver atras.
           ls -1dt "$RUTA"/releases/*/ | tail -n +4 | xargs -r rm -rf
           echo "Publicado $SHA"
           REMOTO
