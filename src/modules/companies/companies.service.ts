@@ -151,6 +151,10 @@ export const companiesService = {
         employeeCount: input.employeeCount ?? null,
         annualRevenue: input.annualRevenue ?? null,
         businessYears: input.businessYears ?? null,
+        rutKey: input.rutKey ?? null,
+        rutSubidoEl: input.rutKey ? new Date() : null,
+        camaraKey: input.camaraKey ?? null,
+        camaraSubidaEl: input.camaraKey ? new Date() : null,
       },
       include: defaultInclude,
     });
@@ -372,6 +376,16 @@ export const companiesService = {
     if (input.annualRevenue !== undefined) data.annualRevenue = input.annualRevenue;
     if (input.businessYears !== undefined) data.businessYears = input.businessYears;
     if (input.tagline !== undefined) data.tagline = input.tagline;
+    // La fecha acompaña a la clave: se pone al subir y se borra al quitar el
+    // documento. Tocarla en cada guardado diria que se resubio cuando no.
+    if (input.rutKey !== undefined) {
+      data.rutKey = input.rutKey;
+      data.rutSubidoEl = input.rutKey ? new Date() : null;
+    }
+    if (input.camaraKey !== undefined) {
+      data.camaraKey = input.camaraKey;
+      data.camaraSubidaEl = input.camaraKey ? new Date() : null;
+    }
     if (input.openTableRid !== undefined) data.openTableRid = input.openTableRid;
     if (input.coverType !== undefined) data.coverType = input.coverType;
     if (input.coverImages !== undefined) data.coverImages = { set: input.coverImages };

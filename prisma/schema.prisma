@@ -177,6 +177,17 @@ model Company {
   annualRevenue String?
   businessYears String?
 
+  // Documentos legales: RUT y certificado de Camara de Comercio.
+  //
+  // Se guarda la CLAVE de S3, no una URL como en `logo`. Estos ficheros viven
+  // en el prefijo privado del bucket, fuera de la politica de lectura publica,
+  // asi que no existe una URL estable que servir: el enlace se firma en cada
+  // lectura y caduca. Guardar una URL aqui seria guardar algo que da 403.
+  rutKey         String?
+  rutSubidoEl    DateTime?
+  camaraKey      String?
+  camaraSubidaEl DateTime?
+
   users                  User[]           @relation("CompanyUsers")
   locations              Location[]
   menus                  Menu[]

@@ -51,6 +51,9 @@ export const createCompanySchema = z.object({
   annualRevenue: optStr,
   businessYears: optStr,
   tagline: optStr,
+  // Claves de S3, no URLs: viven en el prefijo privado (ver uploads.schemas).
+  rutKey: optStr,
+  camaraKey: optStr,
 });
 
 // PATCH: todos los campos opcionales, y los "clearables" admiten null.
@@ -70,6 +73,8 @@ export const updateCompanySchema = z.object({
   annualRevenue: nullishStr,
   businessYears: nullishStr,
   tagline: nullishStr,
+  rutKey: nullishStr,
+  camaraKey: nullishStr,
   openTableRid: nullishStr,
   // Portada del catalogo. Un slider con una sola imagen es una imagen, y
   // seis ya son demasiadas para que alguien las vea todas.
