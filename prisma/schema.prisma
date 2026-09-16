@@ -141,6 +141,11 @@ model Company {
   logo           String? // URL del asset
   documentType   DocumentType?
   documentNumber String?
+  // Digito de verificacion del NIT. Se deduce del propio numero, asi que
+  // guardarlo es redundante a proposito: es lo que aparece impreso en el RUT y
+  // en las facturas ("900.123.456-7"), y tenerlo evita recalcularlo en cada
+  // sitio que lo muestre. Solo aplica a NIT, no a cedula ni pasaporte.
+  documentDv     String?
   website        String?
   address        Json? // { street, city, state, postalCode, country }
   // Origenes autorizados a insertar el catalogo en un iframe.

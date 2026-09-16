@@ -146,6 +146,7 @@ export const companiesService = {
         logo: input.logo ?? null,
         documentType: input.documentType ?? null,
         documentNumber: input.documentNumber ?? null,
+        documentDv: input.documentDv ?? null,
         website: input.website ?? null,
         address: input.address ?? Prisma.JsonNull,
         employeeCount: input.employeeCount ?? null,
@@ -370,6 +371,7 @@ export const companiesService = {
     if (input.logo !== undefined) data.logo = input.logo ?? null;
     if (input.documentType !== undefined) data.documentType = input.documentType;
     if (input.documentNumber !== undefined) data.documentNumber = input.documentNumber;
+    if (input.documentDv !== undefined) data.documentDv = input.documentDv;
     if (input.website !== undefined) data.website = input.website;
     if (input.address !== undefined) data.address = (input.address as Prisma.InputJsonValue) ?? Prisma.JsonNull;
     if (input.employeeCount !== undefined) data.employeeCount = input.employeeCount;
