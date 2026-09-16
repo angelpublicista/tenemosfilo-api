@@ -99,6 +99,7 @@ function buildBaseData(input: CreateExperienceInput) {
     presentialLocation: input.presentialLocation ?? null,
     presentialAddress: input.presentialAddress ?? null,
     presentialCity: input.presentialCity ?? null,
+    presentialState: input.presentialState ?? null,
     hideAddress: input.hideAddress ?? false,
     requirements: input.requirements ?? null,
     includes: (input.includes as Prisma.InputJsonValue | undefined) ?? Prisma.JsonNull,
@@ -281,6 +282,7 @@ export const experiencesService = {
     if (input.presentialAddress !== undefined)
       data.presentialAddress = input.presentialAddress ?? null;
     if (input.presentialCity !== undefined) data.presentialCity = input.presentialCity ?? null;
+    if (input.presentialState !== undefined) data.presentialState = input.presentialState ?? null;
     if (input.hideAddress !== undefined) data.hideAddress = input.hideAddress;
     if (input.requirements !== undefined) data.requirements = input.requirements ?? null;
     if (input.includes !== undefined)

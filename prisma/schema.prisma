@@ -414,6 +414,10 @@ model Experience {
   presentialLocation String?
   presentialAddress  String?
   presentialCity     String?
+  // Departamento del lugar puntual. Va con presentialCity porque la ciudad
+  // sola no basta: hay municipios con el mismo nombre en varios
+  // departamentos, y el selector del panel encadena uno con otro.
+  presentialState    String?
   hideAddress        Boolean          @default(false)
   requirements       String?          @db.Text
   includes           Json? // string[] o texto libre

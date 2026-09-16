@@ -42,6 +42,7 @@ export const createExperienceSchema = z.object({
   presentialLocation: optStr,
   presentialAddress: optStr,
   presentialCity: optStr,
+  presentialState: optStr,
   hideAddress: z.boolean().optional().default(false),
   requirements: z.string().optional(),
   includes: z.union([z.array(z.string()), z.string()]).optional(),
