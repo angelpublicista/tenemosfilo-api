@@ -182,6 +182,7 @@ type DatosReserva = {
   clienteTelefono?: string | null;
   empresaNombre?: string | null;
   logoEmpresa?: string | null;
+  colorMarca?: string | null;
   lugar?: string | null;
   peticiones?: string | null;
 };
@@ -198,7 +199,11 @@ type ReservaCruda = {
   pricing?: unknown;
   client?: unknown;
   experience?: { title?: string } | null;
-  company?: { companyName?: string | null; logo?: string | null } | null;
+  company?: {
+    companyName?: string | null;
+    logo?: string | null;
+    brandPrimary?: string | null;
+  } | null;
   location?: { name?: string | null; address?: unknown } | null;
   user?: { email?: string | null } | null;
   specialRequirements?: string | null;
@@ -252,6 +257,9 @@ export function datosDeReserva(r: ReservaCruda): DatosReserva {
     // El logo sale de la empresa dueña de la experiencia reservada: es el
     // anfitrion que presta el servicio, no la plataforma que manda el correo.
     logoEmpresa: r.company?.logo ?? null,
+    // Del mismo sitio que el logo y por el mismo motivo: el correo lo manda
+    // Filo, pero quien presta el servicio es el anfitrion.
+    colorMarca: r.company?.brandPrimary ?? null,
     lugar,
     peticiones: r.specialRequirements ?? null,
   };
@@ -264,7 +272,7 @@ export async function cargarDatosDeReserva(id: string): Promise<DatosReserva | n
       where: { id },
       include: {
         experience: { select: { title: true } },
-        company: { select: { companyName: true, logo: true } },
+        company: { select: { companyName: true, logo: true, brandPrimary: true } },
         location: { select: { name: true, address: true } },
         user: { select: { email: true } },
       },
@@ -283,6 +291,7 @@ function paraCorreo(r: DatosReserva): DatosCorreoReserva {
     experienceTitle: r.experienceTitle,
     empresaNombre: r.empresaNombre ?? 'Tenemos Filo',
     logoEmpresa: r.logoEmpresa ?? null,
+    colorMarca: r.colorMarca ?? null,
     reservationDate: r.reservationDate,
     participants: r.participants,
     clienteNombre: r.clienteNombre,

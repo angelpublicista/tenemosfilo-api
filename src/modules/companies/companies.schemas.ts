@@ -35,6 +35,33 @@ const nullishEmail = z.preprocess(
   z.string().email().nullable().optional(),
 );
 
+/**
+ * Color de marca en hexadecimal.
+ *
+ * Se exige la forma completa #RRGGBB, en vez de admitir tambien #RGB o un
+ * nombre CSS, porque este valor acaba dentro de un atributo style de un correo
+ * y de una variable CSS del catalogo: cuanto mas estrecho sea lo que entra,
+ * menos hay que vigilar donde sale. El selector de color del navegador entrega
+ * justo este formato.
+ */
+const HEX = /^#[0-9a-fA-F]{6}$/;
+const normalizarHex = (v: unknown) => {
+  if (typeof v !== 'string') return v;
+  const t = v.trim();
+  if (t === '') return undefined;
+  // En mayusculas siempre: si no, el mismo color entra como #f26726 o
+  // #F26726 segun quien lo mande y no habria forma de compararlos.
+  return HEX.test(t) ? t.toUpperCase() : t;
+};
+const optColor = z.preprocess(normalizarHex, z.string().regex(HEX).optional());
+const nullishColor = z.preprocess(
+  (v) => {
+    const n = normalizarHex(v);
+    return n === undefined ? null : n;
+  },
+  z.string().regex(HEX).nullable().optional(),
+);
+
 export const createCompanySchema = z.object({
   companyName: z.string().min(1),
   companyType: companyTypeEnum.optional(),
@@ -52,6 +79,8 @@ export const createCompanySchema = z.object({
   annualRevenue: optStr,
   businessYears: optStr,
   tagline: optStr,
+  brandPrimary: optColor,
+  brandSecondary: optColor,
   // Claves de S3, no URLs: viven en el prefijo privado (ver uploads.schemas).
   rutKey: optStr,
   camaraKey: optStr,
@@ -75,6 +104,9 @@ export const updateCompanySchema = z.object({
   annualRevenue: nullishStr,
   businessYears: nullishStr,
   tagline: nullishStr,
+  // null borra el color y devuelve el catalogo a los de la plataforma.
+  brandPrimary: nullishColor,
+  brandSecondary: nullishColor,
   rutKey: nullishStr,
   camaraKey: nullishStr,
   openTableRid: nullishStr,

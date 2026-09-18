@@ -53,6 +53,10 @@ const companiaPublica = {
   slug: true,
   logo: true,
   tagline: true,
+  // El catalogo se pinta con los colores del anfitrion: sin esto la pagina
+  // publica seguiria saliendo con los de la plataforma.
+  brandPrimary: true,
+  brandSecondary: true,
   coverType: true,
   coverImages: true,
   coverVideo: true,

@@ -156,6 +156,19 @@ model Company {
   // Frase corta de la empresa; sale en su catalogo publico.
   tagline String?
 
+  // Colores de marca del anfitrion, en hexadecimal (#RRGGBB).
+  //
+  // null = usa los de la plataforma. Se guardan solo los dos que el anfitrion
+  // elige; los tonos derivados —el de paso del raton, y si el texto encima va
+  // en blanco o en negro— se calculan al pintar, para que no puedan quedar
+  // desparejados de su origen.
+  //
+  // El secundario es decorativo: degradados, etiquetas, banda de portada.
+  // Nunca se usa para texto corrido, porque un color elegido a mano puede
+  // dejar el catalogo ilegible.
+  brandPrimary   String?
+  brandSecondary String?
+
   // Portada del catalogo. NONE deja la cabecera como estaba: solo logo y
   // nombre. Las imagenes valen para IMAGE (la primera) y para SLIDER.
   coverType   CoverType @default(NONE)

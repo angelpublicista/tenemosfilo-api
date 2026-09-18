@@ -152,6 +152,8 @@ export const companiesService = {
         employeeCount: input.employeeCount ?? null,
         annualRevenue: input.annualRevenue ?? null,
         businessYears: input.businessYears ?? null,
+        brandPrimary: input.brandPrimary ?? null,
+        brandSecondary: input.brandSecondary ?? null,
         rutKey: input.rutKey ?? null,
         rutSubidoEl: input.rutKey ? new Date() : null,
         camaraKey: input.camaraKey ?? null,
@@ -378,6 +380,8 @@ export const companiesService = {
     if (input.annualRevenue !== undefined) data.annualRevenue = input.annualRevenue;
     if (input.businessYears !== undefined) data.businessYears = input.businessYears;
     if (input.tagline !== undefined) data.tagline = input.tagline;
+    if (input.brandPrimary !== undefined) data.brandPrimary = input.brandPrimary;
+    if (input.brandSecondary !== undefined) data.brandSecondary = input.brandSecondary;
     // La fecha acompaña a la clave: se pone al subir y se borra al quitar el
     // documento. Tocarla en cada guardado diria que se resubio cuando no.
     if (input.rutKey !== undefined) {
