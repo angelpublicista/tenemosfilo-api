@@ -59,6 +59,31 @@ const normalizarHex = (v: unknown) => {
   // #F26726 segun quien lo mande y no habria forma de compararlos.
   return HEX.test(t) ? t.toUpperCase() : t;
 };
+/**
+ * Codigo CIIU: cuatro digitos.
+ *
+ * No se valida contra una lista de codigos existentes a proposito. La
+ * clasificacion la fija la DIAN y cambia sin avisar; una lista aqui
+ * rechazaria el codigo que el anfitrion tiene impreso en su RUT en cuanto
+ * saliera uno nuevo.
+ */
+const CIIU = /^[0-9]{4}$/;
+const limpiarCiiu = (v: unknown) => (typeof v === 'string' ? v.trim() : v);
+const optCiiu = z.preprocess(
+  (v) => {
+    const t = limpiarCiiu(v);
+    return t === '' ? undefined : t;
+  },
+  z.string().regex(CIIU, 'El código CIIU son cuatro dígitos').optional(),
+);
+const nullishCiiu = z.preprocess(
+  (v) => {
+    const t = limpiarCiiu(v);
+    return t === '' ? null : t;
+  },
+  z.string().regex(CIIU, 'El código CIIU son cuatro dígitos').nullable().optional(),
+);
+
 const optColor = z.preprocess(normalizarHex, z.string().regex(HEX).optional());
 const nullishColor = z.preprocess(
   (v) => {
@@ -86,6 +111,7 @@ export const createCompanySchema = z.object({
   businessYears: optStr,
   tagline: optStr,
   personType: personTypeEnum.optional(),
+  ciiuCode: optCiiu,
   companyTypeSecondary: companyTypeEnum.optional(),
   brandPrimary: optColor,
   brandSecondary: optColor,
@@ -113,6 +139,7 @@ export const updateCompanySchema = z.object({
   businessYears: nullishStr,
   tagline: nullishStr,
   personType: personTypeEnum.nullable().optional(),
+  ciiuCode: nullishCiiu,
   companyTypeSecondary: companyTypeEnum.nullable().optional(),
   // null borra el color y devuelve el catalogo a los de la plataforma.
   brandPrimary: nullishColor,

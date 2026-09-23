@@ -189,6 +189,16 @@ model Company {
   // El secundario es decorativo: degradados, etiquetas, banda de portada.
   // Nunca se usa para texto corrido, porque un color elegido a mano puede
   // dejar el catalogo ilegible.
+  // Actividad economica segun la CIIU Rev. 4 adaptada para Colombia: cuatro
+  // digitos. Se guarda solo el codigo y no su descripcion: la descripcion es
+  // consecuencia del codigo, y duplicarla dejaria que se contradigan.
+  //
+  // Sale del RUT, casilla 46. Se admite cualquier codigo de cuatro digitos y
+  // no una lista cerrada: la clasificacion la fija la DIAN, cambia sin avisar
+  // a nadie, y rechazar el codigo que el anfitrion tiene impreso en su RUT
+  // seria decirle que su documento oficial esta mal.
+  ciiuCode       String?
+
   // null = todavia no lo ha dicho. Las empresas que ya existian estan asi, y
   // mientras tanto se les piden los dos documentos, que es lo que veian antes.
   personType     PersonType?

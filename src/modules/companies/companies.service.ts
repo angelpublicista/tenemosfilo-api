@@ -156,6 +156,7 @@ export const companiesService = {
         annualRevenue: input.annualRevenue ?? null,
         businessYears: input.businessYears ?? null,
         personType: input.personType ?? null,
+        ciiuCode: input.ciiuCode ?? null,
         companyTypeSecondary: input.companyTypeSecondary ?? null,
         brandPrimary: input.brandPrimary ?? null,
         brandSecondary: input.brandSecondary ?? null,
@@ -403,6 +404,7 @@ export const companiesService = {
     if (input.businessYears !== undefined) data.businessYears = input.businessYears;
     if (input.tagline !== undefined) data.tagline = input.tagline;
     if (input.personType !== undefined) data.personType = input.personType;
+    if (input.ciiuCode !== undefined) data.ciiuCode = input.ciiuCode;
     if (input.companyTypeSecondary !== undefined)
       data.companyTypeSecondary = input.companyTypeSecondary;
     if (input.brandPrimary !== undefined) data.brandPrimary = input.brandPrimary;
