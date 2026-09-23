@@ -56,9 +56,16 @@ reservationsRouter.post(
   reservationsController.create,
 );
 
+// Ver una reserva. El servicio comprueba ademas que sea suya: el rol solo
+// dice que clase de actor es, no a quien pertenece la reserva.
+//
+// RESELLER entra aqui —no podia antes— porque se le avisa de las ventas de su
+// canal por correo y por la campana, y esos avisos enlazan a la reserva. Solo
+// alcanza las suyas: las que vendio el. Gestionarlas sigue siendo del
+// anfitrion, y esas rutas no lo admiten.
 reservationsRouter.get(
   '/:id',
-  requireRole('HOST', 'ADMIN'),
+  requireRole('HOST', 'ADMIN', 'RESELLER'),
   validate(reservationIdParamsSchema, 'params'),
   reservationsController.getById,
 );

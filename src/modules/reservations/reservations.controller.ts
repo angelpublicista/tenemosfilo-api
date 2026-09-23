@@ -42,7 +42,10 @@ export const reservationsController = {
 
   async getById(req: Request, res: Response) {
     const { id } = p<{ id: string }>(req);
-    const r = await reservationsService.getById(id);
+    const r = await reservationsService.getById(id, {
+      companyId: req.user!.companyId,
+      role: req.user!.role,
+    });
     res.json({ data: r });
   },
 

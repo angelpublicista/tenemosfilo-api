@@ -1,4 +1,4 @@
-import { Prisma, ReservationStatus, PaymentStatus } from '@prisma/client';
+import { Prisma, ReservationStatus, PaymentStatus, UserRole } from '@prisma/client';
 import { prisma } from '../../config/prisma.js';
 import {
   calcularDesglose,
@@ -453,9 +453,41 @@ export const reservationsService = {
     });
   },
 
-  async getById(id: string) {
+  /**
+   * Una reserva, si quien pregunta tiene algo que ver con ella.
+   *
+   * Antes no comprobaba nada: bastaba tener cuenta de anfitrion y acertar el
+   * id para leer la reserva de cualquier otra empresa, con el nombre, el
+   * correo y el telefono del cliente dentro.
+   *
+   * Quien puede verla no es lo mismo que quien puede tocarla, y por eso esto
+   * no reutiliza `assertCanManage`: el revendedor que vendio la reserva
+   * necesita poder abrirla —se le avisa de esa venta por correo y por la
+   * campana, y avisar de algo que no se puede abrir no tiene sentido— pero no
+   * es quien la gestiona. La condicion de a quien pertenece una reserva segun
+   * su papel es la misma que ya usa el modulo de pagos.
+   *
+   * ADMIN pasa siempre: es la plataforma mirando su propia operacion, y sin
+   * eso el soporte no podria atender un problema con una reserva concreta.
+   */
+  async getById(id: string, solicitante: { companyId?: string | null; role: UserRole }) {
     const r = await prisma.reservation.findUnique({ where: { id }, include: fullInclude });
     if (!r) throw NotFound('Reserva no encontrada');
+
+    if (solicitante.role === 'ADMIN') return r;
+
+    const suya =
+      solicitante.role === 'RESELLER'
+        ? r.resellerCompanyId === solicitante.companyId
+        : r.companyId === solicitante.companyId;
+
+    // Sin empresa activa no hay nada que pueda ser suyo. Se comprueba aparte
+    // porque `null === null` seria cierto y dejaria pasar a una reserva sin
+    // revendedor a cualquiera que no tenga empresa.
+    if (!solicitante.companyId || !suya) {
+      throw Forbidden('No tienes permiso sobre esta reserva');
+    }
+
     return r;
   },
 
