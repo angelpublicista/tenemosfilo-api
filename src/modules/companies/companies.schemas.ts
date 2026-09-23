@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { CompanyType, PersonType } from '@prisma/client';
+import { CompanyType, PersonType, CompanyContactType } from '@prisma/client';
 import { esVideoSoportado } from '../../lib/video-embed.js';
 
 // Se saca del enum de Prisma en vez de escribir la lista otra vez: estaban
@@ -84,6 +84,60 @@ const nullishCiiu = z.preprocess(
   z.string().regex(CIIU, 'El código CIIU son cuatro dígitos').nullable().optional(),
 );
 
+/**
+ * Un contacto de la empresa.
+ *
+ * El telefono y el cargo son opcionales; el nombre y el correo no, porque un
+ * contacto sin a quien escribir no sirve para lo unico que hace.
+ */
+const contactSchema = z.object({
+  type: z.nativeEnum(CompanyContactType),
+  // Los obligatorios se llaman por su tipo; solo OTRO necesita nombre propio.
+  label: z.preprocess(emptyToUndef, z.string().max(60).optional()),
+  name: z.string().min(2).max(120),
+  email: z.string().email(),
+  phone: z.preprocess(emptyToUndef, z.string().max(40).optional()),
+  position: z.preprocess(emptyToUndef, z.string().max(80).optional()),
+});
+
+/**
+ * La lista completa de contactos: sustituye a la que hubiera.
+ *
+ * Se manda entera y no por piezas porque el formulario la edita entera. Y al
+ * ser opcional, un PATCH que no la traiga deja los contactos como estan: sin
+ * eso, guardar el color de marca borraria la agenda.
+ */
+const contactsSchema = z
+  .array(contactSchema)
+  .max(5)
+  .superRefine((lista, ctx) => {
+    const cuantos = (t: CompanyContactType) => lista.filter((c) => c.type === t).length;
+    for (const t of [CompanyContactType.RESERVAS, CompanyContactType.CONTABILIDAD]) {
+      if (cuantos(t) > 1) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Solo puede haber un contacto de ${t.toLowerCase()}`,
+        });
+      }
+    }
+    if (cuantos(CompanyContactType.OTRO) > 3) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Como maximo 3 contactos adicionales',
+      });
+    }
+    lista.forEach((c, i) => {
+      // Un contacto libre sin etiqueta seria una fila sin titulo en la ficha.
+      if (c.type === CompanyContactType.OTRO && !c.label) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [i, 'label'],
+          message: 'Indica para que es este contacto',
+        });
+      }
+    });
+  });
+
 const optColor = z.preprocess(normalizarHex, z.string().regex(HEX).optional());
 const nullishColor = z.preprocess(
   (v) => {
@@ -112,6 +166,7 @@ export const createCompanySchema = z.object({
   tagline: optStr,
   personType: personTypeEnum.optional(),
   ciiuCode: optCiiu,
+  contacts: contactsSchema.optional(),
   companyTypeSecondary: companyTypeEnum.optional(),
   brandPrimary: optColor,
   brandSecondary: optColor,
@@ -140,6 +195,7 @@ export const updateCompanySchema = z.object({
   tagline: nullishStr,
   personType: personTypeEnum.nullable().optional(),
   ciiuCode: nullishCiiu,
+  contacts: contactsSchema.optional(),
   companyTypeSecondary: companyTypeEnum.nullable().optional(),
   // null borra el color y devuelve el catalogo a los de la plataforma.
   brandPrimary: nullishColor,

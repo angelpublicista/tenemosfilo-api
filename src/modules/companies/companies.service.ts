@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client';
+import { Prisma, CompanyContactType } from '@prisma/client';
 import { prisma } from '../../config/prisma.js';
 import { BadRequest, Conflict, Forbidden, NotFound } from '../../lib/errors.js';
 import { normalizarDominios } from '../../lib/embed-domains.js';
@@ -54,6 +54,27 @@ export function dondeEstaElCatalogo(slugOrId: string): Prisma.CompanyWhereInput 
   };
 }
 
+/** Un contacto validado, listo para Prisma. */
+function aContacto(c: {
+  type: CompanyContactType;
+  label?: string;
+  name: string;
+  email: string;
+  phone?: string;
+  position?: string;
+}) {
+  return {
+    type: c.type,
+    // La etiqueta solo significa algo en los libres; en los otros seria ruido
+    // que podria contradecir al propio tipo.
+    label: c.type === 'OTRO' ? (c.label ?? null) : null,
+    name: c.name,
+    email: c.email,
+    phone: c.phone ?? null,
+    position: c.position ?? null,
+  };
+}
+
 const defaultInclude = {
   locations: { where: { deletedAt: null }, select: { id: true, name: true, isMain: true } },
   // El rol del titular dice que clase de negocio es la empresa: el de un
@@ -62,6 +83,10 @@ const defaultInclude = {
   // opera sobre ella, y con ownerId a secas no puede deducirlo. Solo el
   // rol: el id ya viaja en ownerId y el resto del titular no hace falta.
   owner: { select: { id: true, role: true } },
+  // Orden estable: los dos obligatorios primero y siempre en el mismo sitio,
+  // para que la ficha no baile entre recargas. El enum los declara en ese
+  // orden, asi que ordenar por type basta.
+  companyContacts: { orderBy: [{ type: 'asc' }, { createdAt: 'asc' }] },
 } satisfies Prisma.CompanyInclude;
 
 export const companiesService = {
@@ -157,6 +182,9 @@ export const companiesService = {
         businessYears: input.businessYears ?? null,
         personType: input.personType ?? null,
         ciiuCode: input.ciiuCode ?? null,
+        ...(input.contacts?.length
+          ? { companyContacts: { create: input.contacts.map(aContacto) } }
+          : {}),
         companyTypeSecondary: input.companyTypeSecondary ?? null,
         brandPrimary: input.brandPrimary ?? null,
         brandSecondary: input.brandSecondary ?? null,
@@ -405,6 +433,15 @@ export const companiesService = {
     if (input.tagline !== undefined) data.tagline = input.tagline;
     if (input.personType !== undefined) data.personType = input.personType;
     if (input.ciiuCode !== undefined) data.ciiuCode = input.ciiuCode;
+    // La lista llega entera porque el formulario la edita entera: se borra lo
+    // que habia y se escribe lo nuevo. Si no viene no se toca —un PATCH del
+    // color de marca no puede llevarse por delante la agenda—.
+    if (input.contacts !== undefined) {
+      data.companyContacts = {
+        deleteMany: {},
+        create: input.contacts.map(aContacto),
+      };
+    }
     if (input.companyTypeSecondary !== undefined)
       data.companyTypeSecondary = input.companyTypeSecondary;
     if (input.brandPrimary !== undefined) data.brandPrimary = input.brandPrimary;

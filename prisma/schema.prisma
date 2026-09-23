@@ -107,6 +107,17 @@ model User {
   @@index([companyId])
 }
 
+// A quien hay que dirigirse en la empresa para cada cosa.
+//
+// RESERVAS y CONTABILIDAD son obligatorios y solo puede haber uno de cada:
+// son cargos, no personas, y dos respuestas a "¿a quien aviso de una reserva?"
+// no es una respuesta. OTRO admite hasta tres y lleva su propia etiqueta.
+enum CompanyContactType {
+  RESERVAS
+  CONTABILIDAD
+  OTRO
+}
+
 // Si el anfitrion es una persona o una empresa constituida.
 //
 // No es un dato descriptivo: decide que documentacion legal se le pide. Una
@@ -189,6 +200,10 @@ model Company {
   // El secundario es decorativo: degradados, etiquetas, banda de portada.
   // Nunca se usa para texto corrido, porque un color elegido a mano puede
   // dejar el catalogo ilegible.
+  // Los suyos: a quien escribir en su empresa. `contacts`, mas abajo, son
+  // los CLIENTES de su CRM; no confundirlos es medio motivo de este nombre.
+  companyContacts CompanyContact[]
+
   // Actividad economica segun la CIIU Rev. 4 adaptada para Colombia: cuatro
   // digitos. Se guarda solo el codigo y no su descripcion: la descripcion es
   // consecuencia del codigo, y duplicarla dejaria que se contradigan.
@@ -1025,4 +1040,33 @@ model Notification {
 
   @@index([userId, read])
   @@index([userId, createdAt])
+}
+
+// Contactos de la empresa: a quien escribir para cada asunto.
+//
+// No confundir con Contact, que son los CLIENTES del anfitrion en su CRM.
+// Estos son suyos: su gente, la que atiende reservas o lleva la contabilidad.
+//
+// Una empresa de una sola persona puede repetir sus propios datos en los dos;
+// no se impide, porque es el caso normal de un chef independiente.
+model CompanyContact {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  type CompanyContactType
+
+  // Solo para OTRO: como se llama ese contacto ("Operaciones", "Prensa").
+  // Los dos obligatorios ya se llaman por su tipo.
+  label String?
+
+  name     String
+  email    String
+  phone    String?
+  position String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId, type])
 }

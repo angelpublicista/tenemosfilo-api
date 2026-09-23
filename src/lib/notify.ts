@@ -8,7 +8,7 @@
 // operacion que la origina. Si falla el aviso de "nueva reserva", la
 // reserva ya esta hecha y cobrada; perder el aviso es molesto, perder la
 // venta es inaceptable. Por eso todo va envuelto en un catch.
-import type { NotificationType } from '@prisma/client';
+import type { NotificationType, CompanyContactType } from '@prisma/client';
 import { prisma } from '../config/prisma.js';
 import { logger } from './logger.js';
 import { sendEmail } from './email.js';
@@ -121,10 +121,22 @@ async function despachar(envios: Envio[]): Promise<void> {
  * correo de negocio espera que le llegue ahi, no solo a la cuenta con la que
  * entra al panel.
  */
-export async function correosDeLaEmpresa(companyId: string | null | undefined): Promise<string[]> {
+export async function correosDeLaEmpresa(
+  companyId: string | null | undefined,
+  /**
+   * Contacto que ademas debe enterarse de ESTE asunto.
+   *
+   * La empresa declara a quien escribir para cada cosa: reservas o
+   * contabilidad. Se suma a los de siempre, no los sustituye —quitarle el
+   * aviso a quien hoy lo recibe seria romperle la operacion a alguien por un
+   * campo que acaba de aparecer—. `despachar` ya deduplica por direccion, asi
+   * que si el contacto es el propio titular recibe un solo correo.
+   */
+  asunto?: CompanyContactType,
+): Promise<string[]> {
   if (!companyId) return [];
   try {
-    const [empresa, miembros] = await Promise.all([
+    const [empresa, miembros, contactos] = await Promise.all([
       prisma.company.findUnique({
         where: { id: companyId },
         select: { companyEmail: true, owner: { select: { email: true } } },
@@ -133,11 +145,18 @@ export async function correosDeLaEmpresa(companyId: string | null | undefined): 
         where: { companyId, deletedAt: null, isActive: true },
         select: { email: true },
       }),
+      asunto
+        ? prisma.companyContact.findMany({
+            where: { companyId, type: asunto },
+            select: { email: true },
+          })
+        : Promise.resolve([]),
     ]);
     return [
       empresa?.companyEmail ?? '',
       empresa?.owner?.email ?? '',
       ...miembros.map((m) => m.email),
+      ...contactos.map((c) => c.email),
     ].filter(Boolean);
   } catch (err) {
     logger.error({ err, companyId }, 'no se pudieron resolver los correos de la empresa');
@@ -354,7 +373,7 @@ export async function avisarNuevaReserva(r: DatosReserva): Promise<void> {
   // Correo. Los tres publicos que se pidieron: comensal, anfitrion y admin.
   const d = paraCorreo(r);
   const [correosAnfitrion, correosAdmin] = await Promise.all([
-    correosDeLaEmpresa(r.companyId),
+    correosDeLaEmpresa(r.companyId, 'RESERVAS'),
     correosDeAdmins(),
   ]);
 
@@ -444,7 +463,9 @@ export async function avisarCambioDeEstado(
   // La cancelacion tambien al anfitrion: le libera cupo y le quita ingreso,
   // y enterarse mañana entrando al panel es tarde para revender esa mesa.
   if (estado === 'CANCELLED') {
-    const correos = await correosDeLaEmpresa(r.companyId);
+    // Tambien a reservas: una cancelacion libera un cupo, y quien lo gestiona
+    // es justamente quien puede revenderlo.
+    const correos = await correosDeLaEmpresa(r.companyId, 'RESERVAS');
     envios.push(...correos.map((to) => ({ to, ...correoCanceladaAnfitrion(d, motivo) })));
   }
 
@@ -477,7 +498,7 @@ export async function avisarPago(r: DatosReserva): Promise<void> {
   await notificar(avisos);
 
   const d = paraCorreo(r);
-  const correos = await correosDeLaEmpresa(r.companyId);
+  const correos = await correosDeLaEmpresa(r.companyId, 'CONTABILIDAD');
   await despachar([
     ...(r.clienteEmail ? [{ to: r.clienteEmail, ...correoPagoComensal(d) }] : []),
     ...correos.map((to) => ({ to, ...correoPagoAnfitrion(d) })),
