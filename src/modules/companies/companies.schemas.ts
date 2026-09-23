@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { CompanyType } from '@prisma/client';
+import { CompanyType, PersonType } from '@prisma/client';
 import { esVideoSoportado } from '../../lib/video-embed.js';
 
 // Se saca del enum de Prisma en vez de escribir la lista otra vez: estaban
@@ -7,6 +7,7 @@ import { esVideoSoportado } from '../../lib/video-embed.js';
 // cosas distintas al añadir tipos nuevos—. Asi el esquema de la base es la
 // unica fuente y esto no puede quedarse atras.
 const companyTypeEnum = z.nativeEnum(CompanyType);
+const personTypeEnum = z.nativeEnum(PersonType);
 const documentTypeEnum = z.enum(['NIT', 'CEDULA', 'PASAPORTE', 'OTHER']);
 
 const addressSchema = z.object({
@@ -84,6 +85,8 @@ export const createCompanySchema = z.object({
   annualRevenue: optStr,
   businessYears: optStr,
   tagline: optStr,
+  personType: personTypeEnum.optional(),
+  companyTypeSecondary: companyTypeEnum.optional(),
   brandPrimary: optColor,
   brandSecondary: optColor,
   // Claves de S3, no URLs: viven en el prefijo privado (ver uploads.schemas).
@@ -109,6 +112,8 @@ export const updateCompanySchema = z.object({
   annualRevenue: nullishStr,
   businessYears: nullishStr,
   tagline: nullishStr,
+  personType: personTypeEnum.nullable().optional(),
+  companyTypeSecondary: companyTypeEnum.nullable().optional(),
   // null borra el color y devuelve el catalogo a los de la plataforma.
   brandPrimary: nullishColor,
   brandSecondary: nullishColor,

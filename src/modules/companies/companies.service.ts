@@ -132,6 +132,9 @@ export const companiesService = {
   },
 
   async create(ownerId: string, input: CreateCompanyInput) {
+    if (input.companyTypeSecondary && input.companyTypeSecondary === input.companyType) {
+      throw BadRequest('El tipo secundario no puede ser el mismo que el principal');
+    }
     const slug = await uniqueSlug(input.companyName);
     const company = await prisma.company.create({
       data: {
@@ -152,6 +155,8 @@ export const companiesService = {
         employeeCount: input.employeeCount ?? null,
         annualRevenue: input.annualRevenue ?? null,
         businessYears: input.businessYears ?? null,
+        personType: input.personType ?? null,
+        companyTypeSecondary: input.companyTypeSecondary ?? null,
         brandPrimary: input.brandPrimary ?? null,
         brandSecondary: input.brandSecondary ?? null,
         rutKey: input.rutKey ?? null,
@@ -340,9 +345,26 @@ export const companiesService = {
   ) {
     const existing = await prisma.company.findFirst({
       where: { id, deletedAt: null },
-      select: { id: true, ownerId: true, companyName: true, slug: true, previousSlugs: true },
+      select: {
+        id: true,
+        ownerId: true,
+        companyName: true,
+        slug: true,
+        previousSlugs: true,
+        companyType: true,
+      },
     });
     if (!existing) throw NotFound('Company no encontrada');
+
+    // Dos veces el mismo tipo no clasifica nada. Hay que mirar el guardado
+    // porque un PATCH puede traer solo el secundario, y compararlo con un
+    // principal ausente lo dejaria pasar.
+    if (input.companyTypeSecondary) {
+      const principal = input.companyType ?? existing.companyType;
+      if (principal && principal === input.companyTypeSecondary) {
+        throw BadRequest('El tipo secundario no puede ser el mismo que el principal');
+      }
+    }
     // El ADMIN administra la plataforma entera, asi que no se le exige ser
     // el owner. Para el resto la regla sigue igual.
     if (!opts?.isAdmin && existing.ownerId !== requesterId) {
@@ -380,6 +402,9 @@ export const companiesService = {
     if (input.annualRevenue !== undefined) data.annualRevenue = input.annualRevenue;
     if (input.businessYears !== undefined) data.businessYears = input.businessYears;
     if (input.tagline !== undefined) data.tagline = input.tagline;
+    if (input.personType !== undefined) data.personType = input.personType;
+    if (input.companyTypeSecondary !== undefined)
+      data.companyTypeSecondary = input.companyTypeSecondary;
     if (input.brandPrimary !== undefined) data.brandPrimary = input.brandPrimary;
     if (input.brandSecondary !== undefined) data.brandSecondary = input.brandSecondary;
     // La fecha acompaña a la clave: se pone al subir y se borra al quitar el

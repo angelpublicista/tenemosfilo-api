@@ -107,6 +107,16 @@ model User {
   @@index([companyId])
 }
 
+// Si el anfitrion es una persona o una empresa constituida.
+//
+// No es un dato descriptivo: decide que documentacion legal se le pide. Una
+// persona natural no esta inscrita en Camara de Comercio, asi que pedirle ese
+// certificado es pedirle algo que no existe.
+enum PersonType {
+  NATURAL
+  JURIDICA
+}
+
 // Que clase de negocio es el anfitrion. El orden es el que se le enseña al
 // elegir, con OTHER al final como salida cuando nada encaja.
 enum CompanyType {
@@ -179,6 +189,15 @@ model Company {
   // El secundario es decorativo: degradados, etiquetas, banda de portada.
   // Nunca se usa para texto corrido, porque un color elegido a mano puede
   // dejar el catalogo ilegible.
+  // null = todavia no lo ha dicho. Las empresas que ya existian estan asi, y
+  // mientras tanto se les piden los dos documentos, que es lo que veian antes.
+  personType     PersonType?
+
+  // Un negocio rara vez es una sola cosa: un hotel que ademas hace catering,
+  // una finca que ademas da clases. El principal es el que manda; el segundo
+  // es opcional y no puede repetir al primero.
+  companyTypeSecondary CompanyType?
+
   brandPrimary   String?
   brandSecondary String?
 
