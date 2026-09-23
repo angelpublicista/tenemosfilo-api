@@ -182,6 +182,9 @@ export const companiesService = {
         businessYears: input.businessYears ?? null,
         personType: input.personType ?? null,
         ciiuCode: input.ciiuCode ?? null,
+        legalRepName: input.legalRepName ?? null,
+        legalRepDocType: input.legalRepDocType ?? null,
+        legalRepDocNumber: input.legalRepDocNumber ?? null,
         ...(input.contacts?.length
           ? { companyContacts: { create: input.contacts.map(aContacto) } }
           : {}),
@@ -433,6 +436,9 @@ export const companiesService = {
     if (input.tagline !== undefined) data.tagline = input.tagline;
     if (input.personType !== undefined) data.personType = input.personType;
     if (input.ciiuCode !== undefined) data.ciiuCode = input.ciiuCode;
+    if (input.legalRepName !== undefined) data.legalRepName = input.legalRepName;
+    if (input.legalRepDocType !== undefined) data.legalRepDocType = input.legalRepDocType;
+    if (input.legalRepDocNumber !== undefined) data.legalRepDocNumber = input.legalRepDocNumber;
     // La lista llega entera porque el formulario la edita entera: se borra lo
     // que habia y se escribe lo nuevo. Si no viene no se toca —un PATCH del
     // color de marca no puede llevarse por delante la agenda—.

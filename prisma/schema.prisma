@@ -200,6 +200,19 @@ model Company {
   // El secundario es decorativo: degradados, etiquetas, banda de portada.
   // Nunca se usa para texto corrido, porque un color elegido a mano puede
   // dejar el catalogo ilegible.
+  // Representante legal: quien firma por la empresa.
+  //
+  // Solo tiene sentido en una persona juridica. Una persona natural se
+  // representa a si misma, y pedirselo aparte seria pedirle que repita sus
+  // propios datos.
+  //
+  // Su documento identifica a una PERSONA, asi que del enum DocumentType no
+  // aplica NIT y el formulario no lo ofrece. Se reutiliza ese enum en vez de
+  // crear uno casi igual, que acabaria desincronizado del primero.
+  legalRepName      String?
+  legalRepDocType   DocumentType?
+  legalRepDocNumber String?
+
   // Los suyos: a quien escribir en su empresa. `contacts`, mas abajo, son
   // los CLIENTES de su CRM; no confundirlos es medio motivo de este nombre.
   companyContacts CompanyContact[]

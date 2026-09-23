@@ -9,6 +9,8 @@ import { esVideoSoportado } from '../../lib/video-embed.js';
 const companyTypeEnum = z.nativeEnum(CompanyType);
 const personTypeEnum = z.nativeEnum(PersonType);
 const documentTypeEnum = z.enum(['NIT', 'CEDULA', 'PASAPORTE', 'OTHER']);
+// El del representante legal identifica a una PERSONA: un NIT es de empresa.
+const personDocumentTypeEnum = z.enum(['CEDULA', 'PASAPORTE', 'OTHER']);
 
 const addressSchema = z.object({
   street: z.string().optional(),
@@ -166,6 +168,9 @@ export const createCompanySchema = z.object({
   tagline: optStr,
   personType: personTypeEnum.optional(),
   ciiuCode: optCiiu,
+  legalRepName: optStr,
+  legalRepDocType: personDocumentTypeEnum.optional(),
+  legalRepDocNumber: optStr,
   contacts: contactsSchema.optional(),
   companyTypeSecondary: companyTypeEnum.optional(),
   brandPrimary: optColor,
@@ -195,6 +200,9 @@ export const updateCompanySchema = z.object({
   tagline: nullishStr,
   personType: personTypeEnum.nullable().optional(),
   ciiuCode: nullishCiiu,
+  legalRepName: nullishStr,
+  legalRepDocType: personDocumentTypeEnum.nullable().optional(),
+  legalRepDocNumber: nullishStr,
   contacts: contactsSchema.optional(),
   companyTypeSecondary: companyTypeEnum.nullable().optional(),
   // null borra el color y devuelve el catalogo a los de la plataforma.
