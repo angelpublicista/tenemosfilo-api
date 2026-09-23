@@ -107,10 +107,23 @@ model User {
   @@index([companyId])
 }
 
+// Que clase de negocio es el anfitrion. El orden es el que se le enseña al
+// elegir, con OTHER al final como salida cuando nada encaja.
 enum CompanyType {
   RESTAURANT
+  CAFE
+  BAR
+  CULINARY_STUDIO
   CATERING
-  FOODTRUCK
+  HOTEL
+  EVENT_VENUE
+  PRODUCER
+  // Cerveceria, destileria o viñedo: los tres hacen bebida, y separarlos
+  // obligaria a elegir entre tres casillas casi iguales.
+  BEVERAGE_MAKER
+  CULINARY_SCHOOL
+  INDEPENDENT_CHEF
+  TOUR_OPERATOR
   OTHER
 }
 

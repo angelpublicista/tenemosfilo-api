@@ -1,7 +1,12 @@
 import { z } from 'zod';
+import { CompanyType } from '@prisma/client';
 import { esVideoSoportado } from '../../lib/video-embed.js';
 
-const companyTypeEnum = z.enum(['RESTAURANT', 'CATERING', 'FOODTRUCK', 'OTHER']);
+// Se saca del enum de Prisma en vez de escribir la lista otra vez: estaban
+// duplicadas y ya se habian desincronizado —el schema y este archivo decian
+// cosas distintas al añadir tipos nuevos—. Asi el esquema de la base es la
+// unica fuente y esto no puede quedarse atras.
+const companyTypeEnum = z.nativeEnum(CompanyType);
 const documentTypeEnum = z.enum(['NIT', 'CEDULA', 'PASAPORTE', 'OTHER']);
 
 const addressSchema = z.object({
