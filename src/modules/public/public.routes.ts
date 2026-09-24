@@ -24,7 +24,18 @@ const experienciaPublica = {
     where: { deletedAt: null },
     // El comensal necesita saber donde queda: el mapa del catalogo se pinta
     // con esto. La capacidad y el resto de la operacion no salen.
-    select: { id: true, name: true, isMain: true, address: true, latitude: true, longitude: true },
+    // Las fotos y el video son material comercial: existen justamente para
+    // que el comensal vea el sitio antes de reservar.
+    select: {
+      id: true,
+      name: true,
+      isMain: true,
+      address: true,
+      latitude: true,
+      longitude: true,
+      photos: true,
+      videoUrl: true,
+    },
   },
   // La carta. Solo los menus vivos: uno desactivado o borrado no debe
   // seguir enseñandose a quien mira el catalogo.
