@@ -318,6 +318,16 @@ model Location {
   // { minGuests, maxGuests } y el minimo no era de la sede sino de cada
   // experiencia —una sede no tiene un minimo de personas, un evento si—.
   // Quitado el minimo, un Json de una sola clave solo servia para esconderla.
+  // Donde cae la sede en el mapa. Se calcula de la direccion y el anfitrion
+  // puede corregirlo arrastrando el pin, asi que lo guardado manda sobre
+  // cualquier recalculo: es un dato dado, no derivado.
+  //
+  // Van juntos o no van: una latitud sin longitud no ubica nada. Se guardan
+  // como dos columnas porque asi se pueden consultar por rango —buscar sedes
+  // cerca de un punto— cosa que un Json no deja hacer.
+  latitude    Float?
+  longitude   Float?
+
   maxCapacity Int?
 
   // Si es un local abierto al publico o un espacio al que solo se entra con

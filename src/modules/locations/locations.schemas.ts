@@ -24,6 +24,22 @@ const contactInfoSchema = z.object({
  */
 const maxCapacitySchema = z.number().int().min(1);
 
+// Rangos reales del planeta: fuera de ellos no es una coordenada, es un dedazo.
+const latitudeSchema = z.number().min(-90).max(90);
+const longitudeSchema = z.number().min(-180).max(180);
+
+/**
+ * Latitud y longitud van juntas o no van.
+ *
+ * Una latitud sin su longitud no ubica nada, y guardar media coordenada
+ * dejaria un pin que el mapa no sabria donde poner. Se comprueba aqui porque
+ * es donde se ve el par completo.
+ */
+const coordenadasCompletas = (d: { latitude?: unknown; longitude?: unknown }) =>
+  (d.latitude === undefined || d.latitude === null) ===
+  (d.longitude === undefined || d.longitude === null);
+const MENSAJE_COORDENADAS = 'La latitud y la longitud van juntas';
+
 export const createLocationSchema = z.object({
   name: z.string().min(1),
   // companyId opcional: si no viene, usamos el companyId del user logueado.
@@ -34,8 +50,10 @@ export const createLocationSchema = z.object({
   contactInfo: contactInfoSchema.optional(),
   maxCapacity: maxCapacitySchema,
   isPublic: z.boolean().optional(),
+  latitude: latitudeSchema.optional(),
+  longitude: longitudeSchema.optional(),
   isActive: z.boolean().optional().default(true),
-});
+}).refine(coordenadasCompletas, { message: MENSAJE_COORDENADAS, path: ['longitude'] });
 
 export const updateLocationSchema = z.object({
   name: z.string().min(1).optional(),
@@ -47,8 +65,11 @@ export const updateLocationSchema = z.object({
   // no borrar.
   maxCapacity: maxCapacitySchema.optional(),
   isPublic: z.boolean().nullable().optional(),
+  // null borra el pin y devuelve la sede a "sin ubicar".
+  latitude: latitudeSchema.nullable().optional(),
+  longitude: longitudeSchema.nullable().optional(),
   isActive: z.boolean().optional(),
-});
+}).refine(coordenadasCompletas, { message: MENSAJE_COORDENADAS, path: ['longitude'] });
 
 export const listLocationsQuerySchema = z.object({
   companyId: z.string().min(1).optional(),

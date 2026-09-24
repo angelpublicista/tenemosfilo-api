@@ -22,7 +22,9 @@ const experienciaPublica = {
   company: { select: { id: true, companyName: true } },
   locations: {
     where: { deletedAt: null },
-    select: { id: true, name: true, isMain: true, address: true },
+    // El comensal necesita saber donde queda: el mapa del catalogo se pinta
+    // con esto. La capacidad y el resto de la operacion no salen.
+    select: { id: true, name: true, isMain: true, address: true, latitude: true, longitude: true },
   },
   // La carta. Solo los menus vivos: uno desactivado o borrado no debe
   // seguir enseñandose a quien mira el catalogo.

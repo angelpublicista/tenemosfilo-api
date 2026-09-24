@@ -65,6 +65,8 @@ export const locationsService = {
         contactInfo: (input.contactInfo as Prisma.InputJsonValue | undefined) ?? Prisma.JsonNull,
         maxCapacity: input.maxCapacity,
         isPublic: input.isPublic ?? null,
+        latitude: input.latitude ?? null,
+        longitude: input.longitude ?? null,
         isActive: input.isActive ?? true,
       },
     });
@@ -141,6 +143,8 @@ export const locationsService = {
       data.contactInfo = (input.contactInfo as Prisma.InputJsonValue) ?? Prisma.JsonNull;
     if (input.maxCapacity !== undefined) data.maxCapacity = input.maxCapacity;
     if (input.isPublic !== undefined) data.isPublic = input.isPublic;
+    if (input.latitude !== undefined) data.latitude = input.latitude;
+    if (input.longitude !== undefined) data.longitude = input.longitude;
     if (input.isActive !== undefined) data.isActive = input.isActive;
 
     return prisma.location.update({ where: { id }, data });
