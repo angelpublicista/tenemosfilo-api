@@ -24,6 +24,26 @@ const contactInfoSchema = z.object({
  */
 const maxCapacitySchema = z.number().int().min(1);
 
+/** Hasta 12 fotos. Pasado eso nadie las mira y el formulario se vuelve un muro. */
+const MAX_FOTOS = 12;
+const photosSchema = z.array(z.string().url()).max(MAX_FOTOS);
+
+/**
+ * El video de la sede: cualquier enlace http(s).
+ *
+ * Mas permisivo que el de la portada de la empresa, que solo admite YouTube y
+ * Vimeo porque se incrusta. Aqui un enlace que no se pueda incrustar se
+ * enseña como enlace, asi que rechazarlo seria negar algo que si funciona.
+ */
+const videoUrlSchema = z
+  .string()
+  .url()
+  // Con regex y no parseando la URL: zod ejecuta los refine AUNQUE el .url()
+  // de arriba ya haya fallado, asi que un `new URL()` aqui dentro lanza con
+  // cualquier cadena que no lo sea y el error se escapa como 500 en vez de
+  // contestar 400. Comprobado.
+  .regex(/^https?:\/\//i, 'El enlace del video debe empezar por http:// o https://');
+
 // Rangos reales del planeta: fuera de ellos no es una coordenada, es un dedazo.
 const latitudeSchema = z.number().min(-90).max(90);
 const longitudeSchema = z.number().min(-180).max(180);
@@ -53,6 +73,8 @@ export const createLocationSchema = z.object({
   latitude: latitudeSchema.optional(),
   longitude: longitudeSchema.optional(),
   responsibleContactId: z.string().min(1).optional(),
+  photos: photosSchema.optional(),
+  videoUrl: videoUrlSchema.optional(),
   isActive: z.boolean().optional().default(true),
 }).refine(coordenadasCompletas, { message: MENSAJE_COORDENADAS, path: ['longitude'] });
 
@@ -71,6 +93,10 @@ export const updateLocationSchema = z.object({
   longitude: longitudeSchema.nullable().optional(),
   // null deja la sede sin responsable.
   responsibleContactId: z.string().min(1).nullable().optional(),
+  // La lista llega entera: el orden ES el dato, y mandar trozos obligaria a
+  // reconstruirlo aqui.
+  photos: photosSchema.optional(),
+  videoUrl: videoUrlSchema.nullable().optional(),
   isActive: z.boolean().optional(),
 }).refine(coordenadasCompletas, { message: MENSAJE_COORDENADAS, path: ['longitude'] });
 

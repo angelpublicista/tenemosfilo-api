@@ -97,6 +97,8 @@ export const locationsService = {
         contactInfo: (input.contactInfo as Prisma.InputJsonValue | undefined) ?? Prisma.JsonNull,
         maxCapacity: input.maxCapacity,
         responsibleContactId: input.responsibleContactId ?? null,
+        photos: input.photos ?? [],
+        videoUrl: input.videoUrl ?? null,
         isPublic: input.isPublic ?? null,
         latitude: input.latitude ?? null,
         longitude: input.longitude ?? null,
@@ -186,6 +188,8 @@ export const locationsService = {
         ? { connect: { id: input.responsibleContactId } }
         : { disconnect: true };
     }
+    if (input.photos !== undefined) data.photos = input.photos;
+    if (input.videoUrl !== undefined) data.videoUrl = input.videoUrl;
     if (input.latitude !== undefined) data.latitude = input.latitude;
     if (input.longitude !== undefined) data.longitude = input.longitude;
     if (input.isActive !== undefined) data.isActive = input.isActive;

@@ -318,6 +318,17 @@ model Location {
   // { minGuests, maxGuests } y el minimo no era de la sede sino de cada
   // experiencia —una sede no tiene un minimo de personas, un evento si—.
   // Quitado el minimo, un Json de una sola clave solo servia para esconderla.
+  // Fotos de la sede, en el orden en que se enseñan. La PRIMERA es la
+  // principal: no hay un campo aparte para eso a proposito, porque dos sitios
+  // donde decir cual manda acaban diciendo cosas distintas. Marcar una como
+  // principal es moverla al frente.
+  photos String[] @default([])
+
+  // Video de la sede: solo el enlace, no el archivo. YouTube y Vimeo se
+  // incrustan; cualquier otro se enlaza. Alojar video propio es caro y no
+  // aporta nada que un enlace no resuelva.
+  videoUrl String?
+
   // Quien responde por esta sede. Sale de los contactos de la empresa, no se
   // vuelve a teclear: sus datos ya estan guardados una vez y copiarlos aqui
   // los condenaria a quedarse viejos.
