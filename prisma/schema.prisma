@@ -314,7 +314,17 @@ model Location {
   description String? @db.Text
   address     Json? // { street, city, state, postalCode, country }
   contactInfo Json? // { phone, email }
-  capacity    Json? // { minGuests, maxGuests }
+  // Cuanta gente cabe a la vez. Columna propia y no un Json: antes era
+  // { minGuests, maxGuests } y el minimo no era de la sede sino de cada
+  // experiencia —una sede no tiene un minimo de personas, un evento si—.
+  // Quitado el minimo, un Json de una sola clave solo servia para esconderla.
+  maxCapacity Int?
+
+  // Si es un local abierto al publico o un espacio al que solo se entra con
+  // reserva. null = las sedes anteriores a este campo, que no lo declararon:
+  // no se asume ninguna de las dos, porque ninguna es mas probable.
+  isPublic    Boolean?
+
   isMain      Boolean @default(false)
 
   experiences    Experience[]   @relation("ExperienceLocations")

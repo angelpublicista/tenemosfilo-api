@@ -36,7 +36,7 @@ const fullInclude = {
   company: { select: { id: true, companyName: true, companyEmail: true, companyPhone: true } },
   locations: {
     where: { deletedAt: null },
-    select: { id: true, name: true, address: true, isMain: true, capacity: true },
+    select: { id: true, name: true, address: true, isMain: true, maxCapacity: true },
   },
   menus: {
     where: { deletedAt: null, isActive: true },

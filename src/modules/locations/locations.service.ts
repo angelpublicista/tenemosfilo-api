@@ -63,7 +63,8 @@ export const locationsService = {
         description: input.description ?? null,
         address: (input.address as Prisma.InputJsonValue | undefined) ?? Prisma.JsonNull,
         contactInfo: (input.contactInfo as Prisma.InputJsonValue | undefined) ?? Prisma.JsonNull,
-        capacity: (input.capacity as Prisma.InputJsonValue | undefined) ?? Prisma.JsonNull,
+        maxCapacity: input.maxCapacity,
+        isPublic: input.isPublic ?? null,
         isActive: input.isActive ?? true,
       },
     });
@@ -138,8 +139,8 @@ export const locationsService = {
       data.address = (input.address as Prisma.InputJsonValue) ?? Prisma.JsonNull;
     if (input.contactInfo !== undefined)
       data.contactInfo = (input.contactInfo as Prisma.InputJsonValue) ?? Prisma.JsonNull;
-    if (input.capacity !== undefined)
-      data.capacity = (input.capacity as Prisma.InputJsonValue) ?? Prisma.JsonNull;
+    if (input.maxCapacity !== undefined) data.maxCapacity = input.maxCapacity;
+    if (input.isPublic !== undefined) data.isPublic = input.isPublic;
     if (input.isActive !== undefined) data.isActive = input.isActive;
 
     return prisma.location.update({ where: { id }, data });

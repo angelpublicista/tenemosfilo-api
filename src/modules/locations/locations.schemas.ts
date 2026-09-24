@@ -13,10 +13,16 @@ const contactInfoSchema = z.object({
   email: z.string().email().optional().or(z.literal('')),
 });
 
-const capacitySchema = z.object({
-  minGuests: z.number().int().nonnegative().optional(),
-  maxGuests: z.number().int().nonnegative().optional(),
-});
+/**
+ * Cuanta gente cabe a la vez en la sede.
+ *
+ * Minimo 1: una sede donde no cabe nadie no es una sede, y un 0 guardado
+ * pasaria por "sin declarar" en cualquier sitio que lo mire.
+ *
+ * Ya no hay minimo de invitados. No era de la sede sino de cada experiencia:
+ * un salon no tiene un minimo de personas, una cena maridaje si.
+ */
+const maxCapacitySchema = z.number().int().min(1);
 
 export const createLocationSchema = z.object({
   name: z.string().min(1),
@@ -26,7 +32,8 @@ export const createLocationSchema = z.object({
   description: z.string().optional(),
   address: addressSchema.optional(),
   contactInfo: contactInfoSchema.optional(),
-  capacity: capacitySchema.optional(),
+  maxCapacity: maxCapacitySchema,
+  isPublic: z.boolean().optional(),
   isActive: z.boolean().optional().default(true),
 });
 
@@ -36,7 +43,10 @@ export const updateLocationSchema = z.object({
   description: z.string().nullable().optional(),
   address: addressSchema.nullable().optional(),
   contactInfo: contactInfoSchema.nullable().optional(),
-  capacity: capacitySchema.nullable().optional(),
+  // Sin nullable: la capacidad es obligatoria, asi que se puede cambiar pero
+  // no borrar.
+  maxCapacity: maxCapacitySchema.optional(),
+  isPublic: z.boolean().nullable().optional(),
   isActive: z.boolean().optional(),
 });
 
