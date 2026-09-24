@@ -443,9 +443,19 @@ export const companiesService = {
     // que habia y se escribe lo nuevo. Si no viene no se toca —un PATCH del
     // color de marca no puede llevarse por delante la agenda—.
     if (input.contacts !== undefined) {
+      // Se concilia contra lo que hay en vez de borrar y recrear: los que ya
+      // existen conservan su id, que es lo que sostiene la referencia desde
+      // las sedes. Borrar y recrear era mas corto y rompia esa referencia en
+      // cada guardado.
+      const siguen = input.contacts.filter((c) => c.id).map((c) => c.id as string);
       data.companyContacts = {
-        deleteMany: {},
-        create: input.contacts.map(aContacto),
+        // Los que ya no estan en la lista. Prisma acota esto a los contactos
+        // de ESTA empresa, asi que no puede llevarse los de otra.
+        deleteMany: siguen.length ? { id: { notIn: siguen } } : {},
+        update: input.contacts
+          .filter((c) => c.id)
+          .map((c) => ({ where: { id: c.id as string }, data: aContacto(c) })),
+        create: input.contacts.filter((c) => !c.id).map(aContacto),
       };
     }
     if (input.companyTypeSecondary !== undefined)

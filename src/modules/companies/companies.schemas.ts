@@ -93,6 +93,15 @@ const nullishCiiu = z.preprocess(
  * contacto sin a quien escribir no sirve para lo unico que hace.
  */
 const contactSchema = z.object({
+  /**
+   * El id del contacto cuando ya existe.
+   *
+   * Sin esto, guardar la empresa borraba los contactos y los volvia a crear
+   * con ids nuevos. Da igual mientras nadie los referencie, pero las sedes
+   * apuntan a uno como responsable: se habrian quedado sin el cada vez que el
+   * anfitrion tocara su ficha, y sin avisar.
+   */
+  id: z.string().min(1).optional(),
   type: z.nativeEnum(CompanyContactType),
   // Los obligatorios se llaman por su tipo; solo OTRO necesita nombre propio.
   label: z.preprocess(emptyToUndef, z.string().max(60).optional()),

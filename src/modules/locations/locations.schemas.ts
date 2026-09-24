@@ -52,6 +52,7 @@ export const createLocationSchema = z.object({
   isPublic: z.boolean().optional(),
   latitude: latitudeSchema.optional(),
   longitude: longitudeSchema.optional(),
+  responsibleContactId: z.string().min(1).optional(),
   isActive: z.boolean().optional().default(true),
 }).refine(coordenadasCompletas, { message: MENSAJE_COORDENADAS, path: ['longitude'] });
 
@@ -68,6 +69,8 @@ export const updateLocationSchema = z.object({
   // null borra el pin y devuelve la sede a "sin ubicar".
   latitude: latitudeSchema.nullable().optional(),
   longitude: longitudeSchema.nullable().optional(),
+  // null deja la sede sin responsable.
+  responsibleContactId: z.string().min(1).nullable().optional(),
   isActive: z.boolean().optional(),
 }).refine(coordenadasCompletas, { message: MENSAJE_COORDENADAS, path: ['longitude'] });
 

@@ -1,6 +1,17 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../config/prisma.js';
-import { Forbidden, NotFound } from '../../lib/errors.js';
+import { BadRequest, Forbidden, NotFound } from '../../lib/errors.js';
+
+/**
+ * El responsable, con lo justo para enseñarlo.
+ *
+ * Viaja con la sede para que el panel pueda pintar "María Pérez — Reservas —
+ * 310 ..." sin una segunda consulta por cada sede. El correo no va: esta
+ * pantalla enseña nombre, cargo y telefono, y lo que no se usa no se manda.
+ */
+const RESPONSABLE = {
+  select: { id: true, name: true, type: true, label: true, phone: true, position: true },
+} as const;
 import type {
   CreateLocationInput,
   ListLocationsQuery,
@@ -44,6 +55,25 @@ async function assertCanManage(locationId: string, requesterCompanyId: string | 
   return loc;
 }
 
+/**
+ * Que el responsable sea un contacto de ESTA empresa.
+ *
+ * Sin esto bastaria acertar un id para colgarle a una sede propia el
+ * responsable de otra empresa, y con el saldrian su nombre y su telefono en
+ * la ficha. El id es adivinable de sobra para no comprobarlo.
+ */
+async function asegurarContactoDeLaEmpresa(
+  contactId: string | null | undefined,
+  companyId: string,
+) {
+  if (!contactId) return;
+  const contacto = await prisma.companyContact.findFirst({
+    where: { id: contactId, companyId },
+    select: { id: true },
+  });
+  if (!contacto) throw BadRequest('El responsable no es un contacto de esta empresa');
+}
+
 export const locationsService = {
   async create(requesterCompanyId: string | null | undefined, input: CreateLocationInput) {
     const companyId = input.companyId ?? requesterCompanyId;
@@ -51,6 +81,8 @@ export const locationsService = {
     if (input.companyId && input.companyId !== requesterCompanyId) {
       throw Forbidden('No puedes crear sedes en otra company');
     }
+
+    await asegurarContactoDeLaEmpresa(input.responsibleContactId, companyId);
 
     const slug = await uniqueSlug(companyId, input.name);
 
@@ -64,11 +96,13 @@ export const locationsService = {
         address: (input.address as Prisma.InputJsonValue | undefined) ?? Prisma.JsonNull,
         contactInfo: (input.contactInfo as Prisma.InputJsonValue | undefined) ?? Prisma.JsonNull,
         maxCapacity: input.maxCapacity,
+        responsibleContactId: input.responsibleContactId ?? null,
         isPublic: input.isPublic ?? null,
         latitude: input.latitude ?? null,
         longitude: input.longitude ?? null,
         isActive: input.isActive ?? true,
       },
+      include: { responsibleContact: RESPONSABLE },
     });
   },
 
@@ -124,6 +158,7 @@ export const locationsService = {
         ...(query.includeInactive ? {} : { isActive: true }),
       },
       orderBy: [{ isMain: 'desc' }, { name: 'asc' }],
+      include: { responsibleContact: RESPONSABLE },
     });
   },
 
@@ -143,11 +178,23 @@ export const locationsService = {
       data.contactInfo = (input.contactInfo as Prisma.InputJsonValue) ?? Prisma.JsonNull;
     if (input.maxCapacity !== undefined) data.maxCapacity = input.maxCapacity;
     if (input.isPublic !== undefined) data.isPublic = input.isPublic;
+    if (input.responsibleContactId !== undefined) {
+      await asegurarContactoDeLaEmpresa(input.responsibleContactId, existing.companyId);
+      // Por la relacion y no por el id suelto: `data` es un LocationUpdateInput
+      // y ahi el vinculo se expresa conectando o soltando, no asignando.
+      data.responsibleContact = input.responsibleContactId
+        ? { connect: { id: input.responsibleContactId } }
+        : { disconnect: true };
+    }
     if (input.latitude !== undefined) data.latitude = input.latitude;
     if (input.longitude !== undefined) data.longitude = input.longitude;
     if (input.isActive !== undefined) data.isActive = input.isActive;
 
-    return prisma.location.update({ where: { id }, data });
+    return prisma.location.update({
+      where: { id },
+      data,
+      include: { responsibleContact: RESPONSABLE },
+    });
   },
 
   async softDelete(id: string, requesterCompanyId: string | null | undefined) {

@@ -318,6 +318,15 @@ model Location {
   // { minGuests, maxGuests } y el minimo no era de la sede sino de cada
   // experiencia —una sede no tiene un minimo de personas, un evento si—.
   // Quitado el minimo, un Json de una sola clave solo servia para esconderla.
+  // Quien responde por esta sede. Sale de los contactos de la empresa, no se
+  // vuelve a teclear: sus datos ya estan guardados una vez y copiarlos aqui
+  // los condenaria a quedarse viejos.
+  //
+  // SetNull al borrar el contacto: la sede sigue existiendo y funcionando sin
+  // responsable; tumbarla porque alguien salio del equipo seria absurdo.
+  responsibleContactId String?
+  responsibleContact   CompanyContact? @relation(fields: [responsibleContactId], references: [id], onDelete: SetNull)
+
   // Donde cae la sede en el mapa. Se calcula de la direccion y el anfitrion
   // puede corregirlo arrastrando el pin, asi que lo guardado manda sobre
   // cualquier recalculo: es un dato dado, no derivado.
@@ -347,6 +356,7 @@ model Location {
   deletedAt DateTime?
 
   @@index([companyId])
+  @@index([responsibleContactId])
 }
 
 // La carta de un anfitrion: que se come en sus experiencias.
@@ -1097,6 +1107,9 @@ model CompanyContact {
   email    String
   phone    String?
   position String?
+
+  // Sedes de las que es responsable. Puede serlo de varias.
+  sedesACargo Location[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
