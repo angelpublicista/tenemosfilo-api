@@ -318,6 +318,16 @@ model Location {
   // { minGuests, maxGuests } y el minimo no era de la sede sino de cada
   // experiencia —una sede no tiene un minimo de personas, un evento si—.
   // Quitado el minimo, un Json de una sola clave solo servia para esconderla.
+  // Si la sede esta dividida en salones o funciona como un solo espacio.
+  //
+  // Se guarda la respuesta y no se deduce de si hay salones: "no tengo
+  // salones" es una respuesta dada, y "todavia no he creado ninguno" es otra
+  // cosa. Sin este campo no habria forma de distinguirlas, y el formulario
+  // volveria a preguntar cada vez.
+  hasRooms Boolean?
+
+  rooms Room[]
+
   // Fotos de la sede, en el orden en que se enseñan. La PRIMERA es la
   // principal: no hay un campo aparte para eso a proposito, porque dos sitios
   // donde decir cual manda acaban diciendo cosas distintas. Marcar una como
@@ -1126,4 +1136,31 @@ model CompanyContact {
   updatedAt DateTime @updatedAt
 
   @@index([companyId, type])
+}
+
+// Un salon dentro de una sede: el Principal, la Terraza, el Reservado.
+//
+// Deliberadamente simple. NO se guardan capacidades por montaje —auditorio,
+// coctel, escuela, imperial— ni planos: eso es otro producto, y meterlo aqui
+// sin necesitarlo llenaria el formulario de campos que nadie rellena.
+model Room {
+  id         String   @id @default(cuid())
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  name        String
+  description String? @db.Text
+  maxCapacity Int
+
+  // Mismo criterio que en la sede: la primera es la principal.
+  photos String[] @default([])
+
+  // Un salon en obra o fuera de servicio se desactiva; borrarlo se llevaria
+  // por delante su historia.
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([locationId])
 }

@@ -9,6 +9,26 @@ import { BadRequest, Forbidden, NotFound } from '../../lib/errors.js';
  * 310 ..." sin una segunda consulta por cada sede. El correo no va: esta
  * pantalla enseña nombre, cargo y telefono, y lo que no se usa no se manda.
  */
+/** Un salon validado, listo para Prisma. */
+function aSalon(r: {
+  name: string;
+  description?: string;
+  maxCapacity: number;
+  photos?: string[];
+  isActive?: boolean;
+}) {
+  return {
+    name: r.name,
+    description: r.description ?? null,
+    maxCapacity: r.maxCapacity,
+    photos: r.photos ?? [],
+    isActive: r.isActive ?? true,
+  };
+}
+
+/** Los salones, en el orden en que se crearon. */
+const SALONES = { orderBy: { createdAt: 'asc' } } as const;
+
 const RESPONSABLE = {
   select: { id: true, name: true, type: true, label: true, phone: true, position: true },
 } as const;
@@ -99,12 +119,14 @@ export const locationsService = {
         responsibleContactId: input.responsibleContactId ?? null,
         photos: input.photos ?? [],
         videoUrl: input.videoUrl ?? null,
+        hasRooms: input.hasRooms ?? null,
+        ...(input.rooms?.length ? { rooms: { create: input.rooms.map(aSalon) } } : {}),
         isPublic: input.isPublic ?? null,
         latitude: input.latitude ?? null,
         longitude: input.longitude ?? null,
         isActive: input.isActive ?? true,
       },
-      include: { responsibleContact: RESPONSABLE },
+      include: { responsibleContact: RESPONSABLE, rooms: SALONES },
     });
   },
 
@@ -160,7 +182,7 @@ export const locationsService = {
         ...(query.includeInactive ? {} : { isActive: true }),
       },
       orderBy: [{ isMain: 'desc' }, { name: 'asc' }],
-      include: { responsibleContact: RESPONSABLE },
+      include: { responsibleContact: RESPONSABLE, rooms: SALONES },
     });
   },
 
@@ -188,6 +210,20 @@ export const locationsService = {
         ? { connect: { id: input.responsibleContactId } }
         : { disconnect: true };
     }
+    if (input.hasRooms !== undefined) data.hasRooms = input.hasRooms;
+    if (input.rooms !== undefined) {
+      // Se concilia contra lo que hay: los que ya existen conservan su id. Es
+      // la misma leccion que los contactos de la empresa —borrar y recrear es
+      // mas corto y rompe cualquier referencia—.
+      const siguen = input.rooms.filter((r) => r.id).map((r) => r.id as string);
+      data.rooms = {
+        deleteMany: siguen.length ? { id: { notIn: siguen } } : {},
+        update: input.rooms
+          .filter((r) => r.id)
+          .map((r) => ({ where: { id: r.id as string }, data: aSalon(r) })),
+        create: input.rooms.filter((r) => !r.id).map(aSalon),
+      };
+    }
     if (input.photos !== undefined) data.photos = input.photos;
     if (input.videoUrl !== undefined) data.videoUrl = input.videoUrl;
     if (input.latitude !== undefined) data.latitude = input.latitude;
@@ -197,7 +233,7 @@ export const locationsService = {
     return prisma.location.update({
       where: { id },
       data,
-      include: { responsibleContact: RESPONSABLE },
+      include: { responsibleContact: RESPONSABLE, rooms: SALONES },
     });
   },
 

@@ -25,8 +25,32 @@ const contactInfoSchema = z.object({
 const maxCapacitySchema = z.number().int().min(1);
 
 /** Hasta 12 fotos. Pasado eso nadie las mira y el formulario se vuelve un muro. */
+// La descripcion vacia se guarda como ausente, no como cadena vacia.
+const emptyToUndef = (v: unknown) =>
+  typeof v === 'string' && v.trim() === '' ? undefined : v;
+
 const MAX_FOTOS = 12;
 const photosSchema = z.array(z.string().url()).max(MAX_FOTOS);
+
+/**
+ * Un salon de la sede.
+ *
+ * Lleva `id` cuando ya existe. No es un detalle: sin el, guardar la sede
+ * tomaria los salones por nuevos y les cambiaria el identificador en cada
+ * guardado. Ya paso con los contactos de la empresa.
+ */
+const roomSchema = z.object({
+  id: z.string().min(1).optional(),
+  name: z.string().min(1).max(120),
+  description: z.preprocess(emptyToUndef, z.string().max(1000).optional()),
+  // Mismo minimo que la sede: un espacio donde no cabe nadie no es un espacio.
+  maxCapacity: z.number().int().min(1),
+  photos: photosSchema.optional(),
+  isActive: z.boolean().optional(),
+});
+
+/** Hasta 30 salones. Mas que eso ya no es una sede, es un centro de convenciones. */
+const roomsSchema = z.array(roomSchema).max(30);
 
 /**
  * El video de la sede: cualquier enlace http(s).
@@ -75,6 +99,8 @@ export const createLocationSchema = z.object({
   responsibleContactId: z.string().min(1).optional(),
   photos: photosSchema.optional(),
   videoUrl: videoUrlSchema.optional(),
+  hasRooms: z.boolean().optional(),
+  rooms: roomsSchema.optional(),
   isActive: z.boolean().optional().default(true),
 }).refine(coordenadasCompletas, { message: MENSAJE_COORDENADAS, path: ['longitude'] });
 
@@ -97,6 +123,8 @@ export const updateLocationSchema = z.object({
   // reconstruirlo aqui.
   photos: photosSchema.optional(),
   videoUrl: videoUrlSchema.nullable().optional(),
+  hasRooms: z.boolean().nullable().optional(),
+  rooms: roomsSchema.optional(),
   isActive: z.boolean().optional(),
 }).refine(coordenadasCompletas, { message: MENSAJE_COORDENADAS, path: ['longitude'] });
 
