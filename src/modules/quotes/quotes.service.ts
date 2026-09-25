@@ -121,8 +121,21 @@ export const quotesService = {
     const customerEmail = input.customerEmail ?? delContacto.email;
     if (!customerName) throw BadRequest('La oportunidad no tiene un contacto con nombre');
 
+    // La siguiente version dentro de su oportunidad. Las sueltas se quedan en
+    // 1: sin oportunidad detras no hay serie a la que pertenecer.
+    let version = 1;
+    if (input.opportunityId) {
+      const ultima = await prisma.quote.findFirst({
+        where: { opportunityId: input.opportunityId },
+        orderBy: { version: 'desc' },
+        select: { version: true },
+      });
+      version = (ultima?.version ?? 0) + 1;
+    }
+
     return prisma.quote.create({
       data: {
+        version,
         ...(input.opportunityId
           ? { opportunity: { connect: { id: input.opportunityId } } }
           : {}),
@@ -143,6 +156,71 @@ export const quotesService = {
       },
       include: fullInclude,
     });
+  },
+
+  /**
+   * Marca una cotizacion como enviada y mueve la oportunidad.
+   *
+   * Es el CRM-10: si la propuesta salio de FILO, el estado comercial no
+   * deberia depender de que alguien se acuerde de cambiarlo a mano.
+   *
+   * La etapa solo AVANZA. Una oportunidad ya ganada o perdida no vuelve a
+   * "Propuesta enviada" por reenviar una cotizacion: retroceder el embudo
+   * borraria el desenlace.
+   */
+  async marcarEnviada(
+    id: string,
+    requesterCompanyId: string | null | undefined,
+    via: 'FILO' | 'EXTERNO' = 'FILO',
+  ) {
+    const q = await prisma.quote.findFirst({
+      where: { id, companyId: requesterCompanyId ?? undefined },
+      select: { id: true, opportunityId: true },
+    });
+    if (!q) throw NotFound('Cotizacion no encontrada');
+
+    const cuando = new Date();
+    const [actualizada] = await prisma.$transaction([
+      prisma.quote.update({
+        where: { id },
+        data: { sentAt: cuando, sentVia: via },
+        include: fullInclude,
+      }),
+      ...(q.opportunityId
+        ? [
+            prisma.opportunity.updateMany({
+              where: {
+                id: q.opportunityId,
+                stage: { in: ['PROSPECTING', 'QUALIFICATION'] },
+              },
+              data: { stage: 'PROPOSAL', proposalSentAt: cuando },
+            }),
+            // La fecha se guarda aunque la etapa ya hubiera avanzado: sirve
+            // para el seguimiento, que cuenta desde el ultimo envio.
+            prisma.opportunity.updateMany({
+              where: { id: q.opportunityId, proposalSentAt: null },
+              data: { proposalSentAt: cuando },
+            }),
+          ]
+        : []),
+    ]);
+    return actualizada;
+  },
+
+  /**
+   * Las cotizaciones de una oportunidad, con cual es la vigente.
+   *
+   * Vigente = la ENVIADA de version mas alta. Se calcula al leer en vez de
+   * guardarse en una columna, para que no pueda contradecir a los datos.
+   */
+  async porOportunidad(opportunityId: string, requesterCompanyId: string | null | undefined) {
+    const items = await prisma.quote.findMany({
+      where: { opportunityId, companyId: requesterCompanyId ?? undefined },
+      orderBy: { version: 'desc' },
+      include: fullInclude,
+    });
+    const vigente = items.find((q) => q.sentAt) ?? null;
+    return { items, vigenteId: vigente?.id ?? null };
   },
 
   async list(requesterCompanyId: string | null | undefined, query: ListQuotesQuery) {

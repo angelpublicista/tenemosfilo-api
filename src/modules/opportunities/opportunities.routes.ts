@@ -24,6 +24,14 @@ opportunitiesRouter.get(
 );
 // El punto de entrada del CRM: clasificar y guardar lo minimo. Va antes que
 // POST / para que la ruta no se confunda con un id.
+// Registrar a mano que la propuesta ya salio, cuando se envio por fuera.
+opportunitiesRouter.post(
+  '/:id/propuesta-enviada',
+  requireScope('opportunities:write'),
+  validate(opportunityIdParamsSchema, 'params'),
+  opportunitiesController.marcarPropuestaEnviada,
+);
+
 opportunitiesRouter.post(
   '/solicitud',
   requireScope('opportunities:write'),

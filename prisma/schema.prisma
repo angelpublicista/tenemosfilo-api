@@ -815,6 +815,11 @@ model Opportunity {
   leadSource       LeadSource?
   leadSourceDetail String?
 
+  // Cuando el cliente recibio lo que necesitaba para decidir: la cotizacion en
+  // una privada, el enlace de catalogo en una abierta. Es lo que convierte la
+  // oportunidad en "Propuesta enviada", y de aqui colgara el seguimiento.
+  proposalSentAt DateTime?
+
   stage             OpportunityStage  @default(PROSPECTING)
   status            OpportunityStatus @default(OPEN)
   value             Decimal           @default(0) @db.Decimal(14, 2)
@@ -863,6 +868,14 @@ model OpportunityExperience {
   @@unique([opportunityId, experienceId])
 }
 
+// Por donde se le hizo llegar la propuesta al cliente. EXTERNO cubre el caso
+// real de mandarla por WhatsApp o por el correo propio: el estado comercial
+// tiene que poder reflejarlo aunque FILO no la haya enviado.
+enum QuoteChannel {
+  FILO
+  EXTERNO
+}
+
 enum QuoteStatus {
   PENDING
   ACCEPTED
@@ -891,6 +904,19 @@ model Quote {
   // volver a teclear lo que ya estaba en la solicitud.
   opportunityId String?
   opportunity   Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+
+  // Version dentro de su oportunidad: 1, 2, 3... Una oportunidad puede tener
+  // varias cotizaciones y todas se conservan; no se pisan.
+  version Int @default(1)
+
+  // Cuando se envio al cliente, y por donde. Crear una cotizacion y enviarla
+  // son dos cosas distintas: se puede armar una y no mandarla nunca.
+  //
+  // La VIGENTE es la enviada de version mas alta. No hay un campo que lo
+  // marque a proposito: seria un segundo sitio donde decir cual manda, y dos
+  // sitios acaban diciendo cosas distintas.
+  sentAt  DateTime?
+  sentVia QuoteChannel?
 
   status QuoteStatus @default(PENDING)
 

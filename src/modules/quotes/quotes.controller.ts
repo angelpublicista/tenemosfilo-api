@@ -11,6 +11,19 @@ const p = <T,>(req: Request) => req.params as unknown as T;
 const q = <T,>(req: Request) => req.query as unknown as T;
 
 export const quotesController = {
+  async marcarEnviada(req: Request, res: Response) {
+    const { id } = p<{ id: string }>(req);
+    const { via } = (req.body ?? {}) as { via?: 'FILO' | 'EXTERNO' };
+    const q = await quotesService.marcarEnviada(id, req.user!.companyId, via ?? 'FILO');
+    res.json({ data: q });
+  },
+
+  async porOportunidad(req: Request, res: Response) {
+    const { id } = p<{ id: string }>(req);
+    const r = await quotesService.porOportunidad(id, req.user!.companyId);
+    res.json({ data: r.items, meta: { vigenteId: r.vigenteId } });
+  },
+
   async list(req: Request, res: Response) {
     const items = await quotesService.list(req.user!.companyId, q<ListQuotesQuery>(req));
     res.json({ data: items });

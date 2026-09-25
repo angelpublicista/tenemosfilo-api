@@ -19,6 +19,13 @@ export const opportunitiesController = {
     res.json({ data: items });
   },
 
+  async marcarPropuestaEnviada(req: Request, res: Response) {
+    const { id } = p<{ id: string }>(req);
+    const { nota } = (req.body ?? {}) as { nota?: string };
+    const o = await opportunitiesService.marcarPropuestaEnviada(id, req.user!.companyId, nota);
+    res.json({ data: o });
+  },
+
   async crearSolicitud(req: Request, res: Response) {
     const o = await opportunitiesService.crearSolicitud(
       req.user!.id,

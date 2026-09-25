@@ -137,6 +137,42 @@ export const opportunitiesService = {
     });
   },
 
+  /**
+   * Registrar que la propuesta ya salio, aunque no haya salido de FILO.
+   *
+   * Es el CRM-11: mucha propuesta se manda por WhatsApp o por el correo
+   * propio. Si el CRM solo supiera de lo que envia el, el embudo estaria
+   * siempre desfasado y nadie se fiaria de el.
+   *
+   * La etapa solo avanza: una oportunidad ya cerrada no vuelve atras por esto.
+   */
+  async marcarPropuestaEnviada(
+    id: string,
+    requesterCompanyId: string | null | undefined,
+    nota?: string,
+  ) {
+    const existe = await prisma.opportunity.findFirst({
+      where: { id, hostCompanyId: requesterCompanyId ?? undefined, deletedAt: null },
+      select: { id: true, stage: true, notes: true },
+    });
+    if (!existe) throw NotFound('Oportunidad no encontrada');
+
+    const cuando = new Date();
+    const avanza = ['PROSPECTING', 'QUALIFICATION'].includes(existe.stage);
+
+    return prisma.opportunity.update({
+      where: { id },
+      data: {
+        ...(avanza ? { stage: 'PROPOSAL' as const } : {}),
+        proposalSentAt: cuando,
+        ...(nota
+          ? { notes: [existe.notes, `Propuesta enviada por fuera: ${nota}`].filter(Boolean).join('\n') }
+          : {}),
+      },
+      include: fullInclude,
+    });
+  },
+
   async create(
     requesterId: string,
     requesterCompanyId: string | null | undefined,

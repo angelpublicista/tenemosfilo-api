@@ -15,6 +15,24 @@ export const quotesRouter = Router();
 
 quotesRouter.use(requireAuth);
 
+// Marcar una cotizacion como enviada. Es lo que mueve la oportunidad a
+// "Propuesta enviada" sin que nadie tenga que acordarse.
+quotesRouter.post(
+  '/:id/enviada',
+  requireScope('quotes:write'),
+  validate(quoteIdParamsSchema, 'params'),
+  quotesController.marcarEnviada,
+);
+
+// El historial de cotizaciones de una oportunidad, con cual es la vigente.
+quotesRouter.get(
+  '/por-oportunidad/:id',
+  requireScope('quotes:read'),
+  validate(quoteIdParamsSchema, 'params'),
+  quotesController.porOportunidad,
+);
+
+
 quotesRouter.get(
   '/search-experiences',
   requireScope('experiences:read'),
