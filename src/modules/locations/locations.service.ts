@@ -126,6 +126,7 @@ export const locationsService = {
           ? (input.avEquipmentDetail ?? null)
           : null,
         bathroomsCount: input.bathroomsCount ?? null,
+        importantInfo: input.importantInfo ?? null,
         ...(input.rooms?.length ? { rooms: { create: input.rooms.map(aSalon) } } : {}),
         isPublic: input.isPublic ?? null,
         latitude: input.latitude ?? null,
@@ -220,6 +221,7 @@ export const locationsService = {
     if (input.amenities !== undefined) data.amenities = input.amenities;
     if (input.avEquipmentDetail !== undefined) data.avEquipmentDetail = input.avEquipmentDetail;
     if (input.bathroomsCount !== undefined) data.bathroomsCount = input.bathroomsCount;
+    if (input.importantInfo !== undefined) data.importantInfo = input.importantInfo;
     // Si se quita la casilla de audiovisuales, la frase se va con ella: dejarla
     // guardada describiria unos equipos que la sede ya no dice tener.
     if (input.amenities !== undefined && !input.amenities.includes('audiovisuales')) {

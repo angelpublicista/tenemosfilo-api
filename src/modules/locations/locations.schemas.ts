@@ -131,6 +131,7 @@ export const createLocationSchema = z.object({
   amenities: amenitiesSchema.optional(),
   avEquipmentDetail: z.preprocess(emptyToUndef, z.string().max(300).optional()),
   bathroomsCount: bathroomsSchema.optional(),
+  importantInfo: z.preprocess(emptyToUndef, z.string().max(2000).optional()),
   isActive: z.boolean().optional().default(true),
 }).refine(coordenadasCompletas, { message: MENSAJE_COORDENADAS, path: ['longitude'] });
 
@@ -161,6 +162,10 @@ export const updateLocationSchema = z.object({
     z.string().max(300).nullable().optional(),
   ),
   bathroomsCount: bathroomsSchema.nullable().optional(),
+  importantInfo: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? null : v),
+    z.string().max(2000).nullable().optional(),
+  ),
   isActive: z.boolean().optional(),
 }).refine(coordenadasCompletas, { message: MENSAJE_COORDENADAS, path: ['longitude'] });
 
