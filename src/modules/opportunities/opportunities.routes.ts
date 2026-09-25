@@ -4,6 +4,7 @@ import { requireScope } from '../../middleware/scope.js';
 import { validate } from '../../middleware/validate.js';
 import { opportunitiesController } from './opportunities.controller.js';
 import {
+  crearSolicitudSchema,
   createOpportunitySchema,
   listOpportunitiesQuerySchema,
   opportunityIdParamsSchema,
@@ -21,6 +22,15 @@ opportunitiesRouter.get(
   validate(listOpportunitiesQuerySchema, 'query'),
   opportunitiesController.list,
 );
+// El punto de entrada del CRM: clasificar y guardar lo minimo. Va antes que
+// POST / para que la ruta no se confunda con un id.
+opportunitiesRouter.post(
+  '/solicitud',
+  requireScope('opportunities:write'),
+  validate(crearSolicitudSchema),
+  opportunitiesController.crearSolicitud,
+);
+
 opportunitiesRouter.post(
   '/',
   requireScope('opportunities:write'),

@@ -18,6 +18,95 @@ const experienceItemSchema = z.object({
   notes: z.string().optional(),
 });
 
+// Un campo en blanco es un campo sin rellenar, no una cadena vacia.
+const emptyToUndef = (v: unknown) =>
+  typeof v === 'string' && v.trim() === '' ? undefined : v;
+
+export const experienceKindEnum = z.enum(['ABIERTA', 'PRIVADA']);
+export const buyerKindEnum = z.enum(['SOCIAL', 'CORPORATIVO']);
+export const leadSourceEnum = z.enum([
+  'WHATSAPP',
+  'INSTAGRAM',
+  'WEB',
+  'REFERIDO',
+  'PROSPECCION',
+  'RESELLER',
+  'OTRO',
+]);
+
+/**
+ * Una solicitud nueva: lo minimo para no perder un lead.
+ *
+ * Nombre, una forma de contacto y la clasificacion comercial. Nada mas es
+ * obligatorio —ni fecha, ni empresa, ni experiencia, ni sede, ni valor—
+ * porque lo que mata un lead es pedirle diez datos a quien acaba de escribir
+ * por WhatsApp.
+ *
+ * El contacto viene de dos formas: el id de uno que ya existe, o los datos de
+ * uno nuevo. Asi la pantalla puede ofrecer reutilizar en vez de duplicar.
+ */
+export const crearSolicitudSchema = z
+  .object({
+    experienceKind: experienceKindEnum,
+    // Solo se pregunta en las privadas: una abierta se le vende siempre a un
+    // particular y el servicio lo fija solo.
+    buyerKind: buyerKindEnum.optional(),
+
+    contactId: z.string().min(1).optional(),
+    contacto: z
+      .object({
+        firstName: z.string().min(1, 'Falta el nombre'),
+        lastName: z.string().optional(),
+        email: z.preprocess(emptyToUndef, z.string().email().optional()),
+        phone: z.preprocess(emptyToUndef, z.string().max(40).optional()),
+      })
+      .optional(),
+
+    crmCompanyId: z.string().min(1).optional(),
+    leadSource: leadSourceEnum.optional(),
+    leadSourceDetail: z.preprocess(emptyToUndef, z.string().max(160).optional()),
+    name: z.preprocess(emptyToUndef, z.string().max(200).optional()),
+    notes: z.preprocess(emptyToUndef, z.string().max(2000).optional()),
+  })
+  .superRefine((d, ctx) => {
+    // Una privada puede ser de particular o de empresa, y eso hay que decirlo.
+    if (d.experienceKind === 'PRIVADA' && !d.buyerKind) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['buyerKind'],
+        message: 'En una experiencia privada hay que indicar si es Social o Corporativo',
+      });
+    }
+    if (!d.contactId && !d.contacto) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['contacto'],
+        message: 'Indica un contacto existente o los datos de uno nuevo',
+      });
+    }
+    // Un lead sin forma de contactarlo no sirve para nada.
+    if (d.contacto && !d.contacto.email && !d.contacto.phone) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['contacto'],
+        message: 'Hace falta al menos un teléfono o un correo',
+      });
+    }
+    if (
+      d.leadSource &&
+      ['REFERIDO', 'RESELLER'].includes(d.leadSource) &&
+      !d.leadSourceDetail
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['leadSourceDetail'],
+        message: 'Indica quién refirió o de qué canal viene',
+      });
+    }
+  });
+
+export type CrearSolicitudInput = z.infer<typeof crearSolicitudSchema>;
+
 export const createOpportunitySchema = z.object({
   name: z.string().min(1),
   hostCompany: z.string().min(1).optional(), // si no viene, JWT
@@ -34,6 +123,10 @@ export const createOpportunitySchema = z.object({
   lostReasonNotes: z.string().optional(),
   wonReason: z.string().optional(),
   source: z.string().optional(),
+  experienceKind: experienceKindEnum.optional(),
+  buyerKind: buyerKindEnum.optional(),
+  leadSource: leadSourceEnum.optional(),
+  leadSourceDetail: z.string().max(160).optional(),
   assignedTo: z.string().min(1),
   notes: z.string().optional(),
   tags: z.array(z.string()).optional().default([]),

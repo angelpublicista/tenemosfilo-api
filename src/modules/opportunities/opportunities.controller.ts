@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { opportunitiesService } from './opportunities.service.js';
 import type {
+  CrearSolicitudInput,
   CreateOpportunityInput,
   ListOpportunitiesQuery,
   UpdateOpportunityInput,
@@ -16,6 +17,15 @@ export const opportunitiesController = {
       q<ListOpportunitiesQuery>(req),
     );
     res.json({ data: items });
+  },
+
+  async crearSolicitud(req: Request, res: Response) {
+    const o = await opportunitiesService.crearSolicitud(
+      req.user!.id,
+      req.user!.companyId,
+      req.body as CrearSolicitudInput,
+    );
+    res.status(201).json({ data: o });
   },
 
   async create(req: Request, res: Response) {

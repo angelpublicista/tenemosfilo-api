@@ -1,6 +1,6 @@
 import { Prisma, QuoteStatus } from '@prisma/client';
 import { prisma } from '../../config/prisma.js';
-import { Forbidden, NotFound } from '../../lib/errors.js';
+import { BadRequest, Forbidden, NotFound } from '../../lib/errors.js';
 import type {
   CreateQuoteInput,
   ListQuotesQuery,
@@ -90,11 +90,48 @@ export const quotesService = {
       }
     }
 
+    /**
+     * Los datos del cliente salen de la oportunidad si no vienen.
+     *
+     * Este es el punto de "no volver a ingresar lo que ya esta": quien cotiza
+     * desde una solicitud manda el id y ya. Lo que SI mande gana, para poder
+     * corregir un correo mal escrito sin tener que editar antes el contacto.
+     */
+    let delContacto: { nombre?: string; email?: string; telefono?: string } = {};
+    if (input.opportunityId) {
+      const op = await prisma.opportunity.findFirst({
+        where: { id: input.opportunityId, hostCompanyId: companyId!, deletedAt: null },
+        select: {
+          contact: { select: { firstName: true, lastName: true, email: true, phone: true } },
+        },
+      });
+      // Se comprueba que sea de esta empresa: si no, bastaria acertar un id
+      // para copiarse los datos del cliente de otra.
+      if (!op) throw NotFound('La oportunidad no existe en tu empresa');
+      if (op.contact) {
+        delContacto = {
+          nombre: [op.contact.firstName, op.contact.lastName].filter(Boolean).join(' '),
+          email: op.contact.email ?? undefined,
+          telefono: op.contact.phone ?? undefined,
+        };
+      }
+    }
+
+    const customerName = input.customerName ?? delContacto.nombre;
+    const customerEmail = input.customerEmail ?? delContacto.email;
+    if (!customerName) throw BadRequest('La oportunidad no tiene un contacto con nombre');
+
     return prisma.quote.create({
       data: {
-        customerName: input.customerName,
-        customerEmail: input.customerEmail,
-        customerPhone: input.customerPhone ?? null,
+        ...(input.opportunityId
+          ? { opportunity: { connect: { id: input.opportunityId } } }
+          : {}),
+        customerName,
+        // El correo sigue siendo columna obligatoria en la base; un lead que
+        // solo dio telefono se guarda con cadena vacia en vez de bloquear la
+        // cotizacion. Cambiar la columna es harina de otro costal.
+        customerEmail: customerEmail ?? '',
+        customerPhone: input.customerPhone ?? delContacto.telefono ?? null,
         eventDate: input.eventDate ? new Date(input.eventDate) : null,
         eventTime: input.eventTime ?? null,
         guests: input.guests ?? null,

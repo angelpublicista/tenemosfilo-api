@@ -748,6 +748,34 @@ model CrmCompany {
   @@index([hostCompanyId])
 }
 
+// Que clase de experiencia se esta vendiendo. Es la PRIMERA decision de una
+// solicitud: de ella dependen el tipo de comprador, si puede haber pre-reserva
+// y que hace falta para dar la venta por cerrada.
+enum ExperienceKind {
+  ABIERTA
+  PRIVADA
+}
+
+// A quien se le vende. Clasifica al COMPRADOR, no a la experiencia: una
+// experiencia abierta siempre se le vende a un particular, y una privada puede
+// venderse a un particular o a una empresa.
+enum BuyerKind {
+  SOCIAL
+  CORPORATIVO
+}
+
+// De donde salio el lead. RESELLER y REFERIDO admiten decir cual, en
+// `leadSourceDetail`; los demas no lo necesitan.
+enum LeadSource {
+  WHATSAPP
+  INSTAGRAM
+  WEB
+  REFERIDO
+  PROSPECCION
+  RESELLER
+  OTRO
+}
+
 enum OpportunityStage {
   PROSPECTING
   QUALIFICATION
@@ -778,6 +806,15 @@ model Opportunity {
   contactId String?
   contact   Contact? @relation(fields: [contactId], references: [id])
 
+  // La clasificacion comercial de la solicitud. Nullable porque las
+  // oportunidades anteriores a esto no la tienen y no se les inventa.
+  experienceKind ExperienceKind?
+  buyerKind      BuyerKind?
+
+  // De donde salio, y cual cuando es referido o revendedor.
+  leadSource       LeadSource?
+  leadSourceDetail String?
+
   stage             OpportunityStage  @default(PROSPECTING)
   status            OpportunityStatus @default(OPEN)
   value             Decimal           @default(0) @db.Decimal(14, 2)
@@ -800,6 +837,7 @@ model Opportunity {
 
   experiences    OpportunityExperience[]
   decisionMakers Contact[]               @relation("OpportunityDecisionMakers")
+  quotes         Quote[]
 
   isActive  Boolean   @default(true)
   createdAt DateTime  @default(now())
@@ -849,6 +887,11 @@ model Quote {
   hostId String?
   host   User?   @relation("QuoteHost", fields: [hostId], references: [id])
 
+  // De que oportunidad sale. Sin esto la cotizacion vivia suelta y habia que
+  // volver a teclear lo que ya estaba en la solicitud.
+  opportunityId String?
+  opportunity   Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+
   status QuoteStatus @default(PENDING)
 
   experiences Experience[] @relation("QuoteExperiences")
@@ -858,6 +901,7 @@ model Quote {
 
   @@index([companyId])
   @@index([status])
+  @@index([opportunityId])
 }
 
 enum ReservationStatus {

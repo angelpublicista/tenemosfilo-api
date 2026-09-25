@@ -2,10 +2,61 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../../config/prisma.js';
 import { Forbidden, NotFound } from '../../lib/errors.js';
 import type {
+  CrearSolicitudInput,
   CreateOpportunityInput,
   ListOpportunitiesQuery,
   UpdateOpportunityInput,
 } from './opportunities.schemas.js';
+
+/**
+ * El contacto de la solicitud: el que ya existe, o uno nuevo.
+ *
+ * Cuando llegan datos sueltos se busca primero por correo y por telefono
+ * dentro de la misma empresa. Sin esto, el mismo cliente acaba tres veces en
+ * la base porque escribio tres veces, y su historial queda repartido entre
+ * los tres.
+ */
+async function resolverContacto(
+  hostCompanyId: string,
+  requesterId: string,
+  input: CrearSolicitudInput,
+) {
+  if (input.contactId) {
+    const existente = await prisma.contact.findFirst({
+      where: { id: input.contactId, hostCompanyId, deletedAt: null },
+      select: { id: true, firstName: true, lastName: true, crmCompanyId: true },
+    });
+    if (!existente) throw NotFound('El contacto no existe en tu empresa');
+    return existente;
+  }
+
+  const datos = input.contacto!;
+  const porContacto = [
+    ...(datos.email ? [{ email: datos.email }] : []),
+    ...(datos.phone ? [{ phone: datos.phone }] : []),
+  ];
+
+  if (porContacto.length > 0) {
+    const yaEsta = await prisma.contact.findFirst({
+      where: { hostCompanyId, deletedAt: null, OR: porContacto },
+      select: { id: true, firstName: true, lastName: true, crmCompanyId: true },
+    });
+    if (yaEsta) return yaEsta;
+  }
+
+  return prisma.contact.create({
+    data: {
+      hostCompanyId,
+      firstName: datos.firstName,
+      lastName: datos.lastName ?? null,
+      email: datos.email ?? null,
+      phone: datos.phone ?? null,
+      crmCompanyId: input.crmCompanyId ?? null,
+      createdById: requesterId,
+    },
+    select: { id: true, firstName: true, lastName: true, crmCompanyId: true },
+  });
+}
 
 const fullInclude = {
   hostCompany: { select: { id: true, companyName: true } },
@@ -39,6 +90,53 @@ async function assertCanManage(id: string, requesterCompanyId: string | null | u
 }
 
 export const opportunitiesService = {
+  /**
+   * Una solicitud nueva: el punto de entrada del CRM.
+   *
+   * Hace en un solo paso lo que antes eran tres pantallas: encontrar o crear
+   * el contacto, y abrir la oportunidad ya clasificada. Un comercial que
+   * acaba de recibir un WhatsApp no deberia tener que navegar para no perder
+   * el lead.
+   */
+  async crearSolicitud(
+    requesterId: string,
+    requesterCompanyId: string | null | undefined,
+    input: CrearSolicitudInput,
+  ) {
+    if (!requesterCompanyId) throw Forbidden('No tienes una company asociada');
+
+    const contacto = await resolverContacto(requesterCompanyId, requesterId, input);
+
+    // Una abierta se le vende siempre a un particular: no se pregunta, se
+    // deduce. Preguntarlo seria ofrecer una eleccion que no existe.
+    const buyerKind = input.experienceKind === 'ABIERTA' ? 'SOCIAL' : input.buyerKind!;
+
+    return prisma.opportunity.create({
+      data: {
+        // El nombre es util pero no es lo que define la solicitud: si no lo
+        // dan, se arma con lo que hay para que la lista se pueda leer.
+        name:
+          input.name ??
+          `${[contacto.firstName, contacto.lastName].filter(Boolean).join(' ')} · ${
+            input.experienceKind === 'ABIERTA' ? 'Experiencia abierta' : 'Experiencia privada'
+          }`,
+        hostCompanyId: requesterCompanyId,
+        contactId: contacto.id,
+        crmCompanyId: input.crmCompanyId ?? contacto.crmCompanyId ?? null,
+        experienceKind: input.experienceKind,
+        buyerKind,
+        leadSource: input.leadSource ?? null,
+        leadSourceDetail: input.leadSourceDetail ?? null,
+        notes: input.notes ?? null,
+        // Queda a nombre de quien la abre. Exigir asignarla a alguien en el
+        // primer paso es otra pregunta de mas.
+        assignedToId: requesterId,
+        createdById: requesterId,
+      },
+      include: fullInclude,
+    });
+  },
+
   async create(
     requesterId: string,
     requesterCompanyId: string | null | undefined,
