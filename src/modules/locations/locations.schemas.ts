@@ -79,6 +79,44 @@ const amenitiesSchema = z
 
 const bathroomsSchema = z.number().int().min(0).max(200);
 
+/** Mismas claves que Availability.weeklySchedule: un solo vocabulario de dias. */
+export const DIAS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
+
+const HORA = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/**
+ * Un dia del horario.
+ *
+ * NO se exige que la hora de cierre sea posterior a la de apertura: un bar que
+ * abre a las 18:00 y cierra a las 02:00 es un horario normal, y rechazarlo
+ * seria decirle que su negocio esta mal. Cuando `to` es menor que `from` se
+ * entiende que cierra despues de medianoche.
+ *
+ * Lo unico que se rechaza es que sean iguales estando abierto: eso no dice ni
+ * "cero horas" ni "veinticuatro", y habria que adivinar cual.
+ */
+const diaSchema = z
+  .object({
+    isOpen: z.boolean(),
+    from: z.string().regex(HORA, 'La hora debe ir como HH:MM'),
+    to: z.string().regex(HORA, 'La hora debe ir como HH:MM'),
+  })
+  .refine((d) => !d.isOpen || d.from !== d.to, {
+    message: 'La hora de apertura y la de cierre no pueden ser la misma',
+    path: ['to'],
+  });
+
+/** La semana entera: los siete dias, siempre. Media semana no es un horario. */
+const openingHoursSchema = z.object({
+  mon: diaSchema,
+  tue: diaSchema,
+  wed: diaSchema,
+  thu: diaSchema,
+  fri: diaSchema,
+  sat: diaSchema,
+  sun: diaSchema,
+});
+
 /**
  * El video de la sede: cualquier enlace http(s).
  *
@@ -132,6 +170,7 @@ export const createLocationSchema = z.object({
   avEquipmentDetail: z.preprocess(emptyToUndef, z.string().max(300).optional()),
   bathroomsCount: bathroomsSchema.optional(),
   importantInfo: z.preprocess(emptyToUndef, z.string().max(2000).optional()),
+  openingHours: openingHoursSchema.optional(),
   isActive: z.boolean().optional().default(true),
 }).refine(coordenadasCompletas, { message: MENSAJE_COORDENADAS, path: ['longitude'] });
 
@@ -166,6 +205,8 @@ export const updateLocationSchema = z.object({
     (v) => (typeof v === 'string' && v.trim() === '' ? null : v),
     z.string().max(2000).nullable().optional(),
   ),
+  // null borra el horario y deja la sede sin declararlo.
+  openingHours: openingHoursSchema.nullable().optional(),
   isActive: z.boolean().optional(),
 }).refine(coordenadasCompletas, { message: MENSAJE_COORDENADAS, path: ['longitude'] });
 

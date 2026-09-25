@@ -318,6 +318,19 @@ model Location {
   // { minGuests, maxGuests } y el minimo no era de la sede sino de cada
   // experiencia —una sede no tiene un minimo de personas, un evento si—.
   // Quitado el minimo, un Json de una sola clave solo servia para esconderla.
+  // Horario semanal de la sede: un tramo por dia.
+  //
+  // { mon: { isOpen, from, to }, tue: {...}, ... } con las mismas claves de dia
+  // que `Availability.weeklySchedule`, para no tener dos vocabularios de dias
+  // en la misma base. La forma es mas simple a proposito: alli hay varios
+  // tramos por dia porque son huecos de reserva; aqui es cuando abre el local.
+  //
+  // Que significa depende de si la sede esta abierta al publico: si lo esta es
+  // su horario de atencion, y si no, cuando se puede montar algo dentro. El
+  // dato es el mismo y guardarlo dos veces solo daria ocasion de que se
+  // contradigan.
+  openingHours Json?
+
   // Condiciones que hay que conocer para montar algo aqui: ruido, acceso de
   // proveedores, horarios de montaje, escaleras, catering.
   //
