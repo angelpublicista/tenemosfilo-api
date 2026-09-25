@@ -318,6 +318,25 @@ model Location {
   // { minGuests, maxGuests } y el minimo no era de la sede sino de cada
   // experiencia —una sede no tiene un minimo de personas, un evento si—.
   // Quitado el minimo, un Json de una sola clave solo servia para esconderla.
+  // Lo que la sede ofrece, como lista de claves conocidas.
+  //
+  // Un array y no una columna booleana por cada cosa: son casillas de una
+  // misma pregunta, y añadir "tiene piscina" el dia de mañana seria un
+  // despliegue en vez de una migracion. Postgres sabe filtrar por contenido de
+  // array, asi que buscar sedes con parqueadero sigue siendo barato.
+  amenities String[] @default([])
+
+  // Que incluyen los audiovisuales, en texto libre y corto. Solo tiene sentido
+  // si entre las caracteristicas esta la de audiovisuales.
+  //
+  // NO hay inventario de equipos —dos micros, tres manteles—: eso es otro
+  // producto, y una frase resuelve el 90% sin pedirle a nadie que mantenga un
+  // almacen al dia.
+  avEquipmentDetail String?
+
+  // Cuantos baños tiene.
+  bathroomsCount Int?
+
   // Si la sede esta dividida en salones o funciona como un solo espacio.
   //
   // Se guarda la respuesta y no se deduce de si hay salones: "no tengo

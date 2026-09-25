@@ -53,6 +53,33 @@ const roomSchema = z.object({
 const roomsSchema = z.array(roomSchema).max(30);
 
 /**
+ * Lo que una sede puede ofrecer.
+ *
+ * Lista cerrada a proposito: son casillas, no texto libre, y si el front
+ * mandara una clave que aqui no esta se rechaza con un mensaje claro en vez de
+ * guardar algo que ninguna pantalla sabria pintar. El front tiene la misma
+ * lista con sus etiquetas (lib/company/caracteristicas.ts); si se añade una,
+ * hay que añadirla en los dos sitios y el rechazo avisa si se olvida.
+ */
+export const CARACTERISTICAS = [
+  'aire_libre',
+  'cocina',
+  'parqueadero',
+  'wifi',
+  'acceso_movilidad_reducida',
+  'ascensor',
+  'mesas_y_sillas',
+  'audiovisuales',
+] as const;
+
+const amenitiesSchema = z
+  .array(z.enum(CARACTERISTICAS))
+  // Repetir una casilla no significa nada; se guarda una sola vez.
+  .transform((l) => [...new Set(l)]);
+
+const bathroomsSchema = z.number().int().min(0).max(200);
+
+/**
  * El video de la sede: cualquier enlace http(s).
  *
  * Mas permisivo que el de la portada de la empresa, que solo admite YouTube y
@@ -101,6 +128,9 @@ export const createLocationSchema = z.object({
   videoUrl: videoUrlSchema.optional(),
   hasRooms: z.boolean().optional(),
   rooms: roomsSchema.optional(),
+  amenities: amenitiesSchema.optional(),
+  avEquipmentDetail: z.preprocess(emptyToUndef, z.string().max(300).optional()),
+  bathroomsCount: bathroomsSchema.optional(),
   isActive: z.boolean().optional().default(true),
 }).refine(coordenadasCompletas, { message: MENSAJE_COORDENADAS, path: ['longitude'] });
 
@@ -125,6 +155,12 @@ export const updateLocationSchema = z.object({
   videoUrl: videoUrlSchema.nullable().optional(),
   hasRooms: z.boolean().nullable().optional(),
   rooms: roomsSchema.optional(),
+  amenities: amenitiesSchema.optional(),
+  avEquipmentDetail: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? null : v),
+    z.string().max(300).nullable().optional(),
+  ),
+  bathroomsCount: bathroomsSchema.nullable().optional(),
   isActive: z.boolean().optional(),
 }).refine(coordenadasCompletas, { message: MENSAJE_COORDENADAS, path: ['longitude'] });
 

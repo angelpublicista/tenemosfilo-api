@@ -120,6 +120,12 @@ export const locationsService = {
         photos: input.photos ?? [],
         videoUrl: input.videoUrl ?? null,
         hasRooms: input.hasRooms ?? null,
+        amenities: input.amenities ?? [],
+        // Sin la casilla de audiovisuales, la frase no describe nada.
+        avEquipmentDetail: input.amenities?.includes('audiovisuales')
+          ? (input.avEquipmentDetail ?? null)
+          : null,
+        bathroomsCount: input.bathroomsCount ?? null,
         ...(input.rooms?.length ? { rooms: { create: input.rooms.map(aSalon) } } : {}),
         isPublic: input.isPublic ?? null,
         latitude: input.latitude ?? null,
@@ -211,6 +217,14 @@ export const locationsService = {
         : { disconnect: true };
     }
     if (input.hasRooms !== undefined) data.hasRooms = input.hasRooms;
+    if (input.amenities !== undefined) data.amenities = input.amenities;
+    if (input.avEquipmentDetail !== undefined) data.avEquipmentDetail = input.avEquipmentDetail;
+    if (input.bathroomsCount !== undefined) data.bathroomsCount = input.bathroomsCount;
+    // Si se quita la casilla de audiovisuales, la frase se va con ella: dejarla
+    // guardada describiria unos equipos que la sede ya no dice tener.
+    if (input.amenities !== undefined && !input.amenities.includes('audiovisuales')) {
+      data.avEquipmentDetail = null;
+    }
     if (input.rooms !== undefined) {
       // Se concilia contra lo que hay: los que ya existen conservan su id. Es
       // la misma leccion que los contactos de la empresa —borrar y recrear es
