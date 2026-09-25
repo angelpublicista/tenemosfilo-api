@@ -9,7 +9,7 @@ openapi: 3.1.0
 
 info:
   title: API de Tenemos Filo
-  version: "1.0.0"
+  version: "1.1.0"
   description: |
     API para vender experiencias gastronómicas de los anfitriones de
     Tenemos Filo desde tu propia plataforma.
@@ -46,6 +46,23 @@ info:
 
     Pide siempre los minimos que necesites. Una key de solo lectura no puede
     hacer dano si se filtra.
+
+    ## Que cambio en la 1.1
+
+    **Si ya tenias una integracion**, lo unico que puede romperte:
+
+    - Las sedes ya **no traen `capacity`** con `minGuests` y `maxGuests`. El
+      minimo no era de la sede sino de cada experiencia; el maximo esta ahora
+      en `maxCapacity`, como numero suelto.
+
+    Lo demas son datos nuevos que puedes ignorar sin hacer nada:
+
+    - Las sedes traen horario, caracteristicas, fotos, video, ubicacion en el
+      mapa y condiciones importantes.
+    - Las empresas traen sus colores de marca, por si pintas su catalogo en tu
+      propia web.
+    - `GET /reservations/{id}` deja consultar una reserva que hayas vendido.
+      Antes esta ruta contestaba 403 a cualquier API key.
 
     ## Limites de peticiones
 
@@ -354,6 +371,44 @@ paths:
         "403": { $ref: "#/components/responses/SinScope" }
         "429": { $ref: "#/components/responses/Limitado" }
 
+  /reservations/{id}:
+    get:
+      operationId: consultarReserva
+      tags: [Reservas]
+      summary: Consultar una reserva
+      description: |
+        Devuelve una reserva **que hayas vendido tu**. Sirve para comprobar en
+        que estado esta sin tener que guardarlo todo por tu lado.
+
+        Solo alcanzas las tuyas: pedir la de otra empresa contesta 403 aunque
+        aciertes el id.
+      security:
+        - ApiKey: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: La reserva
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Reserva" }
+        "403":
+          description: La reserva no es tuya
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error:
+                  code: FORBIDDEN
+                  message: No tienes permiso sobre esta reserva
+        "404": { $ref: "#/components/responses/NoEncontrado" }
+
   /quotes/search-experiences:
     get:
       operationId: buscarExperienciasParaCotizar
@@ -599,6 +654,42 @@ components:
               price: { type: number }
               priceType: { type: string, enum: [per_person, total] }
               description: { type: string }
+        locations:
+          type: array
+          description: |
+            Donde ocurre, si es presencial. **No traen los mismos campos en
+            todas partes**: en `/experiences` llevan `maxCapacity`, y en
+            `/public/catalog/{slug}` llevan en su lugar la ubicacion en el mapa
+            y el material visual, que es lo que necesita quien va a reservar.
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              name: { type: string }
+              isMain: { type: boolean }
+              address:
+                type: object
+                properties:
+                  street: { type: string }
+                  city: { type: string }
+                  state: { type: string }
+                  country: { type: string }
+              maxCapacity:
+                type: [integer, "null"]
+                description: Solo en `/experiences`.
+              latitude:
+                type: [number, "null"]
+                description: Solo en `/public/catalog/{slug}`.
+              longitude:
+                type: [number, "null"]
+                description: Solo en `/public/catalog/{slug}`.
+              photos:
+                type: array
+                description: Solo en `/public/catalog/{slug}`. La primera es la principal.
+                items: { type: string }
+              videoUrl:
+                type: [string, "null"]
+                description: Solo en `/public/catalog/{slug}`.
 
     Disponibilidad:
       type: object
@@ -633,6 +724,10 @@ components:
 
     Sede:
       type: object
+      description: |
+        Una sede del anfitrion. **Ojo si ya integrabas:** el objeto `capacity`
+        con `minGuests` y `maxGuests` desaparecio. El minimo no era de la sede
+        sino de cada experiencia, y el maximo pasa a `maxCapacity`.
       properties:
         id: { type: string }
         name: { type: string }
@@ -644,6 +739,83 @@ components:
             city: { type: string }
             state: { type: string }
             country: { type: string }
+        maxCapacity:
+          type: [integer, "null"]
+          description: Cuanta gente cabe a la vez.
+          example: 80
+        isPublic:
+          type: [boolean, "null"]
+          description: |
+            Si es un local abierto al publico o un espacio al que solo se entra
+            con reserva. `null` = la sede no lo ha declarado.
+        latitude: { type: [number, "null"] }
+        longitude: { type: [number, "null"] }
+        photos:
+          type: array
+          description: URLs en orden. La **primera es la principal**.
+          items: { type: string }
+        videoUrl:
+          type: [string, "null"]
+          description: |
+            Enlace, no archivo. Puede ser de YouTube, de Vimeo o de cualquier
+            otro sitio; los dos primeros se pueden incrustar y el resto no.
+        amenities:
+          type: array
+          description: Lo que ofrece la sede.
+          items:
+            type: string
+            enum:
+              - aire_libre
+              - cocina
+              - parqueadero
+              - wifi
+              - acceso_movilidad_reducida
+              - ascensor
+              - mesas_y_sillas
+              - audiovisuales
+        avEquipmentDetail:
+          type: [string, "null"]
+          description: Que incluyen los audiovisuales. Solo si `amenities` trae `audiovisuales`.
+          example: "TV, video beam, pantalla, sonido y 2 microfonos"
+        bathroomsCount: { type: [integer, "null"] }
+        importantInfo:
+          type: [string, "null"]
+          description: |
+            Condiciones que hay que conocer para montar algo ahi: restricciones
+            de ruido, acceso de proveedores, horarios de montaje, escaleras.
+        openingHours:
+          $ref: "#/components/schemas/HorarioSemanal"
+        hasRooms:
+          type: [boolean, "null"]
+          description: |
+            Si la sede esta dividida en salones. `null` = no lo ha declarado.
+            Los salones en si solo se devuelven al anfitrion dueño de la sede,
+            no en el listado entre empresas.
+
+    HorarioSemanal:
+      type: [object, "null"]
+      description: |
+        Cuando se puede estar en la sede: su horario de atencion si esta
+        abierta al publico, y cuando se puede montar algo si no. Un tramo por
+        dia.
+
+        La hora de cierre **puede ser menor** que la de apertura: eso significa
+        que cierra despues de medianoche, como un bar de 18:00 a 02:00.
+      properties:
+        mon: { $ref: "#/components/schemas/DiaDeHorario" }
+        tue: { $ref: "#/components/schemas/DiaDeHorario" }
+        wed: { $ref: "#/components/schemas/DiaDeHorario" }
+        thu: { $ref: "#/components/schemas/DiaDeHorario" }
+        fri: { $ref: "#/components/schemas/DiaDeHorario" }
+        sat: { $ref: "#/components/schemas/DiaDeHorario" }
+        sun: { $ref: "#/components/schemas/DiaDeHorario" }
+
+    DiaDeHorario:
+      type: object
+      properties:
+        isOpen: { type: boolean }
+        from: { type: string, example: "09:00" }
+        to: { type: string, example: "18:00" }
 
     Menu:
       type: object
@@ -682,6 +854,17 @@ components:
         logo: { type: [string, "null"] }
         companyEmail: { type: [string, "null"] }
         companyPhone: { type: [string, "null"] }
+        brandPrimary:
+          type: [string, "null"]
+          description: |
+            Color de marca del anfitrion, en hexadecimal. `null` = usa el de la
+            plataforma. Si pintas su catalogo en tu propia web, con esto sale
+            con sus colores.
+          example: "#F26726"
+        brandSecondary:
+          type: [string, "null"]
+          description: Color secundario, para adornos. Nunca para texto.
+          example: "#E23694"
 
     CrearReserva:
       type: object
