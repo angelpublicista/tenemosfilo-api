@@ -17,6 +17,7 @@ import { companiesRouter } from './modules/companies/companies.routes.js';
 import { crmCompaniesRouter } from './modules/crm-companies/crm-companies.routes.js';
 import { contactsRouter } from './modules/contacts/contacts.routes.js';
 import { opportunitiesRouter } from './modules/opportunities/opportunities.routes.js';
+import { crmPanelRouter } from './modules/crm-panel/crm-panel.routes.js';
 import { experiencesRouter } from './modules/experiences/experiences.routes.js';
 import { reservationsRouter } from './modules/reservations/reservations.routes.js';
 import { quotesRouter } from './modules/quotes/quotes.routes.js';
@@ -100,6 +101,7 @@ export function createApp() {
   app.use('/crm-companies', limiteGeneral, crmCompaniesRouter);
   app.use('/contacts', limiteGeneral, contactsRouter);
   app.use('/opportunities', limiteGeneral, opportunitiesRouter);
+  app.use('/crm-panel', limiteGeneral, crmPanelRouter);
   app.use('/experiences', limiteGeneral, experiencesRouter);
   app.use('/reservations', limiteGeneral, reservationsRouter);
   app.use('/quotes', limiteGeneral, quotesRouter);

@@ -1,6 +1,11 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../config/prisma.js';
 import { Forbidden, NotFound } from '../../lib/errors.js';
+import {
+  crearSeguimientoDePropuesta,
+  crearSeguimientosDeLead,
+  retirarSeguimientos,
+} from '../../lib/seguimientos.js';
 import type {
   CrearSolicitudInput,
   CreateOpportunityInput,
@@ -111,7 +116,7 @@ export const opportunitiesService = {
     // deduce. Preguntarlo seria ofrecer una eleccion que no existe.
     const buyerKind = input.experienceKind === 'ABIERTA' ? 'SOCIAL' : input.buyerKind!;
 
-    return prisma.opportunity.create({
+    const creada = await prisma.opportunity.create({
       data: {
         // El nombre es util pero no es lo que define la solicitud: si no lo
         // dan, se arma con lo que hay para que la lista se pueda leer.
@@ -135,6 +140,11 @@ export const opportunitiesService = {
       },
       include: fullInclude,
     });
+
+    // Sin await a proposito: el lead ya esta guardado y quien lo creo no
+    // tiene que esperar a que se escriban tres recordatorios.
+    void crearSeguimientosDeLead(creada.id, contacto.id);
+    return creada;
   },
 
   /**
@@ -160,7 +170,7 @@ export const opportunitiesService = {
     const cuando = new Date();
     const avanza = ['PROSPECTING', 'QUALIFICATION'].includes(existe.stage);
 
-    return prisma.opportunity.update({
+    const actualizada = await prisma.opportunity.update({
       where: { id },
       data: {
         ...(avanza ? { stage: 'PROPOSAL' as const } : {}),
@@ -171,6 +181,9 @@ export const opportunitiesService = {
       },
       include: fullInclude,
     });
+
+    void crearSeguimientoDePropuesta(id, actualizada.contactId);
+    return actualizada;
   },
 
   async create(
@@ -344,7 +357,23 @@ export const opportunitiesService = {
       ]);
     }
 
-    return prisma.opportunity.update({ where: { id }, data, include: fullInclude });
+    const actualizada = await prisma.opportunity.update({
+      where: { id },
+      data,
+      include: fullInclude,
+    });
+
+    // Una oportunidad cerrada no tiene a quien perseguir. Los seguimientos
+    // pendientes pasan a NO_APLICA en vez de borrarse: asi queda constancia de
+    // que existieron y de por que dejaron de hacer falta.
+    const cerrada =
+      actualizada.status === 'WON' ||
+      actualizada.status === 'LOST' ||
+      actualizada.stage === 'CLOSED_WON' ||
+      actualizada.stage === 'CLOSED_LOST';
+    if (cerrada) void retirarSeguimientos(id);
+
+    return actualizada;
   },
 
   async softDelete(id: string, requesterCompanyId: string | null | undefined) {

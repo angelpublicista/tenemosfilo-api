@@ -34,6 +34,7 @@ export const createContactSchema = z.object({
   company: z.string().min(1).optional(), // crmCompanyId
   contactType: optStr,
   status: statusEnum.optional().default('ACTIVE'),
+  doNotContact: z.boolean().optional(),
   source: optStr,
   address: addressSchema.optional(),
   avatar: optUrl,
@@ -61,6 +62,7 @@ export const updateContactSchema = z.object({
   company: z.string().nullable().optional(),
   contactType: z.string().nullable().optional(),
   status: statusEnum.optional(),
+  doNotContact: z.boolean().optional(),
   source: z.string().nullable().optional(),
   address: addressSchema.nullable().optional(),
   avatar: z.preprocess(
@@ -80,6 +82,7 @@ export const listContactsQuerySchema = z.object({
   hostCompanyId: z.string().min(1).optional(),
   contactType: z.string().optional(),
   status: statusEnum.optional(),
+  doNotContact: z.boolean().optional(),
   source: z.string().optional(),
   company: z.string().optional(),
   assignedTo: z.string().optional(),

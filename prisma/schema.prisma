@@ -677,6 +677,11 @@ model Contact {
   crmCompanyId String?
   crmCompany   CrmCompany? @relation(fields: [crmCompanyId], references: [id])
 
+  // Pidio no recibir seguimiento comercial. No se le crean seguimientos y los
+  // que tuviera pendientes dejan de aplicar. Es una peticion suya, no un
+  // estado del negocio, y por eso va aparte de `status`.
+  doNotContact Boolean @default(false)
+
   contactType String?
   status      ContactStatus @default(ACTIVE)
   source      String?
@@ -751,6 +756,25 @@ model CrmCompany {
 // Que clase de experiencia se esta vendiendo. Es la PRIMERA decision de una
 // solicitud: de ella dependen el tipo de comprador, si puede haber pre-reserva
 // y que hace falta para dar la venta por cerrada.
+// Que seguimiento es. El momento en que nace lo dice todo: los LEAD_* cuentan
+// desde que entro la solicitud, PROPUESTA desde que el cliente recibio algo.
+enum FollowupKind {
+  LEAD_24H
+  LEAD_48H
+  LEAD_72H
+  PROPUESTA
+}
+
+// PENDIENTE es trabajo por hacer; HECHO, trabajo hecho; NO_APLICA es lo que
+// dejo de tener sentido —el cliente ya respondio, la venta se cerro, pidio no
+// ser contactado—. Se distingue de HECHO a proposito: uno mide gestion y el
+// otro solo limpia la lista.
+enum FollowupStatus {
+  PENDIENTE
+  HECHO
+  NO_APLICA
+}
+
 enum ExperienceKind {
   ABIERTA
   PRIVADA
@@ -814,6 +838,8 @@ model Opportunity {
   // De donde salio, y cual cuando es referido o revendedor.
   leadSource       LeadSource?
   leadSourceDetail String?
+
+  followups Followup[]
 
   // Cuando el cliente recibio lo que necesitaba para decidir: la cotizacion en
   // una privada, el enlace de catalogo en una abierta. Es lo que convierte la
@@ -1273,4 +1299,33 @@ model Room {
   updatedAt DateTime @updatedAt
 
   @@index([locationId])
+}
+
+// Un seguimiento comercial: recordar que hay que volver a escribirle a alguien.
+//
+// Se crean solos —al entrar la solicitud y al enviar la propuesta— justamente
+// para que nadie tenga que crearlos a mano, que es la forma segura de que no
+// existan.
+model Followup {
+  id            String      @id @default(cuid())
+  opportunityId String
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  kind   FollowupKind
+  // Cuando toca hacerlo. Se guarda calculado y no se deduce al leer para que
+  // la lista de pendientes sea una consulta simple y no una cuenta por fila.
+  dueAt  DateTime
+  status FollowupStatus @default(PENDIENTE)
+
+  doneAt DateTime?
+  notes  String?   @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Para la lista de pendientes, que es la consulta que se hace todo el rato.
+  @@index([opportunityId])
+  @@index([status, dueAt])
+  // Un mismo seguimiento no se crea dos veces por la misma oportunidad.
+  @@unique([opportunityId, kind])
 }

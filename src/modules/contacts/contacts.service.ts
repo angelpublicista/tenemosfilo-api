@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { retirarSeguimientosDelContacto } from '../../lib/seguimientos.js';
 import { prisma } from '../../config/prisma.js';
 import { Forbidden, NotFound } from '../../lib/errors.js';
 import type {
@@ -51,6 +52,7 @@ export const contactsService = {
         department: input.department ?? null,
         ...(input.company ? { crmCompany: { connect: { id: input.company } } } : {}),
         contactType: input.contactType ?? null,
+        doNotContact: input.doNotContact ?? false,
         status: input.status ?? 'ACTIVE',
         source: input.source ?? null,
         address: (input.address as Prisma.InputJsonValue | undefined) ?? Prisma.JsonNull,
@@ -138,6 +140,7 @@ export const contactsService = {
     if (input.jobTitle !== undefined) data.jobTitle = input.jobTitle;
     if (input.department !== undefined) data.department = input.department;
     if (input.contactType !== undefined) data.contactType = input.contactType;
+    if (input.doNotContact !== undefined) data.doNotContact = input.doNotContact;
     if (input.status !== undefined) data.status = input.status;
     if (input.source !== undefined) data.source = input.source;
     if (input.address !== undefined)
@@ -161,7 +164,13 @@ export const contactsService = {
         : { disconnect: true };
     }
 
-    return prisma.contact.update({ where: { id }, data, include: fullInclude });
+    const actualizado = await prisma.contact.update({ where: { id }, data, include: fullInclude });
+
+    // Si pidio que no le escriban, sus seguimientos pendientes dejan de
+    // aplicar. Guardar la marca y seguir persiguiendole seria no respetarla.
+    if (input.doNotContact === true) void retirarSeguimientosDelContacto(id);
+
+    return actualizado;
   },
 
   async softDelete(id: string, requesterCompanyId: string | null | undefined) {
