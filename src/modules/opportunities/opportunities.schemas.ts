@@ -118,6 +118,37 @@ export const crearPreReservaSchema = z.object({
   duration: z.number().int().min(1).optional(),
 });
 
+/**
+ * CRM-32. La reserva de una abierta creada desde la oportunidad.
+ *
+ * Los mismos datos que una pre-reserva: la diferencia no esta en lo que se
+ * pide sino en el estado con el que nace y en que aqui no hay abono minimo.
+ */
+export const crearReservaSchema = crearPreReservaSchema;
+
+/**
+ * CRM-31. Datos de facturacion.
+ *
+ * Todo opcional: se piden al vender, no antes, y se guarda lo que haya. Un
+ * NIT a medias es mejor que perder el que ya nos dieron.
+ */
+export const facturacionSchema = z.object({
+  businessName: z.preprocess(emptyToUndef, z.string().max(200).optional()),
+  documentType: z.preprocess(emptyToUndef, z.string().max(40).optional()),
+  documentNumber: z.preprocess(emptyToUndef, z.string().max(40).optional()),
+  email: z.preprocess(emptyToUndef, z.string().email().optional()),
+  phone: z.preprocess(emptyToUndef, z.string().max(40).optional()),
+  address: z
+    .object({
+      street: z.preprocess(emptyToUndef, z.string().max(200).optional()),
+      city: z.preprocess(emptyToUndef, z.string().max(120).optional()),
+      state: z.preprocess(emptyToUndef, z.string().max(120).optional()),
+      postalCode: z.preprocess(emptyToUndef, z.string().max(20).optional()),
+      country: z.preprocess(emptyToUndef, z.string().max(80).optional()),
+    })
+    .optional(),
+});
+
 export const registrarPagoSchema = z.object({
   monto: z.number().positive('El monto debe ser mayor que cero'),
 });

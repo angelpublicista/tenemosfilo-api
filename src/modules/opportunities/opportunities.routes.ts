@@ -6,7 +6,9 @@ import { opportunitiesController } from './opportunities.controller.js';
 import {
   condicionDePagoSchema,
   crearPreReservaSchema,
+  crearReservaSchema,
   crearSolicitudSchema,
+  facturacionSchema,
   perderSchema,
   registrarPagoSchema,
   createOpportunitySchema,
@@ -72,6 +74,39 @@ opportunitiesRouter.post(
   validate(opportunityIdParamsSchema, 'params'),
   validate(perderSchema),
   opportunitiesController.perder,
+);
+
+// CRM-32. En una abierta no hay pre-reserva: o se crea la reserva...
+opportunitiesRouter.post(
+  '/:id/reserva',
+  requireScope('opportunities:write'),
+  validate(opportunityIdParamsSchema, 'params'),
+  validate(crearReservaSchema),
+  opportunitiesController.crearReserva,
+);
+
+// ...o se le manda al cliente su enlace, que ya lleva lo que sabemos de el.
+opportunitiesRouter.post(
+  '/:id/enlace-de-reserva',
+  requireScope('opportunities:write'),
+  validate(opportunityIdParamsSchema, 'params'),
+  opportunitiesController.enlaceDeReserva,
+);
+
+// CRM-31. Los datos fiscales, que se piden al vender y no al abrir el lead.
+opportunitiesRouter.get(
+  '/:id/facturacion',
+  requireScope('opportunities:read'),
+  validate(opportunityIdParamsSchema, 'params'),
+  opportunitiesController.facturacion,
+);
+
+opportunitiesRouter.put(
+  '/:id/facturacion',
+  requireScope('opportunities:write'),
+  validate(opportunityIdParamsSchema, 'params'),
+  validate(facturacionSchema),
+  opportunitiesController.guardarFacturacion,
 );
 
 // Registrar a mano que la propuesta ya salio, cuando se envio por fuera.

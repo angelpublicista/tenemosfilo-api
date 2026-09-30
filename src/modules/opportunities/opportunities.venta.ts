@@ -7,6 +7,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../../config/prisma.js';
 import { BadRequest, Forbidden, NotFound } from '../../lib/errors.js';
 import { retirarSeguimientos } from '../../lib/seguimientos.js';
+import { enlaceService } from './opportunities.enlace.js';
 import { logger } from '../../lib/logger.js';
 
 /**
@@ -145,7 +146,11 @@ export const ventaService = {
     monto: number,
   ) {
     const o = await oportunidadDe(id, companyId);
-    const reserva = o.reservations.find((r) => r.status === 'PRE_RESERVED' || r.status === 'CONFIRMED');
+    // PENDING entra igual que PRE_RESERVED: la reserva de una abierta creada
+    // desde la oportunidad nace pendiente, y sobre ella tambien se cobra.
+    const reserva = o.reservations.find(
+      (r) => r.status === 'PRE_RESERVED' || r.status === 'PENDING' || r.status === 'CONFIRMED',
+    );
     if (!reserva) throw BadRequest('Esta oportunidad no tiene una reserva sobre la que registrar el pago');
     if (monto <= 0) throw BadRequest('El monto debe ser mayor que cero');
 
@@ -214,6 +219,16 @@ export const ventaService = {
       );
     }
 
+    // CRM-31. Los datos de facturacion se congelan aqui, no antes.
+    //
+    // Al abrir el lead no se piden —pedir el NIT a quien acaba de escribir
+    // por WhatsApp es perderlo—, asi que este es el momento en que existen.
+    // Si nadie los reviso a mano, se toma lo que ya haya en la empresa o el
+    // contacto: es mejor una factura con lo conocido que una sin nada.
+    const facturacion = reserva.billingData
+      ? null
+      : (await enlaceService.facturacion(id, companyId)).datos;
+
     const [actualizada] = await prisma.$transaction([
       prisma.opportunity.update({
         where: { id },
@@ -223,7 +238,12 @@ export const ventaService = {
       // El espacio sigue bloqueado: pasa de apartado a confirmado.
       prisma.reservation.update({
         where: { id: reserva.id },
-        data: { status: 'CONFIRMED' },
+        data: {
+          status: 'CONFIRMED',
+          ...(facturacion
+            ? { billingData: facturacion as unknown as Prisma.InputJsonValue }
+            : {}),
+        },
       }),
     ]);
 

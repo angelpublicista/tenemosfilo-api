@@ -12,6 +12,7 @@ import { NotFound } from '../../lib/errors.js';
 import { prisma } from '../../config/prisma.js';
 import { getPlatformSettings } from '../../lib/commissions.js';
 import { dondeEstaElCatalogo } from '../companies/companies.service.js';
+import { enlaceService } from '../opportunities/opportunities.enlace.js';
 
 export const publicRouter = Router();
 
@@ -206,5 +207,26 @@ publicRouter.get(
     if (!reserva) throw NotFound('Reserva no encontrada');
 
     res.json({ data: reserva });
+  },
+);
+
+/**
+ * CRM-33. Lo que ya sabemos de quien abre su enlace de reserva.
+ *
+ * Publico y sin sesion, como el resto del catalogo: lo abre el cliente desde
+ * un WhatsApp. Lo que protege estos datos es el token —24 bytes al azar— y no
+ * un login, y por eso la respuesta se limita a lo que esa misma persona
+ * escribiria en el formulario: su nombre, su correo y su telefono. Nada del
+ * negocio del anfitrion.
+ *
+ * El servicio devuelve 404 si la oportunidad ya se cerro: un enlace viejo
+ * reenviado no puede seguir revelando datos de nadie.
+ */
+publicRouter.get(
+  '/solicitud/:token',
+  validate(z.object({ token: z.string().min(16).max(64) }), 'params'),
+  async (req: Request, res: Response) => {
+    const { token } = req.params as { token: string };
+    res.json({ data: await enlaceService.datosDelEnlace(token) });
   },
 );

@@ -14,6 +14,7 @@ import { prisma } from '../../config/prisma.js';
 import { aEstadoDePago, webhookValido } from '../../lib/wompi.js';
 import { avisarCambioDeEstado, avisarPago, cargarDatosDeReserva } from '../../lib/notify.js';
 import { construirCheckout } from './payments.service.js';
+import { cerrarVentaPorPagoEnLinea } from '../opportunities/opportunities.enlace.js';
 
 export const paymentsRouter = Router();
 
@@ -55,7 +56,13 @@ paymentsRouter.post('/wompi/webhook', async (req: Request, res: Response) => {
   // La referencia que enviamos al checkout es el numero de reserva.
   const reserva = await prisma.reservation.findUnique({
     where: { reservationNumber: referencia },
-    select: { id: true, paymentStatus: true, paymentDetails: true },
+    select: {
+      id: true,
+      paymentStatus: true,
+      paymentDetails: true,
+      pricing: true,
+      opportunityId: true,
+    },
   });
   if (!reserva) {
     logger.warn({ referencia }, 'Webhook de Wompi para una reserva desconocida');
@@ -86,11 +93,27 @@ paymentsRouter.post('/wompi/webhook', async (req: Request, res: Response) => {
     return res.status(200).json({ received: true });
   }
 
+  // Cuanto entro de verdad.
+  //
+  // `paymentStatus` dice si esta pagada, pero el CRM necesita el monto: es lo
+  // que compara contra el minimo para dejar confirmar una venta. Sin esto una
+  // reserva cobrada entera por la pasarela seguia figurando con cero pagado y
+  // la oportunidad no se podia cerrar.
+  //
+  // Wompi manda centavos. Si el evento no lo trae, se cae al total de la
+  // reserva, que es lo que se le cobro.
+  const centavos = transaccion?.amount_in_cents;
+  const cobrado =
+    typeof centavos === 'number' && centavos > 0
+      ? centavos / 100
+      : Number((reserva.pricing as { total?: unknown } | null)?.total ?? 0);
+
   await prisma.reservation.update({
     where: { id: reserva.id },
     data: {
       paymentStatus: nuevoEstado,
       paymentMethod: 'WOMPI',
+      ...(nuevoEstado === 'PAID' ? { paidAmount: cobrado } : {}),
       paymentDetails: {
         provider: 'wompi',
         transactionId: transaccion?.id ?? null,
@@ -113,6 +136,9 @@ paymentsRouter.post('/wompi/webhook', async (req: Request, res: Response) => {
   // comprobante ni la confirmacion. Solo si el estado CAMBIO a pagado, para
   // que un reintento del webhook —Wompi los manda— no duplique los correos.
   if (nuevoEstado === 'PAID' && reserva.paymentStatus !== 'PAID') {
+    // Si la reserva venia del enlace de una oportunidad, el pago cierra la
+    // venta: no hay nada mas que decidir.
+    if (reserva.opportunityId) void cerrarVentaPorPagoEnLinea(reserva.opportunityId);
     void (async () => {
       const datos = await cargarDatosDeReserva(reserva.id);
       if (!datos) return;

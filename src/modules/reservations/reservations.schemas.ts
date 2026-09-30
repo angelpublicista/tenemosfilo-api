@@ -44,6 +44,10 @@ export const createReservationSchema = z.object({
   // Revendedor que trae la venta, por slug o id. Solo lo usa el catalogo
   // publico: en /reservations la empresa sale de la API key.
   reseller: z.string().min(1).optional(),
+  // CRM-33. Token del enlace que el anfitrion le mando al cliente desde una
+  // oportunidad. Sirve para colgar la reserva de esa oportunidad en vez de
+  // dejarla suelta como una entrada mas del catalogo.
+  solicitudToken: z.string().min(16).max(64).optional(),
   company: z.string().min(1).optional(), // si no viene, derivamos del experience
   client: clientSchema,
   clientType: clientTypeEnum.optional().default('GUEST'),

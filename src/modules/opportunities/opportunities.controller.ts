@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { opportunitiesService } from './opportunities.service.js';
 import { ventaService } from './opportunities.venta.js';
+import { enlaceService, type DatosDeFacturacion } from './opportunities.enlace.js';
 import type {
   CrearSolicitudInput,
   CreateOpportunityInput,
@@ -51,6 +52,31 @@ export const opportunitiesController = {
     const { id } = p<{ id: string }>(req);
     const { motivo, notas } = req.body as { motivo: string; notas?: string };
     res.json({ data: await ventaService.perder(id, req.user!.companyId, motivo, notas) });
+  },
+
+  async crearReserva(req: Request, res: Response) {
+    const { id } = p<{ id: string }>(req);
+    const r = await enlaceService.crearReserva(id, req.user!.companyId, req.body as never);
+    res.status(201).json({ data: r });
+  },
+
+  async enlaceDeReserva(req: Request, res: Response) {
+    const { id } = p<{ id: string }>(req);
+    res.json({ data: await enlaceService.generarEnlaceDeReserva(id, req.user!.companyId) });
+  },
+
+  async facturacion(req: Request, res: Response) {
+    const { id } = p<{ id: string }>(req);
+    res.json({ data: await enlaceService.facturacion(id, req.user!.companyId) });
+  },
+
+  async guardarFacturacion(req: Request, res: Response) {
+    const { id } = p<{ id: string }>(req);
+    res.json({
+      data: await enlaceService.guardarFacturacion(
+        id, req.user!.companyId, req.body as DatosDeFacturacion,
+      ),
+    });
   },
 
   async marcarPropuestaEnviada(req: Request, res: Response) {

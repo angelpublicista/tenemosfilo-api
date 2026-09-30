@@ -95,7 +95,7 @@ type AddonElegido = { name?: string; quantity?: number };
  * Ajustes de operacion de la empresa. No son preferencias decorativas: de
  * ellos depende si una reserva entra y con que estado nace.
  */
-async function ajustesDeOperacion(companyId: string) {
+export async function ajustesDeOperacion(companyId: string) {
   const [c, plataforma] = await Promise.all([
     prisma.company.findUnique({
       where: { id: companyId },
@@ -125,7 +125,7 @@ async function ajustesDeOperacion(companyId: string) {
  * puede pagarse en cualquier momento y vender su lugar a otro seria peor
  * que rechazar esta.
  */
-async function verificarAforo(
+export async function verificarAforo(
   experienceId: string,
   fecha: Date,
   participantes: number,
@@ -368,6 +368,25 @@ export const reservationsService = {
     // tocaba a nadie en las dispersiones.
     const revendedor = await resolverRevendedor(input.reseller, companyId);
 
+    // CRM-33. Si viene del enlace de una oportunidad, la reserva se cuelga de
+    // ella. Sin esto el comercial no ve en su oportunidad la reserva que su
+    // propio enlace acaba de generar, y la cierra a mano creyendo que el
+    // cliente nunca reservo.
+    //
+    // Se comprueba que la oportunidad sea de esta misma empresa y siga
+    // abierta: un token viejo no debe reabrir una venta ya cerrada.
+    const deOportunidad = input.solicitudToken
+      ? await prisma.opportunity.findFirst({
+          where: {
+            bookingToken: input.solicitudToken,
+            hostCompanyId: companyId,
+            status: 'OPEN',
+            deletedAt: null,
+          },
+          select: { id: true },
+        })
+      : null;
+
     const pricing = await conComisiones(
       input.experience,
       precio as unknown as CreateReservationInput['pricing'],
@@ -388,6 +407,7 @@ export const reservationsService = {
         client: input.client as Prisma.InputJsonValue,
         ...(cuenta ? { user: { connect: { id: cuenta.id } }, clientType: 'REGISTERED' as const } : { clientType: 'GUEST' as const }),
         source: 'BOOKING_ENGINE',
+        ...(deOportunidad ? { opportunity: { connect: { id: deOportunidad.id } } } : {}),
         reservationDate: fecha,
         duration: input.duration ?? null,
         participants: input.participants,

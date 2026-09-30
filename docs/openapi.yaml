@@ -901,6 +901,13 @@ components:
                   quantity: { type: number }
         specialRequirements: { type: string }
         notes: { type: string }
+        solicitudToken:
+          type: string
+          description: |
+            Solo en `POST /reservations/public`: token del enlace de reserva
+            que un anfitrion genero desde su CRM. Cuelga la reserva de esa
+            oportunidad. Con una API key se ignora — la venta ya se atribuye
+            a tu empresa.
 
     Reserva:
       type: object

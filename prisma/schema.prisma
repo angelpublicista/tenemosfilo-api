@@ -862,6 +862,12 @@ model Opportunity {
   paymentConditionById String?
   paymentConditionBy   User?   @relation("OpportunityPaymentCondition", fields: [paymentConditionById], references: [id])
 
+  // El enlace de reserva que se le paso al cliente. Se guarda un token y no
+  // se ponen sus datos en la URL: el motor publico canjea el token por lo
+  // que ya sabemos de el, asi que el enlace no lleva nada legible encima.
+  bookingToken   String?   @unique
+  bookingTokenAt DateTime?
+
   reservations Reservation[]
 
   stage             OpportunityStage  @default(PROSPECTING)
@@ -1038,6 +1044,11 @@ model Reservation {
   // Cuanto se ha recibido de verdad. `paymentStatus` dice si esta pagada o no;
   // esto dice cuanto, que es lo unico que permite comprobar un abono parcial.
   paidAmount          Decimal           @default(0) @db.Decimal(14, 2)
+
+  // Los datos de facturacion tal y como estaban al venderse: razon social,
+  // documento y direccion. Se congelan aqui porque la empresa del CRM cambia
+  // y una factura se emite contra lo que era cierto ese dia.
+  billingData         Json?
 
   // De que oportunidad salio, si salio de una. Las reservas que entran por el
   // catalogo publico no tienen oportunidad detras.
