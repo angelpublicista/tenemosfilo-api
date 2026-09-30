@@ -7,7 +7,7 @@ import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { requireAuth } from '../../middleware/auth.js';
 import { validate } from '../../middleware/validate.js';
-import { getPlatformSettings } from '../../lib/commissions.js';
+import { pasarelaDeLaReserva } from '../../lib/pasarela.js';
 import { BadRequest, NotFound } from '../../lib/errors.js';
 import { logger } from '../../lib/logger.js';
 import { prisma } from '../../config/prisma.js';
@@ -30,20 +30,7 @@ const checkoutSchema = z.object({
 // comprueba con la firma del evento, no con un token.
 
 paymentsRouter.post('/wompi/webhook', async (req: Request, res: Response) => {
-  const ajustes = await getPlatformSettings();
-  if (!ajustes.wompiEventsSecret) {
-    logger.error('Webhook de Wompi recibido sin secreto de eventos configurado');
-    // 200 a proposito: si respondemos error, Wompi reintentara sin fin algo
-    // que no vamos a poder procesar hasta que se configure.
-    return res.status(200).json({ received: true });
-  }
-
   const evento = req.body as Record<string, unknown>;
-  if (!webhookValido(evento, ajustes.wompiEventsSecret)) {
-    logger.warn({ evento: evento?.event }, 'Webhook de Wompi con firma invalida: descartado');
-    return res.status(401).json({ error: { code: 'INVALID_SIGNATURE' } });
-  }
-
   const transaccion = (evento.data as { transaction?: Record<string, unknown> } | undefined)
     ?.transaction;
   const referencia = transaccion?.reference;
@@ -54,6 +41,12 @@ paymentsRouter.post('/wompi/webhook', async (req: Request, res: Response) => {
   }
 
   // La referencia que enviamos al checkout es el numero de reserva.
+  //
+  // Se lee ANTES de validar la firma, y a proposito: hay un secreto de eventos
+  // por pasarela —la de la plataforma y la de cada anfitrion que cobre por su
+  // cuenta—, y sin saber de que reserva habla el evento no se sabe contra cual
+  // validarlo. Leer la referencia no cambia nada; nada se escribe hasta que la
+  // firma cuadra.
   const reserva = await prisma.reservation.findUnique({
     where: { reservationNumber: referencia },
     select: {
@@ -62,11 +55,29 @@ paymentsRouter.post('/wompi/webhook', async (req: Request, res: Response) => {
       paymentDetails: true,
       pricing: true,
       opportunityId: true,
+      companyId: true,
+      collectedBy: true,
     },
   });
   if (!reserva) {
     logger.warn({ referencia }, 'Webhook de Wompi para una reserva desconocida');
     return res.status(200).json({ received: true });
+  }
+
+  const pasarela = await pasarelaDeLaReserva(reserva.companyId, reserva.collectedBy);
+  if (!pasarela?.eventsSecret) {
+    logger.error(
+      { referencia, quienCobra: reserva.collectedBy },
+      'Webhook de Wompi sin secreto de eventos para esa pasarela',
+    );
+    // 200 a proposito: si respondemos error, Wompi reintentara sin fin algo
+    // que no vamos a poder procesar hasta que se configure.
+    return res.status(200).json({ received: true });
+  }
+
+  if (!webhookValido(evento, pasarela.eventsSecret)) {
+    logger.warn({ evento: evento?.event }, 'Webhook de Wompi con firma invalida: descartado');
+    return res.status(401).json({ error: { code: 'INVALID_SIGNATURE' } });
   }
 
   const nuevoEstado = aEstadoDePago(estado);

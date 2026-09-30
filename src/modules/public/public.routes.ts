@@ -12,6 +12,7 @@ import { NotFound } from '../../lib/errors.js';
 import { prisma } from '../../config/prisma.js';
 import { getPlatformSettings } from '../../lib/commissions.js';
 import { dondeEstaElCatalogo } from '../companies/companies.service.js';
+import { empresasQuePuedenCobrar, pasarelaDe } from '../../lib/pasarela.js';
 import { enlaceService } from '../opportunities/opportunities.enlace.js';
 
 export const publicRouter = Router();
@@ -130,10 +131,15 @@ publicRouter.get(
       orderBy: [{ isFeatured: 'desc' }, { createdAt: 'desc' }],
     });
 
-    const ajustes = await getPlatformSettings();
-    const paymentsEnabled = Boolean(
-      ajustes.wompiEnabled && ajustes.wompiPublicKey && ajustes.wompiIntegritySecret,
-    );
+    // Aqui salen experiencias de varias empresas, y desde que cada anfitrion
+    // puede cobrar con su pasarela la respuesta ya no es una sola para todas.
+    // Solo se promete cobro en linea si se puede cobrar de TODAS: decirle al
+    // comensal "pagas ahora" y despues no cobrarle es peor que no prometerlo.
+    const puedenCobrar = await empresasQuePuedenCobrar([
+      ...new Set(experiences.map((e) => e.companyId)),
+    ]);
+    const paymentsEnabled =
+      experiences.length > 0 && experiences.every((e) => puedenCobrar.has(e.companyId));
 
     res.json({ data: { company: reseller, experiences, paymentsEnabled, esReseller: true } });
   },
@@ -163,10 +169,11 @@ publicRouter.get(
     // Solo si se cobra en linea. El resumen previo a confirmar cambia el
     // texto segun esto: prometer "pagas ahora" con la pasarela apagada deja
     // al cliente esperando un cobro que nunca llega.
+    //
+    // Puede ser la pasarela propia del anfitrion o la de la plataforma; al
+    // comensal le da igual cual sea, solo necesita saber si va a pagar ahora.
     const ajustes = await getPlatformSettings();
-    const paymentsEnabled = Boolean(
-      ajustes.wompiEnabled && ajustes.wompiPublicKey && ajustes.wompiIntegritySecret,
-    );
+    const paymentsEnabled = (await pasarelaDe(company.id)) !== null;
 
     // Si hay que pagar para que la reserva valga. Lo decide la empresa; si no
     // dice nada, el valor por defecto de la plataforma. Sin pasarela activa

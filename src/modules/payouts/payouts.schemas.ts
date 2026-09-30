@@ -6,6 +6,12 @@ export const createPayoutSchema = z.object({
   companyId: z.string().min(1),
   /** En calidad de que se le paga: por sus experiencias o por sus ventas. */
   role: payoutRoleEnum,
+  /**
+   * Quien paga. Omitido = FILO, que es lo normal. Con una empresa, es un
+   * anfitrion que cobro con su propia pasarela saldando la comision de su
+   * revendedor: ese dinero nunca paso por FILO.
+   */
+  payerCompanyId: z.string().min(1).optional(),
   amount: z.number().positive(),
   reference: z.string().trim().optional(),
   notes: z.string().trim().optional(),

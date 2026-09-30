@@ -1,4 +1,5 @@
-import { Prisma, ReservationStatus, PaymentStatus, UserRole } from '@prisma/client';
+import { Prisma, ReservationStatus, PaymentStatus, UserRole, type CollectedBy } from '@prisma/client';
+import { pasarelaDe } from '../../lib/pasarela.js';
 import { prisma } from '../../config/prisma.js';
 import {
   calcularDesglose,
@@ -53,10 +54,11 @@ async function assertCanManage(id: string, requesterCompanyId: string | null | u
  * la plataforma. El resto del desglose (precios, descuentos) si viene del
  * cliente, que es quien conoce la seleccion.
  */
-async function conComisiones(
+export async function conComisiones(
   experienceId: string,
   pricing: CreateReservationInput['pricing'],
   esDeReseller: boolean,
+  quienCobra: CollectedBy,
 ): Promise<Prisma.InputJsonValue> {
   const [experiencia, ajustes] = await Promise.all([
     prisma.experience.findUnique({
@@ -74,7 +76,7 @@ async function conComisiones(
   const desglose = calcularDesglose(
     Number(pricing.total) || 0,
     resolverComisiones(experiencia, ajustes),
-    { esDeReseller },
+    { esDeReseller, cobraElAnfitrion: quienCobra === 'HOST' },
   );
 
   return {
@@ -109,12 +111,15 @@ export async function ajustesDeOperacion(companyId: string) {
   // alcanzaria a las empresas ya creadas.
   const exigePago = c?.requirePayment ?? plataforma.requirePaymentDefault ?? false;
 
+  // Exigir pago sin pasarela dejaria el catalogo sin forma de reservar: el
+  // ajuste solo surte efecto si de verdad se puede cobrar. Y "se puede cobrar"
+  // ya no es solo la de la plataforma: puede ser la propia del anfitrion.
+  const sePuedeCobrar = (await pasarelaDe(companyId)) !== null;
+
   return {
     autoConfirmar: c?.autoConfirmReservations ?? false,
     bloquearLleno: c?.blockWhenFull ?? true,
-    // Exigir pago sin pasarela dejaria el catalogo sin forma de reservar:
-    // el ajuste solo surte efecto si de verdad se puede cobrar.
-    exigePago: exigePago && Boolean(plataforma.wompiEnabled),
+    exigePago: exigePago && sePuedeCobrar,
   };
 }
 
@@ -284,7 +289,13 @@ export const reservationsService = {
       throw Forbidden('No puedes crear reservas en otra company');
     }
 
-    const pricing = await conComisiones(input.experience, input.pricing, asReseller);
+    // Quien va a cobrar esto se decide AHORA y queda escrito en la reserva.
+    // De ello depende la comision, asi que las dos cosas tienen que salir de
+    // la misma lectura: si se resolviera otra vez al pagar, un anfitrion que
+    // conecte su pasarela entre medias dejaria reservas con comision
+    // descontada cobrandose en su cuenta.
+    const quienCobra = (await pasarelaDe(companyId))?.quienCobra ?? 'PLATFORM';
+    const pricing = await conComisiones(input.experience, input.pricing, asReseller, quienCobra);
 
     // Tambien aqui: una venta de revendedor o una reserva cargada a mano no
     // deberian poder pasarse del aforo si la empresa lo tiene bloqueado.
@@ -314,6 +325,7 @@ export const reservationsService = {
         participants: input.participants,
         status: input.status ?? 'PENDING',
         paymentStatus: input.paymentStatus ?? 'PENDING',
+        collectedBy: quienCobra,
         pricing,
         paymentMethod: input.paymentMethod ?? null,
         paymentDetails: (input.paymentDetails as Prisma.InputJsonValue | undefined) ?? Prisma.JsonNull,
@@ -387,10 +399,12 @@ export const reservationsService = {
         })
       : null;
 
+    const quienCobra = (await pasarelaDe(companyId))?.quienCobra ?? 'PLATFORM';
     const pricing = await conComisiones(
       input.experience,
       precio as unknown as CreateReservationInput['pricing'],
       revendedor !== null,
+      quienCobra,
     );
 
     // Los ajustes de la empresa mandan sobre como entra la reserva.
@@ -415,6 +429,7 @@ export const reservationsService = {
         // comprobo arriba, asi que no se autoconfirma nada sin sitio.
         status: autoConfirmar ? 'CONFIRMED' : 'PENDING',
         paymentStatus: 'PENDING',
+        collectedBy: quienCobra,
         pricing,
         ...(input.location ? { location: { connect: { id: input.location } } } : {}),
         isVirtual: input.isVirtual ?? false,

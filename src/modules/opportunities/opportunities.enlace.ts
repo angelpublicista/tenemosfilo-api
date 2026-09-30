@@ -14,7 +14,8 @@ import { prisma } from '../../config/prisma.js';
 import { env } from '../../config/env.js';
 import { BadRequest, Forbidden, NotFound } from '../../lib/errors.js';
 import { crearSeguimientoDePropuesta, retirarSeguimientos } from '../../lib/seguimientos.js';
-import { ajustesDeOperacion, verificarAforo } from '../reservations/reservations.service.js';
+import { ajustesDeOperacion, conComisiones, verificarAforo } from '../reservations/reservations.service.js';
+import { pasarelaDe } from '../../lib/pasarela.js';
 import { logger } from '../../lib/logger.js';
 
 /** Los datos con los que se emite una factura. */
@@ -91,6 +92,9 @@ export const enlaceService = {
       exp.id, new Date(input.reservationDate), input.participants, bloquearLleno, exigePago,
     );
 
+    const quienCobra = (await pasarelaDe(companyId!))?.quienCobra ?? 'PLATFORM';
+    const pricing = await conComisiones(exp.id, { total: input.total } as never, false, quienCobra);
+
     const reserva = await prisma.reservation.create({
       data: {
         reservationNumber: `OPO-${Date.now().toString().slice(-6)}-${randomBytes(2)
@@ -110,7 +114,8 @@ export const enlaceService = {
           email: o.contact?.email ?? null,
           phone: o.contact?.phone ?? null,
         } as Prisma.InputJsonValue,
-        pricing: { total: input.total } as Prisma.InputJsonValue,
+        collectedBy: quienCobra,
+        pricing,
         source: 'MANUAL',
       },
     });

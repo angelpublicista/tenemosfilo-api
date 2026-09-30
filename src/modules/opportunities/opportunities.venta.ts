@@ -8,6 +8,8 @@ import { prisma } from '../../config/prisma.js';
 import { BadRequest, Forbidden, NotFound } from '../../lib/errors.js';
 import { retirarSeguimientos } from '../../lib/seguimientos.js';
 import { enlaceService } from './opportunities.enlace.js';
+import { conComisiones } from '../reservations/reservations.service.js';
+import { pasarelaDe } from '../../lib/pasarela.js';
 import { logger } from '../../lib/logger.js';
 
 /**
@@ -88,6 +90,18 @@ export const ventaService = {
       phone: o.contact?.phone ?? null,
     };
 
+    // El reparto se calcula igual que en cualquier otra reserva. Sin esto la
+    // venta del CRM entraba con un pricing de solo `total`, y al anfitrion no
+    // se le devengaba nada: las dispersiones suman `hostEarnings`, que no
+    // existia.
+    const quienCobra = (await pasarelaDe(companyId!))?.quienCobra ?? 'PLATFORM';
+    const pricing = await conComisiones(
+      exp.id,
+      { total: input.total } as never,
+      false,
+      quienCobra,
+    );
+
     const ahora = new Date();
     const reserva = await prisma.reservation.create({
       data: {
@@ -105,7 +119,8 @@ export const ventaService = {
         status: 'PRE_RESERVED',
         paymentStatus: 'PENDING',
         client: cliente as Prisma.InputJsonValue,
-        pricing: { total: input.total } as Prisma.InputJsonValue,
+        collectedBy: quienCobra,
+        pricing,
         source: 'QUOTE',
       },
     });

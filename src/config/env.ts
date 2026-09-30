@@ -66,6 +66,12 @@ const envSchema = z.object({
   // Base para armar el enlace del correo: {APP_URL}/reset-password?token=...
   APP_URL: z.string().url().default('http://localhost:3000'),
 
+  // Llave maestra con la que se cifran las credenciales de cobro de los
+  // anfitriones (32 bytes en hexadecimal). Opcional para que un despliegue sin
+  // ella siga arrancando: solo hace falta para las pasarelas propias, y sin la
+  // variable lo unico que no se puede es guardarlas.
+  CREDENTIALS_KEY: z.string().optional(),
+
   // ──────── AWS S3 (uploads) ────────
   AWS_REGION: z.string().default('us-east-1'),
   AWS_ACCESS_KEY_ID: z.string().optional().default(''),

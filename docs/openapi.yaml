@@ -21,6 +21,15 @@ info:
     que crees queda atribuida a tu empresa como revendedora, y su comisión
     se calcula y liquida automáticamente.
 
+    ### Quién te paga la comisión
+
+    Algunos anfitriones cobran con su propia pasarela: el dinero de esas
+    reservas entra directo a su cuenta y no pasa por Tenemos Filo. Tu comisión
+    se calcula igual y con el mismo porcentaje, pero **te la paga el anfitrión**,
+    no Tenemos Filo, porque es quien recibió el dinero. Lo verás separado en tu
+    panel de ingresos. No cambia nada de cómo integras: sigues creando reservas
+    igual.
+
     ## Autenticación
 
     Manda la key en la cabecera `Authorization`:

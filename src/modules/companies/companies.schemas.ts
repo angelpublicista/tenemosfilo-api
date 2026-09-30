@@ -284,3 +284,19 @@ export const transferirTitularidadSchema = z.object({
 });
 
 export type TransferirTitularidadInput = z.infer<typeof transferirTitularidadSchema>;
+
+/**
+ * Pasarela de cobro propia del anfitrion.
+ *
+ * Cadena vacia borra el secreto, omitirlo lo deja intacto: es la unica forma
+ * de poder quitar una llave ya guardada sin exponer la que hay.
+ */
+export const pasarelaSchema = z.object({
+  provider: z.enum(['WOMPI', 'MERCADO_PAGO']).optional(),
+  enabled: z.boolean().optional(),
+  environment: z.enum(['SANDBOX', 'PRODUCTION']).optional(),
+  publicKey: z.string().trim().max(200).optional(),
+  privateKey: z.string().trim().max(200).optional(),
+  integritySecret: z.string().trim().max(200).optional(),
+  eventsSecret: z.string().trim().max(200).optional(),
+});

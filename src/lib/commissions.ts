@@ -97,13 +97,19 @@ export function resolverComisiones(
  *
  * La comision de revendedor solo se cobra si la reserva entro por esa via;
  * en una reserva directa del anfitrion no hay revendedor a quien pagarle.
+ *
+ * Y la de FILO solo si FILO cobra. Ver `cobraElAnfitrion`.
  */
 export function calcularDesglose(
   total: number,
   comisiones: { filo: Comision; reseller: Comision },
-  opts: { esDeReseller: boolean },
+  opts: { esDeReseller: boolean; cobraElAnfitrion?: boolean },
 ): DesgloseComisiones {
-  const filo = calcularImporte(comisiones.filo, total);
+  // Con pasarela propia el dinero no pasa por FILO, asi que no hay nada de
+  // donde descontar su comision: se cobra sobre lo que uno recibe, y FILO no
+  // recibe nada. La del revendedor si se devenga —el trabajo lo hizo igual—,
+  // solo que la debe el anfitrion en vez de FILO.
+  const filo = opts.cobraElAnfitrion ? 0 : calcularImporte(comisiones.filo, total);
   const reseller = opts.esDeReseller ? calcularImporte(comisiones.reseller, total) : 0;
 
   // Si entre las dos superan el total, se prorratean: el anfitrion nunca

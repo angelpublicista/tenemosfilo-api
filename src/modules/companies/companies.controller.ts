@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import { companiesService } from './companies.service.js';
+import { pasarelaDeEmpresaService, type PasarelaInput } from './companies.pasarela.js';
 import { BadRequest, NotFound } from '../../lib/errors.js';
 import type {
   CreateCompanyInput,
@@ -117,6 +118,25 @@ export const companiesController = {
       isAdmin: req.user!.role === 'ADMIN',
     });
     res.json({ data: company });
+  },
+
+  async verPasarela(req: Request, res: Response) {
+    const { id } = p<{ id: string }>(req);
+    res.json({
+      data: await pasarelaDeEmpresaService.ver(id, req.user!.id, req.user!.role === 'ADMIN'),
+    });
+  },
+
+  async guardarPasarela(req: Request, res: Response) {
+    const { id } = p<{ id: string }>(req);
+    res.json({
+      data: await pasarelaDeEmpresaService.guardar(
+        id,
+        req.user!.id,
+        req.user!.role === 'ADMIN',
+        req.body as PasarelaInput,
+      ),
+    });
   },
 
   /** DELETE /companies/:id -> soft-delete. PATCH .../restore lo revierte. */

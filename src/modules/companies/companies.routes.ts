@@ -6,6 +6,7 @@ import { validate } from '../../middleware/validate.js';
 import { companiesController } from './companies.controller.js';
 import {
   companyIdParamsSchema,
+  pasarelaSchema,
   createCompanyAsAdminSchema,
   embedDomainsSchema,
   listCompaniesQuerySchema,
@@ -80,6 +81,26 @@ companiesRouter.patch(
   validate(companyIdParamsSchema, 'params'),
   validate(embedDomainsSchema),
   companiesController.setEmbedDomains,
+);
+
+// Pasarela de cobro propia. Con ella activa el dinero entra directo a la
+// cuenta del anfitrion y FILO no cobra comision sobre esas ventas.
+//
+// requireHumanAuth: una API key de integracion no puede cambiar a que cuenta
+// va el dinero de una empresa.
+companiesRouter.get(
+  '/:id/pasarela',
+  requireHumanAuth,
+  validate(companyIdParamsSchema, 'params'),
+  companiesController.verPasarela,
+);
+
+companiesRouter.put(
+  '/:id/pasarela',
+  requireHumanAuth,
+  validate(companyIdParamsSchema, 'params'),
+  validate(pasarelaSchema),
+  companiesController.guardarPasarela,
 );
 
 // Desactivar / reactivar una empresa (soft-delete). Solo ADMIN.
