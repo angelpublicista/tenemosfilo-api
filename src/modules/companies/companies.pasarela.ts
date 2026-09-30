@@ -8,6 +8,7 @@ import { prisma } from '../../config/prisma.js';
 import { BadRequest, Forbidden, NotFound } from '../../lib/errors.js';
 import { cifrar, hayLlaveDeCifrado } from '../../lib/cripto.js';
 import { llaveCoincideConEntorno } from '../../lib/wompi.js';
+import { credencialCoincideConEntorno } from '../../lib/mercadopago.js';
 
 export interface PasarelaInput {
   provider?: PaymentProvider;
@@ -95,18 +96,17 @@ export const pasarelaDeEmpresaService = {
     const entorno = input.environment ?? actual.paymentEnvironment;
     const publica = input.publicKey !== undefined ? input.publicKey : actual.gatewayPublicKey;
 
-    if (proveedor === 'MERCADO_PAGO') {
+    // Cruzar una credencial de pruebas con el entorno de produccion es un
+    // error facil de cometer y dificil de diagnosticar: los pagos no entran y
+    // nadie sabe por que. Cada pasarela lo marca a su manera —Wompi en el
+    // cuerpo de la llave, Mercado Pago con el prefijo TEST-.
+    const noCoincide =
+      proveedor === 'MERCADO_PAGO'
+        ? !credencialCoincideConEntorno(input.privateKey || null, entorno)
+        : !llaveCoincideConEntorno(publica, entorno);
+    if (noCoincide) {
       throw BadRequest(
-        'Mercado Pago todavía no está disponible. Por ahora solo puedes conectar Wompi.',
-      );
-    }
-
-    // Cruzar una llave de pruebas con el entorno de produccion es un error
-    // facil de cometer y dificil de diagnosticar: los pagos no entran y nadie
-    // sabe por que.
-    if (!llaveCoincideConEntorno(publica, entorno)) {
-      throw BadRequest(
-        `La llave pública no corresponde al entorno ${
+        `Las credenciales no corresponden al entorno ${
           entorno === 'PRODUCTION' ? 'de producción' : 'de pruebas'
         }.`,
       );
@@ -134,19 +134,31 @@ export const pasarelaDeEmpresaService = {
       data[columna] = cifrar(valor);
     }
 
-    // Activar sin las llaves dejaria el catalogo con un checkout roto, y
-    // ademas las proximas reservas naceran sin comision de FILO creyendo que
+    // Activar sin las credenciales dejaria el catalogo con un checkout roto,
+    // y ademas las proximas reservas naceran sin comision de FILO creyendo que
     // el anfitrion cobra — cuando en realidad no puede cobrar nada.
+    //
+    // Lo que hace falta depende de la pasarela: Mercado Pago cobra creando una
+    // preferencia desde el servidor y le basta su access token, mientras que
+    // Wompi firma en el navegador y necesita llave publica y secreto de
+    // integridad.
     if (input.enabled === true) {
-      const conPublica = data.gatewayPublicKey !== undefined
-        ? data.gatewayPublicKey
-        : actual.gatewayPublicKey;
-      const conIntegridad = data.gatewayIntegritySecret !== undefined
-        ? data.gatewayIntegritySecret
-        : actual.gatewayIntegritySecret;
       if (!proveedor) throw BadRequest('Elige con qué pasarela vas a cobrar');
-      if (!conPublica || !conIntegridad) {
-        throw BadRequest('Para activar el cobro hacen falta la llave pública y el secreto de integridad.');
+      const queda = (campo: keyof typeof actual, nuevo: unknown) =>
+        nuevo !== undefined ? nuevo : actual[campo];
+
+      if (proveedor === 'MERCADO_PAGO') {
+        if (!queda('gatewayPrivateKey', data.gatewayPrivateKey)) {
+          throw BadRequest('Para activar el cobro hace falta tu access token de Mercado Pago.');
+        }
+      } else {
+        const conPublica = queda('gatewayPublicKey', data.gatewayPublicKey);
+        const conIntegridad = queda('gatewayIntegritySecret', data.gatewayIntegritySecret);
+        if (!conPublica || !conIntegridad) {
+          throw BadRequest(
+            'Para activar el cobro hacen falta la llave pública y el secreto de integridad.',
+          );
+        }
       }
       data.paymentProvider = proveedor;
     }

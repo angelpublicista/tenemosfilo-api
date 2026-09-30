@@ -937,13 +937,48 @@ components:
             hostEarnings: { type: number }
 
     Pago:
+      description: |
+        Con qué llevar al cliente a pagar. Nunca incluye secretos.
+
+        Mira siempre `proveedor` antes que nada: con **Wompi** vienen los
+        campos de un formulario ya firmado en el servidor, y con **Mercado
+        Pago** solo una URL a la que redirigir, porque la preferencia ya está
+        creada. Cuál de los dos llega depende de la pasarela del anfitrión de
+        esa experiencia, no de tu integración.
+      oneOf:
+        - $ref: "#/components/schemas/PagoWompi"
+        - $ref: "#/components/schemas/PagoMercadoPago"
+      discriminator:
+        propertyName: proveedor
+        mapping:
+          WOMPI: "#/components/schemas/PagoWompi"
+          MERCADO_PAGO: "#/components/schemas/PagoMercadoPago"
+
+    PagoWompi:
       type: object
-      description: Datos firmados para abrir el checkout. Nunca incluyen secretos.
+      required: [proveedor, checkoutUrl, publicKey, amountInCents, reference, signature]
       properties:
+        proveedor: { type: string, enum: [WOMPI] }
         checkoutUrl: { type: string }
         publicKey: { type: string }
         currency: { type: string }
         amountInCents: { type: integer }
         reference: { type: string }
         signature: { type: string }
+        redirectUrl: { type: string }
+        environment: { type: string, enum: [SANDBOX, PRODUCTION] }
+
+    PagoMercadoPago:
+      type: object
+      required: [proveedor, checkoutUrl, reference, amount]
+      properties:
+        proveedor: { type: string, enum: [MERCADO_PAGO] }
+        checkoutUrl:
+          type: string
+          description: A donde redirigir al cliente. No lleva nada que firmar.
+        reference: { type: string }
+        currency: { type: string }
+        amount:
+          type: number
+          description: En pesos, no en centavos.
         environment: { type: string, enum: [SANDBOX, PRODUCTION] }

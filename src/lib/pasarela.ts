@@ -20,17 +20,41 @@ export type Pasarela = {
   quienCobra: CollectedBy;
   proveedor: PaymentProvider;
   entorno: 'SANDBOX' | 'PRODUCTION';
-  publicKey: string;
-  integritySecret: string;
+  /** Wompi la necesita en el navegador. Mercado Pago no la usa para cobrar. */
+  publicKey: string | null;
+  /** El access token en Mercado Pago; en Wompi, su llave privada. */
+  privateKey: string | null;
+  /** Solo Wompi: firma los datos del checkout. */
+  integritySecret: string | null;
   /** Puede faltar: sin el no se validan webhooks, pero si se puede cobrar. */
   eventsSecret: string | null;
 };
+
+/**
+ * Si con esta configuracion se puede cobrar de verdad.
+ *
+ * Cada pasarela necesita cosas distintas y no se puede preguntar por las de
+ * Wompi a las dos: Mercado Pago no tiene secreto de integridad —firma del
+ * lado del servidor creando una preferencia— y su llave publica no
+ * interviene en el cobro.
+ */
+export function puedeCobrar(p: {
+  proveedor: PaymentProvider;
+  publicKey: string | null;
+  privateKey: string | null;
+  integritySecret: string | null;
+}): boolean {
+  return p.proveedor === 'MERCADO_PAGO'
+    ? Boolean(p.privateKey)
+    : Boolean(p.publicKey && p.integritySecret);
+}
 
 const SELECT_PASARELA = {
   paymentProvider: true,
   paymentGatewayEnabled: true,
   paymentEnvironment: true,
   gatewayPublicKey: true,
+  gatewayPrivateKey: true,
   gatewayIntegritySecret: true,
   gatewayEventsSecret: true,
 } as const;
@@ -40,6 +64,7 @@ type FilaDeEmpresa = {
   paymentGatewayEnabled: boolean;
   paymentEnvironment: 'SANDBOX' | 'PRODUCTION';
   gatewayPublicKey: string | null;
+  gatewayPrivateKey: string | null;
   gatewayIntegritySecret: string | null;
   gatewayEventsSecret: string | null;
 };
@@ -55,18 +80,17 @@ type FilaDeEmpresa = {
  */
 export function pasarelaDelAnfitrion(c: FilaDeEmpresa | null): Pasarela | null {
   if (!c?.paymentGatewayEnabled || !c.paymentProvider) return null;
-  const publicKey = c.gatewayPublicKey;
-  const integritySecret = descifrar(c.gatewayIntegritySecret);
-  if (!publicKey || !integritySecret) return null;
 
-  return {
+  const p: Pasarela = {
     quienCobra: 'HOST',
     proveedor: c.paymentProvider,
     entorno: c.paymentEnvironment,
-    publicKey,
-    integritySecret,
+    publicKey: c.gatewayPublicKey,
+    privateKey: descifrar(c.gatewayPrivateKey),
+    integritySecret: descifrar(c.gatewayIntegritySecret),
     eventsSecret: descifrar(c.gatewayEventsSecret),
   };
+  return puedeCobrar(p) ? p : null;
 }
 
 /** La de la plataforma, si esta lista. */
@@ -78,6 +102,7 @@ export async function pasarelaDeLaPlataforma(): Promise<Pasarela | null> {
     proveedor: 'WOMPI',
     entorno: a.wompiEnvironment,
     publicKey: a.wompiPublicKey,
+    privateKey: a.wompiPrivateKey,
     integritySecret: a.wompiIntegritySecret,
     eventsSecret: a.wompiEventsSecret,
   };

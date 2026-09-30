@@ -72,6 +72,16 @@ const envSchema = z.object({
   // variable lo unico que no se puede es guardarlas.
   CREDENTIALS_KEY: z.string().optional(),
 
+  // Host de la API de Mercado Pago. Se puede apuntar a otro sitio para
+  // probar el cobro de punta a punta sin credenciales suyas; por defecto, el
+  // de verdad.
+  MERCADOPAGO_API_URL: z.string().url().optional(),
+
+  // URL publica de ESTE API. Mercado Pago necesita que le digamos a donde
+  // mandar sus notificaciones, y APP_URL es la del front: un webhook que
+  // aterrice alli no llega a ningun sitio.
+  API_PUBLIC_URL: z.string().url().optional(),
+
   // ──────── AWS S3 (uploads) ────────
   AWS_REGION: z.string().default('us-east-1'),
   AWS_ACCESS_KEY_ID: z.string().optional().default(''),
