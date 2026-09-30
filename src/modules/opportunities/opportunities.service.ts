@@ -65,6 +65,21 @@ async function resolverContacto(
 
 const fullInclude = {
   hostCompany: { select: { id: true, companyName: true } },
+  // Las reservas vivas: son las que dicen si el espacio esta apartado y
+  // cuanto se ha cobrado. Sin ellas la pantalla no puede decidir que ofrecer.
+  reservations: {
+    where: { status: { notIn: ['CANCELLED' as const] } },
+    select: {
+      id: true,
+      reservationNumber: true,
+      status: true,
+      reservationDate: true,
+      participants: true,
+      paidAmount: true,
+      paymentStatus: true,
+      pricing: true,
+    },
+  },
   crmCompany: { select: { id: true, companyName: true } },
   contact: { select: { id: true, firstName: true, lastName: true } },
   assignedTo: { select: { id: true, name: true } },
