@@ -1,5 +1,5 @@
 import { prisma } from '../../config/prisma.js';
-import { Forbidden } from '../../lib/errors.js';
+import { Forbidden, NotFound } from '../../lib/errors.js';
 
 /**
  * El panel del CRM: que necesita atencion hoy.
@@ -85,6 +85,32 @@ export const crmPanelService = {
     ]);
 
     return { seguimientos, prereservas, porCalificar };
+  },
+
+  /**
+   * Marcar un seguimiento como hecho, o como que ya no aplica.
+   *
+   * No se borra nunca: NO_APLICA deja constancia de que existio y de que
+   * alguien decidio que sobraba, que es distinto de que nunca hubiera estado.
+   */
+  async cerrarSeguimiento(
+    id: string,
+    companyId: string | null | undefined,
+    status: 'HECHO' | 'NO_APLICA',
+  ) {
+    if (!companyId) throw Forbidden('No tienes una company asociada');
+    // Se comprueba por la oportunidad: un seguimiento no tiene empresa propia,
+    // y sin esto bastaria acertar un id para cerrar el de otra.
+    const suyo = await prisma.followup.findFirst({
+      where: { id, opportunity: { hostCompanyId: companyId } },
+      select: { id: true },
+    });
+    if (!suyo) throw NotFound('Seguimiento no encontrado');
+
+    return prisma.followup.update({
+      where: { id },
+      data: { status, doneAt: status === 'HECHO' ? new Date() : null },
+    });
   },
 
   /**

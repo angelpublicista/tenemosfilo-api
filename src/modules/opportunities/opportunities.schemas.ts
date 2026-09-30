@@ -107,6 +107,47 @@ export const crearSolicitudSchema = z
 
 export type CrearSolicitudInput = z.infer<typeof crearSolicitudSchema>;
 
+/** Lo que hace falta para apartar un espacio: cual, cuando y para cuantos. */
+export const crearPreReservaSchema = z.object({
+  experienceId: z.string().min(1),
+  locationId: z.string().min(1).optional(),
+  reservationDate: z.string().min(1),
+  participants: z.number().int().min(1),
+  // El precio acordado. Es el que decide cuanto hay que cobrar para confirmar.
+  total: z.number().nonnegative(),
+  duration: z.number().int().min(1).optional(),
+});
+
+export const registrarPagoSchema = z.object({
+  monto: z.number().positive('El monto debe ser mayor que cero'),
+});
+
+export const condicionDePagoSchema = z.object({
+  nota: z.string().min(3, 'Explica qué se acordó').max(500),
+});
+
+/**
+ * Motivos de perdida.
+ *
+ * Lista provisional: el documento de revision deja los definitivos como tema
+ * pendiente. Se admite OTRO con nota para no perder el motivo real mientras se
+ * decide, que es de donde saldra la lista buena.
+ */
+export const MOTIVOS_DE_PERDIDA = [
+  'PRECIO',
+  'FECHA_NO_DISPONIBLE',
+  'ELIGIO_OTRO_PROVEEDOR',
+  'SIN_RESPUESTA',
+  'CANCELO_EL_PLAN',
+  'FUERA_DE_ALCANCE',
+  'OTRO',
+] as const;
+
+export const perderSchema = z.object({
+  motivo: z.enum(MOTIVOS_DE_PERDIDA),
+  notas: z.string().max(1000).optional(),
+});
+
 export const createOpportunitySchema = z.object({
   name: z.string().min(1),
   hostCompany: z.string().min(1).optional(), // si no viene, JWT

@@ -87,6 +87,7 @@ model User {
   // Relaciones de dominio
   ownedCompanies        Company[]            @relation("CompanyOwner")
   contactsAssigned      Contact[]            @relation("ContactAssignedTo")
+  condicionesDePagoAutorizadas Opportunity[]  @relation("OpportunityPaymentCondition")
   contactsCreated       Contact[]            @relation("ContactCreatedBy")
   crmCompaniesAssigned  CrmCompany[]         @relation("CrmCompanyAssignedTo")
   opportunitiesAssigned Opportunity[]        @relation("OpportunityAssignedTo")
@@ -763,6 +764,10 @@ enum FollowupKind {
   LEAD_48H
   LEAD_72H
   PROPUESTA
+  // El cobro de una pre-reserva. Se crea al mandar los medios de pago y no
+  // se va hasta que la venta se confirme o se pierda: una pre-reserva olvidada
+  // tiene un espacio bloqueado sin nada a cambio.
+  PAGO_PENDIENTE
 }
 
 // PENDIENTE es trabajo por hacer; HECHO, trabajo hecho; NO_APLICA es lo que
@@ -845,6 +850,19 @@ model Opportunity {
   // una privada, el enlace de catalogo en una abierta. Es lo que convierte la
   // oportunidad en "Propuesta enviada", y de aqui colgara el seguimiento.
   proposalSentAt DateTime?
+
+  // Cuando se le mandaron los medios de pago. Es lo que convierte la solicitud
+  // en pre-reserva y arranca el seguimiento del cobro.
+  paymentInstructionsSentAt DateTime?
+
+  // Una condicion de pago distinta al abono, acordada y autorizada: una orden
+  // de compra, por ejemplo. Se guarda el texto de lo acordado y quien lo
+  // autorizo, porque saltarse el abono minimo tiene que dejar rastro.
+  paymentConditionNote String?
+  paymentConditionById String?
+  paymentConditionBy   User?   @relation("OpportunityPaymentCondition", fields: [paymentConditionById], references: [id])
+
+  reservations Reservation[]
 
   stage             OpportunityStage  @default(PROSPECTING)
   status            OpportunityStatus @default(OPEN)
@@ -957,6 +975,10 @@ model Quote {
 }
 
 enum ReservationStatus {
+  // El espacio esta apartado mientras se espera el pago. Bloquea igual que una
+  // reserva confirmada —el conteo de aforo excluye solo CANCELLED y NO_SHOW—
+  // y NO caduca sola: se queda hasta que la venta se confirme o se pierda.
+  PRE_RESERVED
   PENDING
   CONFIRMED
   IN_PROGRESS
@@ -1012,6 +1034,15 @@ model Reservation {
   participants        Int
   status              ReservationStatus @default(PENDING)
   paymentStatus       PaymentStatus     @default(PENDING)
+
+  // Cuanto se ha recibido de verdad. `paymentStatus` dice si esta pagada o no;
+  // esto dice cuanto, que es lo unico que permite comprobar un abono parcial.
+  paidAmount          Decimal           @default(0) @db.Decimal(14, 2)
+
+  // De que oportunidad salio, si salio de una. Las reservas que entran por el
+  // catalogo publico no tienen oportunidad detras.
+  opportunityId       String?
+  opportunity         Opportunity?      @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
   pricing             Json // { basePrice, subtotal, addons[], addonsTotal, discount, tax, commission, total, hostEarnings }
   paymentMethod       String?
   paymentDetails      Json?
@@ -1033,6 +1064,8 @@ model Reservation {
   @@index([experienceId])
   @@index([status])
   @@index([reservationDate])
+
+  @@index([opportunityId])
 }
 
 enum IntegrationType {
