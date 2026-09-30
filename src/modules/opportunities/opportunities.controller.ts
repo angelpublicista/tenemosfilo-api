@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { opportunitiesService } from './opportunities.service.js';
 import { ventaService } from './opportunities.venta.js';
 import { enlaceService, type DatosDeFacturacion } from './opportunities.enlace.js';
+import { agendaService } from './opportunities.agenda.js';
 import type {
   CrearSolicitudInput,
   CreateOpportunityInput,
@@ -52,6 +53,13 @@ export const opportunitiesController = {
     const { id } = p<{ id: string }>(req);
     const { motivo, notas } = req.body as { motivo: string; notas?: string };
     res.json({ data: await ventaService.perder(id, req.user!.companyId, motivo, notas) });
+  },
+
+  async agenda(req: Request, res: Response) {
+    const { desde, hasta } = q<{ desde: string; hasta: string }>(req);
+    res.json({
+      data: await agendaService.enRango(req.user!.companyId, new Date(desde), new Date(hasta)),
+    });
   },
 
   async crearReserva(req: Request, res: Response) {

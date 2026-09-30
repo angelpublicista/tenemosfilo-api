@@ -4,6 +4,7 @@ import { requireScope } from '../../middleware/scope.js';
 import { validate } from '../../middleware/validate.js';
 import { opportunitiesController } from './opportunities.controller.js';
 import {
+  agendaQuerySchema,
   condicionDePagoSchema,
   crearPreReservaSchema,
   crearReservaSchema,
@@ -74,6 +75,16 @@ opportunitiesRouter.post(
   validate(opportunityIdParamsSchema, 'params'),
   validate(perderSchema),
   opportunitiesController.perder,
+);
+
+// CRM-12/13. Las oportunidades con fecha tentativa, para pintarlas sobre el
+// calendario sin que bloqueen nada. Va antes que /:id para que "agenda" no se
+// lea como un id.
+opportunitiesRouter.get(
+  '/agenda',
+  requireScope('opportunities:read'),
+  validate(agendaQuerySchema, 'query'),
+  opportunitiesController.agenda,
 );
 
 // CRM-32. En una abierta no hay pre-reserva: o se crea la reserva...

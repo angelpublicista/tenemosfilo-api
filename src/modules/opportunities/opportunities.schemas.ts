@@ -179,6 +179,17 @@ export const perderSchema = z.object({
   notas: z.string().max(1000).optional(),
 });
 
+/**
+ * CRM-12/13. El rango que pinta el calendario.
+ *
+ * Se exige rango en vez de devolverlo todo: una agenda sin limites crece con
+ * el historial y la pantalla solo dibuja un mes.
+ */
+export const agendaQuerySchema = z.object({
+  desde: z.string().min(1),
+  hasta: z.string().min(1),
+});
+
 export const createOpportunitySchema = z.object({
   name: z.string().min(1),
   hostCompany: z.string().min(1).optional(), // si no viene, JWT
