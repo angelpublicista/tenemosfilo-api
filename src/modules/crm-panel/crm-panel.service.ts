@@ -1,5 +1,5 @@
 import { prisma } from '../../config/prisma.js';
-import { Forbidden, NotFound } from '../../lib/errors.js';
+import { BadRequest, Forbidden, NotFound } from '../../lib/errors.js';
 
 /**
  * El panel del CRM: que necesita atencion hoy.
@@ -110,6 +110,53 @@ export const crmPanelService = {
     return prisma.followup.update({
       where: { id },
       data: { status, doneAt: status === 'HECHO' ? new Date() : null },
+    });
+  },
+
+  /**
+   * CRM-26. Cerrar una experiencia que ya ocurrio.
+   *
+   * Es lo que resuelve el pendiente, y por eso vive aqui y no en reservas: el
+   * panel decia "cierra o califica" y calificar no se podia hacer en ningun
+   * sitio —`rating` existia en el modelo y nadie lo escribia nunca—, asi que
+   * el aviso mandaba a una pantalla donde no estaba lo que pedia.
+   *
+   * Dos salidas, porque hay dos cosas que pueden haber pasado: se realizo, o
+   * el comensal no se presento. Las dos cierran el pendiente; solo la primera
+   * cuenta como venta y como experiencia prestada.
+   */
+  async cerrarExperiencia(
+    reservationId: string,
+    companyId: string | null | undefined,
+    input: { resultado: 'REALIZADA' | 'NO_SE_PRESENTO'; rating?: number; notas?: string },
+  ) {
+    if (!companyId) throw Forbidden('No tienes una company asociada');
+
+    const reserva = await prisma.reservation.findFirst({
+      where: { id: reservationId, companyId },
+      select: { id: true, notes: true, reservationDate: true },
+    });
+    if (!reserva) throw NotFound('Reserva no encontrada');
+    // Cerrar algo que todavia no ha ocurrido no es cerrarlo: es cancelarlo o
+    // adelantarlo, y eso se hace desde la reserva.
+    if (reserva.reservationDate > new Date()) {
+      throw BadRequest('Esta experiencia todavía no ha ocurrido.');
+    }
+
+    // La nota se añade, no sustituye: lo que hubiera escrito antes sobre esta
+    // reserva sigue siendo cierto.
+    const notas = input.notas?.trim()
+      ? [reserva.notes, input.notas.trim()].filter(Boolean).join('\n')
+      : undefined;
+
+    return prisma.reservation.update({
+      where: { id: reservationId },
+      data: {
+        status: input.resultado === 'REALIZADA' ? 'COMPLETED' : 'NO_SHOW',
+        ...(input.resultado === 'REALIZADA' && input.rating ? { rating: input.rating } : {}),
+        ...(notas !== undefined ? { notes: notas } : {}),
+      },
+      select: { id: true, reservationNumber: true, status: true, rating: true },
     });
   },
 
