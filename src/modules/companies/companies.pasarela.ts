@@ -6,7 +6,7 @@
 import type { PaymentProvider } from '@prisma/client';
 import { prisma } from '../../config/prisma.js';
 import { BadRequest, Forbidden, NotFound } from '../../lib/errors.js';
-import { cifrar, hayLlaveDeCifrado } from '../../lib/cripto.js';
+import { cifrar, descifrar, hayLlaveDeCifrado } from '../../lib/cripto.js';
 import { llaveCoincideConEntorno } from '../../lib/wompi.js';
 import { credencialCoincideConEntorno } from '../../lib/mercadopago.js';
 
@@ -50,6 +50,51 @@ async function miEmpresa(id: string, requesterId: string, esAdmin: boolean) {
   return c;
 }
 
+type FilaDePasarela = {
+  paymentProvider: PaymentProvider | null;
+  paymentEnvironment: 'SANDBOX' | 'PRODUCTION';
+  gatewayPublicKey: string | null;
+  gatewayPrivateKey: string | null;
+  gatewayIntegritySecret: string | null;
+  gatewayEventsSecret: string | null;
+};
+
+/**
+ * Que le falta a esta configuracion para poder cobrar de verdad.
+ *
+ * Devuelve frases, no codigos: van derechas a la pantalla. Y no impide
+ * guardar: activar con las llaves a medias es un estado legitimo —uno las va
+ * pegando— y mientras tanto no pasa nada malo, porque `pasarelaDelAnfitrion`
+ * no da por buena una configuracion incompleta y el cobro sigue entrando por
+ * la plataforma. Lo unico que no se puede es callarselo.
+ */
+export function queLeFalta(c: FilaDePasarela): string[] {
+  const faltan: string[] = [];
+  const entorno = c.paymentEnvironment;
+  const nombreDelEntorno = entorno === 'PRODUCTION' ? 'de producción' : 'de pruebas';
+
+  if (!c.paymentProvider) {
+    faltan.push('Elige con qué pasarela vas a cobrar.');
+    return faltan;
+  }
+
+  if (c.paymentProvider === 'MERCADO_PAGO') {
+    const token = descifrar(c.gatewayPrivateKey);
+    if (!token) faltan.push('Falta tu access token de Mercado Pago.');
+    else if (!credencialCoincideConEntorno(token, entorno)) {
+      faltan.push(`Tu access token no es ${nombreDelEntorno}.`);
+    }
+    return faltan;
+  }
+
+  if (!c.gatewayPublicKey) faltan.push('Falta la llave pública de Wompi.');
+  else if (!llaveCoincideConEntorno(c.gatewayPublicKey, entorno)) {
+    faltan.push(`Tu llave pública no es ${nombreDelEntorno}.`);
+  }
+  if (!descifrar(c.gatewayIntegritySecret)) faltan.push('Falta el secreto de integridad.');
+  return faltan;
+}
+
 /**
  * Lo que se puede contar de la pasarela sin enseñar credenciales.
  *
@@ -66,6 +111,7 @@ export function aRespuestaDePasarela(c: {
   gatewayIntegritySecret: string | null;
   gatewayEventsSecret: string | null;
 }) {
+  const faltan = queLeFalta(c);
   return {
     provider: c.paymentProvider,
     enabled: c.paymentGatewayEnabled,
@@ -75,6 +121,13 @@ export function aRespuestaDePasarela(c: {
     privateKeyConfigured: !!c.gatewayPrivateKey,
     integritySecretConfigured: !!c.gatewayIntegritySecret,
     eventsSecretConfigured: !!c.gatewayEventsSecret,
+    /** Que le falta, en frases listas para enseñar. */
+    faltan,
+    /**
+     * Si con esto se cobra de verdad. Activa pero incompleta no cobra: la
+     * pantalla tiene que poder decir "aun no" en vez de "ya cobras tu".
+     */
+    listaParaCobrar: c.paymentGatewayEnabled && faltan.length === 0,
   };
 }
 
@@ -93,24 +146,6 @@ export const pasarelaDeEmpresaService = {
     const actual = await miEmpresa(id, requesterId, esAdmin);
 
     const proveedor = input.provider ?? actual.paymentProvider;
-    const entorno = input.environment ?? actual.paymentEnvironment;
-    const publica = input.publicKey !== undefined ? input.publicKey : actual.gatewayPublicKey;
-
-    // Cruzar una credencial de pruebas con el entorno de produccion es un
-    // error facil de cometer y dificil de diagnosticar: los pagos no entran y
-    // nadie sabe por que. Cada pasarela lo marca a su manera —Wompi en el
-    // cuerpo de la llave, Mercado Pago con el prefijo TEST-.
-    const noCoincide =
-      proveedor === 'MERCADO_PAGO'
-        ? !credencialCoincideConEntorno(input.privateKey || null, entorno)
-        : !llaveCoincideConEntorno(publica, entorno);
-    if (noCoincide) {
-      throw BadRequest(
-        `Las credenciales no corresponden al entorno ${
-          entorno === 'PRODUCTION' ? 'de producción' : 'de pruebas'
-        }.`,
-      );
-    }
 
     const data: Record<string, unknown> = {};
     if (input.provider !== undefined) data.paymentProvider = input.provider;
@@ -134,34 +169,13 @@ export const pasarelaDeEmpresaService = {
       data[columna] = cifrar(valor);
     }
 
-    // Activar sin las credenciales dejaria el catalogo con un checkout roto,
-    // y ademas las proximas reservas naceran sin comision de FILO creyendo que
-    // el anfitrion cobra — cuando en realidad no puede cobrar nada.
-    //
-    // Lo que hace falta depende de la pasarela: Mercado Pago cobra creando una
-    // preferencia desde el servidor y le basta su access token, mientras que
-    // Wompi firma en el navegador y necesita llave publica y secreto de
-    // integridad.
-    if (input.enabled === true) {
-      if (!proveedor) throw BadRequest('Elige con qué pasarela vas a cobrar');
-      const queda = (campo: keyof typeof actual, nuevo: unknown) =>
-        nuevo !== undefined ? nuevo : actual[campo];
-
-      if (proveedor === 'MERCADO_PAGO') {
-        if (!queda('gatewayPrivateKey', data.gatewayPrivateKey)) {
-          throw BadRequest('Para activar el cobro hace falta tu access token de Mercado Pago.');
-        }
-      } else {
-        const conPublica = queda('gatewayPublicKey', data.gatewayPublicKey);
-        const conIntegridad = queda('gatewayIntegritySecret', data.gatewayIntegritySecret);
-        if (!conPublica || !conIntegridad) {
-          throw BadRequest(
-            'Para activar el cobro hacen falta la llave pública y el secreto de integridad.',
-          );
-        }
-      }
-      data.paymentProvider = proveedor;
-    }
+    // Activar con las llaves a medias NO se impide: uno las va pegando, y
+    // frenarlo obliga a tenerlas todas antes de poder siquiera decir que
+    // quiere cobrar por su cuenta. Tampoco es peligroso: una configuracion
+    // incompleta no la da por buena `pasarelaDelAnfitrion`, asi que el cobro
+    // sigue entrando por la plataforma, con su comision, hasta que este lista.
+    // Lo que si se hace es decirle que le falta —ver `queLeFalta`.
+    if (input.enabled === true && proveedor) data.paymentProvider = proveedor;
     if (input.enabled !== undefined) data.paymentGatewayEnabled = input.enabled;
 
     // Apagarla con reservas suyas sin cobrar deja ese dinero sin forma de
