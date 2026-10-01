@@ -6,6 +6,7 @@ import { contactsController } from './contacts.controller.js';
 import {
   contactIdParamsSchema,
   createContactSchema,
+  importarContactosSchema,
   listContactsQuerySchema,
   updateContactSchema,
 } from './contacts.schemas.js';
@@ -27,6 +28,15 @@ contactsRouter.post(
   requireScope('contacts:write'),
   validate(createContactSchema),
   contactsController.create,
+);
+
+// CRM-30. Importacion masiva desde una hoja de calculo. Va antes de /:id para
+// que "importar" no se lea como el id de un contacto.
+contactsRouter.post(
+  '/importar',
+  requireScope('contacts:write'),
+  validate(importarContactosSchema),
+  contactsController.importar,
 );
 
 contactsRouter.get(

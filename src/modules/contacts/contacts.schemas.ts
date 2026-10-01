@@ -101,3 +101,46 @@ export const contactIdParamsSchema = z.object({ id: z.string().min(1) });
 export type CreateContactInput = z.infer<typeof createContactSchema>;
 export type UpdateContactInput = z.infer<typeof updateContactSchema>;
 export type ListContactsQuery = z.infer<typeof listContactsQuerySchema>;
+
+/**
+ * CRM-30. Una base historica que llega de una hoja de calculo.
+ *
+ * Solo el nombre es obligatorio: pedir correo o telefono rechazaria media hoja
+ * y el requisito dice expresamente que no hay que completar cada registro
+ * antes de importarlo. El correo se valida con suavidad —si viene mal, se
+ * guarda el contacto sin el en vez de descartar la fila entera.
+ */
+const filaDeContacto = z.object({
+  // Opcional aqui, aunque sin el la fila no sirve: si lo exigiera, una sola
+  // fila sin nombre —y una hoja historica siempre trae alguna— rechazaria el
+  // archivo entero. Lo revisa el servicio, que puede señalar que fila fue y
+  // dejar entrar al resto.
+  firstName: z.preprocess(emptyToUndef, z.string().max(120).optional()),
+  lastName: z.string().max(120).optional(),
+  // Sin validar el formato aqui a proposito: un correo mal escrito no
+  // justifica tirar la fila entera, y descartarlo en silencio deja a alguien
+  // sin correo sin enterarse. Lo revisa el servicio, que si puede contarlos y
+  // decirlo en el resumen.
+  email: z.preprocess(emptyToUndef, z.string().max(200).optional()),
+  phone: z.preprocess(emptyToUndef, z.string().max(40).optional()),
+  mobile: z.preprocess(emptyToUndef, z.string().max(40).optional()),
+  jobTitle: z.preprocess(emptyToUndef, z.string().max(120).optional()),
+  empresa: z.preprocess(emptyToUndef, z.string().max(200).optional()),
+  notas: z.preprocess(emptyToUndef, z.string().max(2000).optional()),
+  origen: z.preprocess(emptyToUndef, z.string().max(80).optional()),
+  etiquetas: z.array(z.string().max(60)).max(20).optional(),
+});
+
+export const importarContactosSchema = z.object({
+  /**
+   * Que hacer con los que ya existen. Las reglas definitivas de deduplicacion
+   * estan por decidir, asi que se eligen en cada importacion en vez de
+   * cablearse.
+   */
+  siExiste: z.enum(['OMITIR', 'COMPLETAR', 'SOBRESCRIBIR']).optional().default('COMPLETAR'),
+  // Por tanda, no por archivo: una hoja grande llega en varias y la pantalla
+  // va contando. Asi tampoco se pasa del limite del cuerpo de la peticion.
+  contactos: z.array(filaDeContacto).min(1).max(500),
+});
+
+export type ImportarContactosInput = z.infer<typeof importarContactosSchema>;

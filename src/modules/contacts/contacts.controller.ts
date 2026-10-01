@@ -1,7 +1,9 @@
 import type { Request, Response } from 'express';
 import { contactsService } from './contacts.service.js';
+import { importarContactos } from './contacts.importar.js';
 import type {
   CreateContactInput,
+  ImportarContactosInput,
   ListContactsQuery,
   UpdateContactInput,
 } from './contacts.schemas.js';
@@ -22,6 +24,15 @@ export const contactsController = {
       req.body as CreateContactInput,
     );
     res.status(201).json({ data: c });
+  },
+
+  async importar(req: Request, res: Response) {
+    const resumen = await importarContactos.ejecutar(
+      req.user!.id,
+      req.user!.companyId,
+      req.body as ImportarContactosInput,
+    );
+    res.json({ data: resumen });
   },
 
   async getById(req: Request, res: Response) {
