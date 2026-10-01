@@ -306,6 +306,8 @@ model Company {
   // Las dispersiones que ESTA empresa paga, no las que recibe: con pasarela
   // propia el anfitrion le paga su comision al revendedor.
   payoutsPagados         Payout[] @relation("PayoutPagador")
+  aiAgent                AiAgent?
+  aiConversations        AiConversation[]
   channelListings        ChannelListing[]
 
   // Inverso de PlatformSettings.platformCompany: la empresa que representa
@@ -749,6 +751,7 @@ model Contact {
 
   decisionForOpportunities Opportunity[] @relation("OpportunityDecisionMakers")
   opportunities            Opportunity[]
+  aiConversations          AiConversation[]
 
   isActive  Boolean   @default(true)
   createdAt DateTime  @default(now())
@@ -915,7 +918,8 @@ model Opportunity {
   bookingToken   String?   @unique
   bookingTokenAt DateTime?
 
-  reservations Reservation[]
+  reservations    Reservation[]
+  aiConversations AiConversation[]
 
   stage             OpportunityStage  @default(PROSPECTING)
   status            OpportunityStatus @default(OPEN)
@@ -1426,4 +1430,98 @@ model Followup {
   @@index([status, dueAt])
   // Un mismo seguimiento no se crea dos veces por la misma oportunidad.
   @@unique([opportunityId, kind])
+}
+
+/// El agente de IA de un anfitrion, conectado a su WhatsApp.
+///
+/// En su propia tabla y no en Company por una razon practica: son quince
+/// campos que solo interesan a quien enciende el agente, y meterlos en Company
+/// obliga a cargarlos en cada lectura de empresa que hace media aplicacion.
+model AiAgent {
+  id        String  @id @default(cuid())
+  companyId String  @unique
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  enabled Boolean @default(false)
+  /// Como se presenta al cliente.
+  nombre  String  @default("Asistente")
+  /// Como habla: cercano, formal, breve. Va al prompt tal cual.
+  tono    String?
+  /// Lo que el anfitrion quiere que diga y que no. Es lo que lo hace suyo.
+  instrucciones String? @db.Text
+
+  /// Que puede hacer ademas de responder. Nunca confirma ni cobra: eso no es
+  /// un ajuste, es una linea que el agente no cruza.
+  puedeCrearSolicitud Boolean @default(true)
+  puedeEnviarEnlace   Boolean @default(true)
+
+  /// WhatsApp Cloud API, con las credenciales del propio anfitrion. Los tres
+  /// secretos van cifrados: con ellos se escribe a sus clientes en su nombre.
+  waPhoneNumberId String?
+  /// El numero visible, solo para que reconozca cual conecto.
+  waNumero        String?
+  waAccessToken   String?
+  waVerifyToken   String?
+  waAppSecret     String?
+
+  /// Tope de respuestas al mes. El consumo del modelo lo paga FILO, y sin
+  /// tope un bucle de mensajes se lleva la factura por delante.
+  mensajesPorMes Int     @default(500)
+  mensajesUsados Int     @default(0)
+  /// "2026-10". Cuando cambia, el contador vuelve a cero solo.
+  mesDelConteo   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([waPhoneNumberId])
+}
+
+/// Un hilo con una persona. Se guarda entero: el anfitrion tiene que poder
+/// leer que le dijo su agente a un cliente, y sin eso encenderlo es firmar en
+/// blanco.
+model AiConversation {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  canal        String  @default("WHATSAPP")
+  telefono     String
+  nombrePerfil String?
+
+  /// A quien resulto ser, y que solicitud se abrio. Se llenan cuando el
+  /// agente lo averigua, no antes.
+  contactId     String?
+  contact       Contact?     @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  opportunityId String?
+  opportunity   Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+
+  /// Para que el anfitrion pueda tomar el hilo sin apagar todo el agente.
+  pausada Boolean @default(false)
+
+  mensajes AiMessage[]
+
+  ultimoMensajeAt DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([companyId, canal, telefono])
+  @@index([companyId, ultimoMensajeAt])
+}
+
+model AiMessage {
+  id             String         @id @default(cuid())
+  conversationId String
+  conversation   AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  /// CLIENTE, AGENTE o SISTEMA.
+  rol   String
+  texto String @db.Text
+  /// Que herramienta uso en ese turno, si uso alguna: es lo que permite
+  /// entender despues por que contesto lo que contesto.
+  herramienta String?
+
+  createdAt DateTime @default(now())
+
+  @@index([conversationId, createdAt])
 }

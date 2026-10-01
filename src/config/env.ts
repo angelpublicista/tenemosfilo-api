@@ -82,6 +82,15 @@ const envSchema = z.object({
   // aterrice alli no llega a ningun sitio.
   API_PUBLIC_URL: z.string().url().optional(),
 
+  // Clave del modelo con el que responde el agente de los anfitriones. El
+  // consumo lo paga FILO, y por eso cada agente tiene su tope mensual.
+  OPENAI_API_KEY: z.string().optional(),
+
+  // Host de la API del modelo. Se puede apuntar a otro sitio para probar el
+  // agente de punta a punta sin gastar ni depender de la red; por defecto, el
+  // de verdad.
+  OPENAI_API_URL: z.string().url().optional(),
+
   // ──────── AWS S3 (uploads) ────────
   AWS_REGION: z.string().default('us-east-1'),
   AWS_ACCESS_KEY_ID: z.string().optional().default(''),

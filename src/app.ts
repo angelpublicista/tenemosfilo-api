@@ -18,6 +18,7 @@ import { crmCompaniesRouter } from './modules/crm-companies/crm-companies.routes
 import { contactsRouter } from './modules/contacts/contacts.routes.js';
 import { opportunitiesRouter } from './modules/opportunities/opportunities.routes.js';
 import { crmPanelRouter } from './modules/crm-panel/crm-panel.routes.js';
+import { agenteRouter } from './modules/agente/agente.routes.js';
 import { experiencesRouter } from './modules/experiences/experiences.routes.js';
 import { reservationsRouter } from './modules/reservations/reservations.routes.js';
 import { quotesRouter } from './modules/quotes/quotes.routes.js';
@@ -55,7 +56,18 @@ export function createApp() {
       credentials: true,
     }),
   );
-  app.use(express.json({ limit: '5mb' }));
+  app.use(
+    express.json({
+      limit: '5mb',
+      // El cuerpo crudo se guarda para poder validar la firma de los webhooks
+      // que firman sobre los bytes exactos —Meta lo hace asi—. Volver a
+      // serializar el json ya parseado cambia espacios y comillas, y la firma
+      // deja de cuadrar.
+      verify: (req, _res, buf) => {
+        (req as express.Request & { rawBody?: Buffer }).rawBody = buf;
+      },
+    }),
+  );
   app.use(pinoHttp({ logger }));
 
   // El health check va ANTES de cualquier limite: lo consultan los sistemas
@@ -102,6 +114,9 @@ export function createApp() {
   app.use('/contacts', limiteGeneral, contactsRouter);
   app.use('/opportunities', limiteGeneral, opportunitiesRouter);
   app.use('/crm-panel', limiteGeneral, crmPanelRouter);
+  // El agente de IA. Su webhook de WhatsApp es publico y va dentro del router,
+  // antes del requireAuth: lo llama Meta, no un usuario.
+  app.use('/agente', agenteRouter);
   app.use('/experiences', limiteGeneral, experiencesRouter);
   app.use('/reservations', limiteGeneral, reservationsRouter);
   app.use('/quotes', limiteGeneral, quotesRouter);
