@@ -813,7 +813,12 @@ enum FollowupKind {
   LEAD_24H
   LEAD_48H
   LEAD_72H
+  // La propuesta sin respuesta, en tres tiempos: a las 48 h, al tercer dia y
+  // al septimo. Tres recordatorios y se para: a partir de ahi insistir ya no
+  // es seguimiento.
   PROPUESTA
+  PROPUESTA_3D
+  PROPUESTA_7D
   // El cobro de una pre-reserva. Se crea al mandar los medios de pago y no
   // se va hasta que la venta se confirme o se pierda: una pre-reserva olvidada
   // tiene un espacio bloqueado sin nada a cambio.

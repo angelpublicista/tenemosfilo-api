@@ -16,8 +16,20 @@ const PLAZOS_DE_LEAD = [
   { kind: 'LEAD_72H' as const, horas: 72 },
 ];
 
-/** Cuanto se espera antes de recordar una propuesta sin respuesta. */
-const HORAS_TRAS_PROPUESTA = 48;
+/**
+ * Cuando toca recordar una propuesta sin respuesta, desde que se envio.
+ *
+ * Tres y se para. Insistir mas alla de la semana ya no es seguimiento, y una
+ * lista de pendientes que nunca se vacia deja de mirarse.
+ */
+const PLAZOS_DE_PROPUESTA = [
+  { kind: 'PROPUESTA' as const, horas: 48 },
+  { kind: 'PROPUESTA_3D' as const, horas: 24 * 3 },
+  { kind: 'PROPUESTA_7D' as const, horas: 24 * 7 },
+];
+
+/** Los tipos que son seguimiento de propuesta, para retirarlos juntos. */
+const TIPOS_DE_PROPUESTA = PLAZOS_DE_PROPUESTA.map((p) => p.kind);
 
 /**
  * Si a este contacto se le puede escribir.
@@ -81,23 +93,43 @@ export async function crearSeguimientoDePropuesta(
 
     if (!(await sePuedeContactar(contactId))) return;
 
-    // upsert y no create: reenviar una propuesta reinicia el plazo en vez de
-    // dejar uno vencido de hace dos semanas.
-    await prisma.followup.upsert({
-      where: { opportunityId_kind: { opportunityId, kind: 'PROPUESTA' } },
-      create: {
-        opportunityId,
-        kind: 'PROPUESTA',
-        dueAt: new Date(desde.getTime() + HORAS_TRAS_PROPUESTA * HORA),
-      },
-      update: {
-        dueAt: new Date(desde.getTime() + HORAS_TRAS_PROPUESTA * HORA),
-        status: 'PENDIENTE',
-        doneAt: null,
-      },
-    });
+    // upsert y no create: reenviar una propuesta reinicia los tres plazos en
+    // vez de dejar vencidos los de hace dos semanas.
+    for (const p of PLAZOS_DE_PROPUESTA) {
+      const dueAt = new Date(desde.getTime() + p.horas * HORA);
+      await prisma.followup.upsert({
+        where: { opportunityId_kind: { opportunityId, kind: p.kind } },
+        create: { opportunityId, kind: p.kind, dueAt },
+        update: { dueAt, status: 'PENDIENTE', doneAt: null },
+      });
+    }
   } catch (err) {
     logger.error({ err, opportunityId }, 'no se pudo crear el seguimiento de la propuesta');
+  }
+}
+
+/**
+ * Da por cumplidos los recordatorios de propuesta posteriores a uno.
+ *
+ * Marcar "hecho" el de las 48 h es decir que ya se hablo con el cliente. Los
+ * del dia 3 y el 7 perseguian esa misma respuesta, asi que dejarlos vivos
+ * seria pedir tres veces el mismo trabajo.
+ */
+export async function retirarPropuestasPosteriores(
+  opportunityId: string,
+  kind: string,
+): Promise<void> {
+  const i = TIPOS_DE_PROPUESTA.indexOf(kind as (typeof TIPOS_DE_PROPUESTA)[number]);
+  if (i < 0) return;
+  const posteriores = TIPOS_DE_PROPUESTA.slice(i + 1);
+  if (posteriores.length === 0) return;
+  try {
+    await prisma.followup.updateMany({
+      where: { opportunityId, status: 'PENDIENTE', kind: { in: posteriores } },
+      data: { status: 'NO_APLICA' },
+    });
+  } catch (err) {
+    logger.error({ err, opportunityId }, 'no se pudieron retirar las propuestas posteriores');
   }
 }
 

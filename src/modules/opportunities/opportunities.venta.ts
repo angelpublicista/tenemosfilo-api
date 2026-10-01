@@ -187,8 +187,10 @@ export const ventaService = {
    * Autorizar una condicion distinta al abono: una orden de compra, por
    * ejemplo.
    *
-   * Queda registrado QUIEN lo autorizo. Saltarse el minimo es una decision
-   * comercial con consecuencias, y sin rastro nadie responde por ella.
+   * Solo el titular de la empresa. Autorizar esto es confirmar una venta sin
+   * tener el dinero: si sale mal, el que pone el riesgo es el duenio del
+   * negocio, no quien atendio el caso. Queda registrado quien lo autorizo,
+   * porque sin rastro nadie responde por ello.
    */
   async autorizarCondicionDePago(
     id: string,
@@ -197,6 +199,16 @@ export const ventaService = {
     nota: string,
   ) {
     await oportunidadDe(id, companyId);
+    const empresa = await prisma.company.findUnique({
+      where: { id: companyId! },
+      select: { ownerId: true },
+    });
+    if (empresa?.ownerId !== requesterId) {
+      throw Forbidden(
+        'Solo el titular de la empresa puede autorizar una condición de pago. ' +
+          'Pídele que la autorice él, o registra el abono mínimo.',
+      );
+    }
     return prisma.opportunity.update({
       where: { id },
       data: { paymentConditionNote: nota, paymentConditionById: requesterId },

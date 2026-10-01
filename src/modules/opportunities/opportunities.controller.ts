@@ -114,7 +114,7 @@ export const opportunitiesController = {
 
   async getById(req: Request, res: Response) {
     const { id } = p<{ id: string }>(req);
-    const o = await opportunitiesService.getById(id);
+    const o = await opportunitiesService.getById(id, req.user!.id);
     res.json({ data: o });
   },
 

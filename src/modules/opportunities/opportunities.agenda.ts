@@ -10,6 +10,20 @@
 import { prisma } from '../../config/prisma.js';
 import { Forbidden } from '../../lib/errors.js';
 
+/**
+ * Que otro compromiso ya tomo el dia que mira esta oportunidad.
+ *
+ * Una pre-reserva SI bloquea (CRM-15), asi que en el momento en que una de
+ * varias oportunidades sobre la misma fecha pasa a intencion de pago, las
+ * demas se quedan sin sitio sin que nadie se lo diga. Esto es ese aviso.
+ */
+export interface EspacioTomado {
+  fecha: string;
+  experiencia: string | null;
+  /** PRE_RESERVED es "apartado a la espera del pago"; el resto, ya vendido. */
+  estado: string;
+}
+
 export interface OportunidadEnAgenda {
   id: string;
   nombre: string;
@@ -28,7 +42,78 @@ export interface OportunidadEnAgenda {
   cotizacionEnviada: boolean;
 }
 
+/**
+ * La fecha que mira una oportunidad: la de su cotizacion vigente.
+ *
+ * Misma regla que en `enRango` —enviada de version mas alta, y si ninguna se
+ * envio, la ultima armada— porque un segundo sitio que decida cual manda
+ * acabaria diciendo otra cosa.
+ */
+async function fechaQueMira(opportunityId: string): Promise<Date | null> {
+  const q = await prisma.quote.findFirst({
+    where: { opportunityId, eventDate: { not: null } },
+    orderBy: [{ sentAt: { sort: 'desc', nulls: 'last' } }, { version: 'desc' }],
+    select: { eventDate: true },
+  });
+  return q?.eventDate ?? null;
+}
+
 export const agendaService = {
+  /**
+   * El aviso de que el dia ya esta tomado por otro.
+   *
+   * Solo informa: no cierra nada ni cambia la etapa. Quien lleva la venta
+   * decide si ofrece otra fecha o la da por perdida, y eso no es algo que
+   * deba decidir el sistema por su cuenta.
+   *
+   * Se avisa por dia, no por experiencia: una cotizacion puede mirar varias
+   * experiencias a la vez, asi que cruzarlo por experiencia dejaria fuera
+   * justo los casos dudosos. Se dice cual es el compromiso que esta encima
+   * para que la persona juzgue si de verdad choca.
+   */
+  async espacioTomado(
+    companyId: string | null | undefined,
+    opportunityId: string,
+  ): Promise<EspacioTomado | null> {
+    if (!companyId) return null;
+
+    // Si esta oportunidad ya tiene reserva viva, la que ocupa el dia es ella.
+    const propia = await prisma.reservation.count({
+      where: { opportunityId, status: { notIn: ['CANCELLED'] } },
+    });
+    if (propia > 0) return null;
+
+    const fecha = await fechaQueMira(opportunityId);
+    if (!fecha) return null;
+
+    const inicio = new Date(fecha);
+    inicio.setUTCHours(0, 0, 0, 0);
+    const fin = new Date(inicio);
+    fin.setUTCDate(fin.getUTCDate() + 1);
+
+    const choque = await prisma.reservation.findFirst({
+      where: {
+        companyId,
+        reservationDate: { gte: inicio, lt: fin },
+        status: { in: ['PRE_RESERVED', 'PENDING', 'CONFIRMED'] },
+        NOT: { opportunityId },
+      },
+      orderBy: { reservationDate: 'asc' },
+      select: {
+        status: true,
+        reservationDate: true,
+        experience: { select: { title: true } },
+      },
+    });
+    if (!choque) return null;
+
+    return {
+      fecha: choque.reservationDate.toISOString(),
+      experiencia: choque.experience?.title ?? null,
+      estado: choque.status,
+    };
+  },
+
   /**
    * Las oportunidades abiertas con fecha tentativa dentro de un rango.
    *

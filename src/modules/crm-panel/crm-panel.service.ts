@@ -1,5 +1,6 @@
 import { prisma } from '../../config/prisma.js';
 import { BadRequest, Forbidden, NotFound } from '../../lib/errors.js';
+import { retirarPropuestasPosteriores } from '../../lib/seguimientos.js';
 
 /**
  * El panel del CRM: que necesita atencion hoy.
@@ -103,14 +104,21 @@ export const crmPanelService = {
     // y sin esto bastaria acertar un id para cerrar el de otra.
     const suyo = await prisma.followup.findFirst({
       where: { id, opportunity: { hostCompanyId: companyId } },
-      select: { id: true },
+      select: { id: true, kind: true, opportunityId: true },
     });
     if (!suyo) throw NotFound('Seguimiento no encontrado');
 
-    return prisma.followup.update({
+    const cerrado = await prisma.followup.update({
       where: { id },
       data: { status, doneAt: status === 'HECHO' ? new Date() : null },
     });
+
+    // Los recordatorios de propuesta son tres escalones de lo mismo. Al dar
+    // uno por atendido, los que venian detras ya no tienen a quien perseguir.
+    if (status === 'HECHO') {
+      await retirarPropuestasPosteriores(suyo.opportunityId, suyo.kind);
+    }
+    return cerrado;
   },
 
   /**

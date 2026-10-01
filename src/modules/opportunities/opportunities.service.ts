@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../config/prisma.js';
 import { Forbidden, NotFound } from '../../lib/errors.js';
+import { agendaService } from './opportunities.agenda.js';
 import {
   crearSeguimientoDePropuesta,
   crearSeguimientosDeLead,
@@ -64,7 +65,9 @@ async function resolverContacto(
 }
 
 const fullInclude = {
-  hostCompany: { select: { id: true, companyName: true } },
+  // `ownerId` para poder decir si quien mira es el titular: hay una accion
+  // —autorizar una condicion de pago— que solo el puede hacer.
+  hostCompany: { select: { id: true, companyName: true, ownerId: true } },
   // Las reservas vivas: son las que dicen si el espacio esta apartado y
   // cuanto se ha cobrado. Sin ellas la pantalla no puede decidir que ofrecer.
   reservations: {
@@ -255,13 +258,21 @@ export const opportunitiesService = {
     });
   },
 
-  async getById(id: string) {
+  async getById(id: string, requesterId?: string) {
     const o = await prisma.opportunity.findFirst({
       where: { id, deletedAt: null },
       include: fullInclude,
     });
     if (!o) throw NotFound('Oportunidad no encontrada');
-    return o;
+    // Lo decide el API, no la pantalla: la regla esta en el servicio de venta
+    // y repetirla en el navegador seria tener dos reglas que pueden discrepar.
+    // Esto es solo para saber que ofrecer.
+    return {
+      ...o,
+      puedeAutorizarCondicion: o.hostCompany.ownerId === requesterId,
+      // CRM-12/13. Si otra pre-reserva se llevo el dia, aqui se dice.
+      espacioTomado: await agendaService.espacioTomado(o.hostCompanyId, o.id),
+    };
   },
 
   async list(requesterCompanyId: string | null | undefined, query: ListOpportunitiesQuery) {
