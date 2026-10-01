@@ -165,13 +165,46 @@ export async function contactosEnCondicion(
      )
     WHERE c."hostCompanyId" = ${hostCompanyId} AND c."deletedAt" IS NULL
     GROUP BY c.id
-    HAVING ${
-      condicion === 'CLIENTE'
-        ? Prisma.sql`COUNT(r.id) = 1`
-        : condicion === 'RECURRENTE'
-          ? Prisma.sql`COUNT(r.id) >= 2`
-          : Prisma.sql`COUNT(r.id) = 0`
-    }
+    HAVING ${cuantasVentas(condicion)}
   `;
   return filas.map((f) => f.id);
+}
+
+/**
+ * Las empresas del CRM que estan en una condicion dada.
+ *
+ * Mismo motivo que en contactos: la condicion no es una columna. La diferencia
+ * es que a una empresa no se le puede casar una reserva por el correo —la
+ * reserva la hace una persona, no la empresa—, asi que solo cuenta lo que
+ * llego por una oportunidad suya.
+ */
+export async function empresasEnCondicion(
+  hostCompanyId: string,
+  condicion: CondicionDeCliente,
+): Promise<string[]> {
+  const filas = await prisma.$queryRaw<Array<{ id: string }>>`
+    SELECT e.id AS id
+    FROM "CrmCompany" e
+    LEFT JOIN "Opportunity" o ON o."crmCompanyId" = e.id
+    LEFT JOIN "Reservation" r
+      ON r."opportunityId" = o.id
+     AND r."companyId" = ${hostCompanyId}
+     AND ${ES_UNA_VENTA}
+    WHERE e."hostCompanyId" = ${hostCompanyId} AND e."deletedAt" IS NULL
+    GROUP BY e.id
+    HAVING ${cuantasVentas(condicion)}
+  `;
+  return filas.map((f) => f.id);
+}
+
+/**
+ * El corte de ventas de cada condicion, en un solo sitio.
+ *
+ * Esta regla la usan dos consultas distintas; escrita dos veces acabarian
+ * diciendo cosas diferentes el dia que cambie el umbral de "recurrente".
+ */
+function cuantasVentas(condicion: CondicionDeCliente) {
+  if (condicion === 'CLIENTE') return Prisma.sql`COUNT(r.id) = 1`;
+  if (condicion === 'RECURRENTE') return Prisma.sql`COUNT(r.id) >= 2`;
+  return Prisma.sql`COUNT(r.id) = 0`;
 }

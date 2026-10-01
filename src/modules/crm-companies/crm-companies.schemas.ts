@@ -89,6 +89,8 @@ export const updateCrmCompanySchema = z.object({
 export const listCrmCompaniesQuerySchema = z.object({
   hostCompanyId: z.string().min(1).optional(),
   companyType: z.string().optional(),
+  // CRM-20. Se filtra por lo que la empresa compro, no por lo que diga su ficha.
+  condicion: z.enum(['PROSPECTO', 'CLIENTE', 'RECURRENTE']).optional(),
   status: z.string().optional(),
   industry: z.string().optional(),
   source: z.string().optional(),

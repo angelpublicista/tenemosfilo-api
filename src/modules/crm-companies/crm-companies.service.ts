@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../../config/prisma.js';
 import {
   SIN_HISTORIAL,
+  empresasEnCondicion,
   historialDeEmpresas,
 } from '../../lib/condicion-de-cliente.js';
 import { Forbidden, NotFound } from '../../lib/errors.js';
@@ -91,9 +92,16 @@ export const crmCompaniesService = {
     }
     if (!targetHostId) return [];
 
+    // La condicion no es una columna: se resuelven antes los ids que la
+    // cumplen y se filtra por ellos.
+    const idsEnCondicion = query.condicion
+      ? await empresasEnCondicion(targetHostId, query.condicion)
+      : null;
+
     const where: Prisma.CrmCompanyWhereInput = {
       deletedAt: null,
       hostCompanyId: targetHostId,
+      ...(idsEnCondicion ? { id: { in: idsEnCondicion } } : {}),
       ...(query.companyType ? { companyType: query.companyType } : {}),
       ...(query.status ? { status: query.status } : {}),
       ...(query.industry ? { industry: query.industry } : {}),
