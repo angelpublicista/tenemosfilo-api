@@ -1,6 +1,11 @@
 import { Prisma } from '@prisma/client';
 import { retirarSeguimientosDelContacto } from '../../lib/seguimientos.js';
 import { prisma } from '../../config/prisma.js';
+import {
+  SIN_HISTORIAL,
+  contactosEnCondicion,
+  historialDeContactos,
+} from '../../lib/condicion-de-cliente.js';
 import { Forbidden, NotFound } from '../../lib/errors.js';
 import type {
   CreateContactInput,
@@ -79,7 +84,8 @@ export const contactsService = {
     if (!requesterCompanyId || c.hostCompanyId !== requesterCompanyId) {
       throw NotFound('Contacto no encontrado');
     }
-    return c;
+    const historial = await historialDeContactos(requesterCompanyId, [c.id]);
+    return { ...c, ...(historial.get(c.id) ?? SIN_HISTORIAL) };
   },
 
   async list(requesterCompanyId: string | null | undefined, query: ListContactsQuery) {
@@ -93,9 +99,16 @@ export const contactsService = {
     }
     if (!targetHostId) return [];
 
+    // La condicion no es una columna: se resuelven antes los ids que la
+    // cumplen y se filtra por ellos.
+    const idsEnCondicion = query.condicion
+      ? await contactosEnCondicion(targetHostId, query.condicion)
+      : null;
+
     const where: Prisma.ContactWhereInput = {
       deletedAt: null,
       hostCompanyId: targetHostId,
+      ...(idsEnCondicion ? { id: { in: idsEnCondicion } } : {}),
       ...(query.contactType ? { contactType: query.contactType } : {}),
       ...(query.status ? { status: query.status } : {}),
       ...(query.source ? { source: query.source } : {}),
@@ -116,12 +129,17 @@ export const contactsService = {
         : {}),
     };
 
-    return prisma.contact.findMany({
+    const items = await prisma.contact.findMany({
       where,
       include: fullInclude,
       orderBy: { [query.sortBy]: query.sortOrder },
       take: query.limit,
     });
+
+    // CRM-20. Cliente y recurrente se derivan de las ventas, no se guardan en
+    // la ficha. Se calculan para toda la pagina de una vez.
+    const historial = await historialDeContactos(targetHostId, items.map((c) => c.id));
+    return items.map((c) => ({ ...c, ...(historial.get(c.id) ?? SIN_HISTORIAL) }));
   },
 
   async update(

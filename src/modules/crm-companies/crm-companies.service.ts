@@ -1,5 +1,9 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../config/prisma.js';
+import {
+  SIN_HISTORIAL,
+  historialDeEmpresas,
+} from '../../lib/condicion-de-cliente.js';
 import { Forbidden, NotFound } from '../../lib/errors.js';
 import type {
   CreateCrmCompanyInput,
@@ -72,7 +76,8 @@ export const crmCompaniesService = {
     if (!requesterCompanyId || c.hostCompanyId !== requesterCompanyId) {
       throw NotFound('Empresa CRM no encontrada');
     }
-    return c;
+    const historial = await historialDeEmpresas(requesterCompanyId, [c.id]);
+    return { ...c, ...(historial.get(c.id) ?? SIN_HISTORIAL) };
   },
 
   async list(requesterCompanyId: string | null | undefined, query: ListCrmCompaniesQuery) {
@@ -108,12 +113,16 @@ export const crmCompaniesService = {
         : {}),
     };
 
-    return prisma.crmCompany.findMany({
+    const items = await prisma.crmCompany.findMany({
       where,
       include: fullInclude,
       orderBy: { [query.sortBy]: query.sortOrder },
       take: query.limit,
     });
+
+    // CRM-20. Igual que con los contactos: se deriva de lo vendido.
+    const historial = await historialDeEmpresas(targetHostId, items.map((e) => e.id));
+    return items.map((e) => ({ ...e, ...(historial.get(e.id) ?? SIN_HISTORIAL) }));
   },
 
   async update(

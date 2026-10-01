@@ -79,6 +79,11 @@ export const updateContactSchema = z.object({
 });
 
 export const listContactsQuerySchema = z.object({
+  /**
+   * CRM-20. Filtrar por la relacion comercial, que sale de las ventas y no de
+   * un campo de la ficha.
+   */
+  condicion: z.enum(['PROSPECTO', 'CLIENTE', 'RECURRENTE']).optional(),
   hostCompanyId: z.string().min(1).optional(),
   contactType: z.string().optional(),
   status: statusEnum.optional(),
