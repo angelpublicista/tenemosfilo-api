@@ -86,3 +86,24 @@ export function descifrar(guardado: string | null | undefined): string | null {
     return null;
   }
 }
+
+/**
+ * Descifra lo que este cifrado y devuelve tal cual lo que no.
+ *
+ * Existe por las llaves de Wompi de la propia plataforma: se guardaron en
+ * claro antes de que hubiera cifrado, y el dia que se despliega el cifrado
+ * siguen en claro en produccion. Sin esta tolerancia, ese despliegue dejaria
+ * los cobros rotos hasta que alguien volviera a teclear las llaves.
+ *
+ * Se puede quitar en cuanto `scripts/cifrar-llaves-de-la-plataforma.ts` haya
+ * corrido en todos los despliegues y no quede nada en claro.
+ */
+export function descifrarHeredado(guardado: string | null | undefined): string | null {
+  if (!guardado) return null;
+  return guardado.startsWith(`${PREFIJO}:`) ? descifrar(guardado) : guardado;
+}
+
+/** Si un valor guardado ya pasó por `cifrar`. */
+export function estaCifrado(guardado: string | null | undefined): boolean {
+  return Boolean(guardado?.startsWith(`${PREFIJO}:`));
+}

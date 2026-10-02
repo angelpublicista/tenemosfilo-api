@@ -5,6 +5,7 @@ import { requireAuth, requireHumanAuth, requireRole } from '../../middleware/aut
 import { validate } from '../../middleware/validate.js';
 import { getPlatformSettings } from '../../lib/commissions.js';
 import { llaveCoincideConEntorno } from '../../lib/wompi.js';
+import { cifrar, hayLlaveDeCifrado } from '../../lib/cripto.js';
 import { BadRequest } from '../../lib/errors.js';
 import { prisma } from '../../config/prisma.js';
 
@@ -100,14 +101,25 @@ settingsRouter.patch('/', validate(updateSettingsSchema), async (req: Request, r
   }
 
   // Una cadena vacia borra el secreto; omitirlo lo deja intacto.
+  //
+  // Los tres secretos se cifran antes de guardarse. La llave publica no: viaja
+  // al navegador para abrir el checkout, cifrarla no protegeria nada y
+  // obligaria a descifrarla para enseñarla.
   const conSecretos: Record<string, unknown> = {};
-  for (const campo of [
-    'wompiPublicKey',
-    'wompiPrivateKey',
-    'wompiIntegritySecret',
-    'wompiEventsSecret',
-  ] as const) {
-    if (input[campo] !== undefined) conSecretos[campo] = input[campo] === '' ? null : input[campo];
+  if (input.wompiPublicKey !== undefined) {
+    conSecretos.wompiPublicKey = input.wompiPublicKey === '' ? null : input.wompiPublicKey;
+  }
+  const secretos = ['wompiPrivateKey', 'wompiIntegritySecret', 'wompiEventsSecret'] as const;
+  if (secretos.some((c) => input[c]) && !hayLlaveDeCifrado()) {
+    throw BadRequest(
+      'Falta CREDENTIALS_KEY en el servidor: no se pueden guardar las llaves de Wompi. ' +
+        'Con ella puesta, se guardan cifradas.',
+    );
+  }
+  for (const campo of secretos) {
+    if (input[campo] !== undefined) {
+      conSecretos[campo] = input[campo] === '' ? null : cifrar(input[campo] as string);
+    }
   }
 
   const data = await prisma.platformSettings.update({

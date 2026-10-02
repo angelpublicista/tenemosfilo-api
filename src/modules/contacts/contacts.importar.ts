@@ -18,9 +18,10 @@ import type { ImportarContactosInput } from './contacts.schemas.js';
 /**
  * Que hacer cuando el contacto ya existe.
  *
- * Las reglas definitivas de deduplicacion estan sin decidir en el documento de
- * revision, asi que no se cablean: se eligen en cada importacion. COMPLETAR es
- * el defecto porque es el unico que no puede perder datos.
+ * Se elige en cada importacion y no se cablea: una hoja vieja que solo sirve
+ * para rellenar huecos y una exportada del sistema anterior que debe mandar
+ * son dos casos distintos, y quien importa sabe cual tiene delante. COMPLETAR
+ * es el defecto porque es el unico que no puede perder datos.
  */
 export type SiExiste = 'OMITIR' | 'COMPLETAR' | 'SOBRESCRIBIR';
 

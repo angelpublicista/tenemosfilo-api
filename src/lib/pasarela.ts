@@ -14,7 +14,7 @@
 import type { CollectedBy, PaymentProvider } from '@prisma/client';
 import { prisma } from '../config/prisma.js';
 import { getPlatformSettings } from './commissions.js';
-import { descifrar } from './cripto.js';
+import { descifrar, descifrarHeredado } from './cripto.js';
 
 export type Pasarela = {
   quienCobra: CollectedBy;
@@ -93,19 +93,29 @@ export function pasarelaDelAnfitrion(c: FilaDeEmpresa | null): Pasarela | null {
   return puedeCobrar(p) ? p : null;
 }
 
-/** La de la plataforma, si esta lista. */
+/**
+ * La de la plataforma, si esta lista.
+ *
+ * Sus secretos van cifrados igual que los de los anfitriones: cobran dinero
+ * de verdad, y no habia motivo para que las nuestras fueran las unicas en
+ * claro. `descifrarHeredado` cubre las que se guardaron antes del cifrado.
+ */
 export async function pasarelaDeLaPlataforma(): Promise<Pasarela | null> {
   const a = await getPlatformSettings();
-  if (!a.wompiEnabled || !a.wompiPublicKey || !a.wompiIntegritySecret) return null;
-  return {
+  if (!a.wompiEnabled || !a.wompiPublicKey) return null;
+  const p: Pasarela = {
     quienCobra: 'PLATFORM',
     proveedor: 'WOMPI',
     entorno: a.wompiEnvironment,
     publicKey: a.wompiPublicKey,
-    privateKey: a.wompiPrivateKey,
-    integritySecret: a.wompiIntegritySecret,
-    eventsSecret: a.wompiEventsSecret,
+    privateKey: descifrarHeredado(a.wompiPrivateKey),
+    integritySecret: descifrarHeredado(a.wompiIntegritySecret),
+    eventsSecret: descifrarHeredado(a.wompiEventsSecret),
   };
+  // La comprobacion va DESPUES de descifrar: un secreto que no se puede
+  // descifrar es un secreto que no sirve, y decir que la pasarela esta lista
+  // llevaria a firmar el checkout con null.
+  return puedeCobrar(p) ? p : null;
 }
 
 /**

@@ -138,9 +138,8 @@ const filaDeContacto = z.object({
 
 export const importarContactosSchema = z.object({
   /**
-   * Que hacer con los que ya existen. Las reglas definitivas de deduplicacion
-   * estan por decidir, asi que se eligen en cada importacion en vez de
-   * cablearse.
+   * Que hacer con los que ya existen. Se elige en cada importacion: depende
+   * de que archivo sea, no de una regla fija de la empresa.
    */
   siExiste: z.enum(['OMITIR', 'COMPLETAR', 'SOBRESCRIBIR']).optional().default('COMPLETAR'),
   // Por tanda, no por archivo: una hoja grande llega en varias y la pantalla
