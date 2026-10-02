@@ -32,6 +32,14 @@ export interface ResumenDeImportacion {
   repetidosEnElArchivo: number;
   /** Contactos que entraron sin correo ni telefono. */
   sinFormaDeContacto: number;
+  /**
+   * Los que se reconocieron SOLO por el nombre.
+   *
+   * Es la unica clave que puede equivocarse de persona —dos Juan Perez son
+   * dos personas—, asi que se dicen uno por uno en vez de quedar sumados en
+   * `actualizados`. Quien importa es el unico que puede saber si son el mismo.
+   */
+  fusionadosPorNombre: Array<{ fila: number; nombre: string }>;
   /** Correos que venian mal escritos: el contacto entro, el correo no. */
   correosInvalidos: number;
   empresasCreadas: number;
@@ -108,6 +116,7 @@ export const importarContactos = {
       sinFormaDeContacto: 0,
       correosInvalidos: 0,
       empresasCreadas: 0,
+      fusionadosPorNombre: [],
       errores: [],
     };
 
@@ -177,9 +186,19 @@ export const importarContactos = {
           }
         }
 
-        const existente = claves.map((k) => porClave.get(k)).find(Boolean);
+        const claveQueCaso = claves.find((k) => porClave.has(k));
+        const existente = claveQueCaso ? porClave.get(claveQueCaso) : undefined;
 
         if (existente) {
+          // Se anota en cuanto se reconoce, no al actualizar: lo que hay que
+          // contar es que dos filas se trataron como la misma persona, y eso
+          // ya paso aunque luego se omita o no cambie ningun campo.
+          if (claveQueCaso?.startsWith('n:')) {
+            resumen.fusionadosPorNombre.push({
+              fila: numeroDeFila,
+              nombre: [firstName, fila.lastName?.trim()].filter(Boolean).join(' '),
+            });
+          }
           if (siExiste === 'OMITIR') {
             resumen.omitidos += 1;
             continue;
