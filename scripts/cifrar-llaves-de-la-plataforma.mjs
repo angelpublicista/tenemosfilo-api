@@ -5,21 +5,24 @@
 // cobra dinero de verdad, asi que un volcado de la base para depurar o una
 // copia de seguridad mal guardada bastaba para cobrar en nombre de FILO.
 //
-// Es idempotente: lo que ya esta cifrado se deja como esta, asi que correrlo
-// dos veces no hace nada. La llave publica NO se toca —viaja al navegador y
-// cifrarla no protegeria nada—.
+// Es idempotente: lo que ya esta cifrado se deja como esta. La llave publica
+// NO se toca: viaja al navegador y cifrarla no protegeria nada.
 //
-// Uso:
-//   DB_TARGET=production npx tsx scripts/cifrar-llaves-de-la-plataforma.ts
-import { dbTarget } from '../src/config/env.js';
-import { prisma } from '../src/config/prisma.js';
-import { cifrar, estaCifrado, hayLlaveDeCifrado } from '../src/lib/cripto.js';
+// Va contra `dist/` y no contra `src/` —y por eso es .mjs y no .ts— porque
+// tiene que poder correr EN LA INSTANCIA: la llave maestra de produccion no
+// sale de alli, y cifrar con otra dejaria los cobros ilegibles.
+//
+// Uso en la instancia:
+//   cd /srv/tenemosfilo-api/current && node scripts/cifrar-llaves-de-la-plataforma.mjs
+//
+// Uso en local (contra la base local, despues de `npm run build`):
+//   node scripts/cifrar-llaves-de-la-plataforma.mjs
+import { prisma } from '../dist/config/prisma.js';
+import { cifrar, estaCifrado, hayLlaveDeCifrado } from '../dist/lib/cripto.js';
 
-const CAMPOS = ['wompiPrivateKey', 'wompiIntegritySecret', 'wompiEventsSecret'] as const;
+const CAMPOS = ['wompiPrivateKey', 'wompiIntegritySecret', 'wompiEventsSecret'];
 
 async function main() {
-  console.log(`Base: ${dbTarget}`);
-
   if (!hayLlaveDeCifrado()) {
     console.error('Falta CREDENTIALS_KEY (64 caracteres hexadecimales). Sin ella no hay nada que hacer.');
     process.exit(1);
@@ -31,7 +34,7 @@ async function main() {
     return;
   }
 
-  const cambios: Record<string, string> = {};
+  const cambios = {};
   for (const campo of CAMPOS) {
     const valor = a[campo];
     if (!valor) {
