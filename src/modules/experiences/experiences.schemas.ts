@@ -27,6 +27,10 @@ export const createExperienceSchema = z.object({
   description: z.string().optional(),
   categories: z.array(z.string()).optional().default([]),
   duration: z.number().int().positive().optional(),
+  // TR-19. Lo que ocupa ademas de si misma: montar antes y recoger despues.
+  // En ese rato no cabe otra cosa, y la agenda lo cuenta.
+  prepTime: z.number().int().nonnegative().max(1440).nullish(),
+  cleanupTime: z.number().int().nonnegative().max(1440).nullish(),
   capacity: z.number().int().positive().optional(),
   minCapacity: z.number().int().nonnegative().optional(),
   basePrice: z.number().nonnegative().optional(),

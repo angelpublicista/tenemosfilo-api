@@ -627,6 +627,20 @@ model Experience {
   description        String?          @db.Text
   categories         String[]
   duration           Int? // minutos
+
+  // TR-19. Lo que ocupa la experiencia ademas de si misma.
+  //
+  // Una cena de tres horas no deja el sitio libre a las tres: hay que montar
+  // antes y recoger despues, y en ese rato no cabe otra cosa. La ocupacion
+  // real es preparacion + duracion + limpieza, y es lo que se cruza con la
+  // agenda del anfitrion.
+  //
+  // Van en la experiencia y no en el horario a proposito: montar un taller de
+  // coctelería no cuesta lo mismo que montar una cata, y es propio de la
+  // experiencia, no del dia en que se haga.
+  prepTime    Int? // minutos antes
+  cleanupTime Int? // minutos despues
+
   capacity           Int?
   minCapacity        Int?
   basePrice          Decimal?         @db.Decimal(12, 2)

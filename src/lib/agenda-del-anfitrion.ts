@@ -22,6 +22,21 @@ type Cliente = PrismaClient | Prisma.TransactionClient;
 /** Cuanto dura algo cuando nadie lo dice. */
 const DURACION_POR_DEFECTO_MIN = 60;
 
+/**
+ * TR-19. Lo que ocupa de verdad una experiencia: montar, hacerla y recoger.
+ *
+ * Una cena de tres horas no deja el sitio libre a las tres. Si la agenda solo
+ * mirara la duracion, dos cenas seguidas cabrian sobre el papel y en la
+ * practica la segunda empezaria con el equipo recogiendo la primera.
+ */
+export function ocupacionEnMinutos(e: {
+  duration?: number | null;
+  prepTime?: number | null;
+  cleanupTime?: number | null;
+}): number {
+  return (e.prepTime ?? 0) + (e.duration ?? DURACION_POR_DEFECTO_MIN) + (e.cleanupTime ?? 0);
+}
+
 export interface Solape {
   reservationNumber: string;
   experiencia: string;
@@ -52,8 +67,22 @@ export async function simultaneidad(
     duracionMin?: number | null;
   },
 ): Promise<Simultaneidad> {
-  const duracion = datos.duracionMin ?? DURACION_POR_DEFECTO_MIN;
-  const fin = new Date(datos.fecha.getTime() + duracion * 60_000);
+  // TR-19. La franja que ocupa esto es montaje + duracion + limpieza. La
+  // duracion que llega en la reserva manda sobre la de la ficha —puede ser
+  // una cena mas larga de lo habitual— pero los montajes son de la
+  // experiencia y no se mandan por reserva.
+  const ficha = await cliente.experience.findUnique({
+    where: { id: datos.experienceId },
+    select: { duration: true, prepTime: true, cleanupTime: true },
+  });
+  const duracion = ocupacionEnMinutos({
+    duration: datos.duracionMin ?? ficha?.duration ?? DURACION_POR_DEFECTO_MIN,
+    prepTime: ficha?.prepTime,
+    cleanupTime: ficha?.cleanupTime,
+  });
+  // El montaje empieza antes de la hora de la reserva: ahi ya esta ocupado.
+  const inicio = new Date(datos.fecha.getTime() - (ficha?.prepTime ?? 0) * 60_000);
+  const fin = new Date(inicio.getTime() + duracion * 60_000);
 
   // Se trae la franja ancha del dia y el solape se calcula aqui: cruzar
   // fecha + duracion en SQL obligaria a un raw query por una comodidad.
@@ -74,7 +103,9 @@ export async function simultaneidad(
       reservationDate: true,
       duration: true,
       locationId: true,
-      experience: { select: { title: true, duration: true } },
+      experience: {
+        select: { title: true, duration: true, prepTime: true, cleanupTime: true },
+      },
       location: { select: { name: true } },
     },
   });
@@ -82,11 +113,17 @@ export async function simultaneidad(
   const salida: Simultaneidad = { mismaSede: [], otraSede: [] };
 
   for (const c of candidatas) {
-    const dur = c.duration ?? c.experience?.duration ?? DURACION_POR_DEFECTO_MIN;
-    const cInicio = c.reservationDate;
+    const dur = ocupacionEnMinutos({
+      duration: c.duration ?? c.experience?.duration ?? DURACION_POR_DEFECTO_MIN,
+      prepTime: c.experience?.prepTime,
+      cleanupTime: c.experience?.cleanupTime,
+    });
+    const cInicio = new Date(
+      c.reservationDate.getTime() - (c.experience?.prepTime ?? 0) * 60_000,
+    );
     const cFin = new Date(cInicio.getTime() + dur * 60_000);
     // Se tocan si una empieza antes de que la otra acabe, por los dos lados.
-    if (cInicio >= fin || cFin <= datos.fecha) continue;
+    if (cInicio >= fin || cFin <= inicio) continue;
 
     // Misma sede solo cuando las dos la tienen y es la misma. Sin sede no se
     // puede afirmar que sea el mismo sitio, y afirmarlo bloquearia ventas

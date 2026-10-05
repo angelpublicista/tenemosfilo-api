@@ -88,6 +88,11 @@ function buildBaseData(input: CreateExperienceInput) {
     description: input.description ?? null,
     categories: input.categories ?? [],
     duration: input.duration ?? null,
+    // TR-19. Montaje y limpieza: lo que ocupa la experiencia ademas de si
+    // misma. Nulo es "no aplica", no cero por defecto, porque no es lo mismo
+    // decir que no hace falta montaje que no haberlo pensado todavia.
+    prepTime: input.prepTime ?? null,
+    cleanupTime: input.cleanupTime ?? null,
     capacity: input.capacity ?? null,
     minCapacity: input.minCapacity ?? null,
     basePrice: input.basePrice ?? null,
@@ -311,6 +316,8 @@ export const experiencesService = {
     if (input.description !== undefined) data.description = input.description ?? null;
     if (input.categories !== undefined) data.categories = input.categories;
     if (input.duration !== undefined) data.duration = input.duration;
+    if (input.prepTime !== undefined) data.prepTime = input.prepTime ?? null;
+    if (input.cleanupTime !== undefined) data.cleanupTime = input.cleanupTime ?? null;
     if (input.capacity !== undefined) {
       await noDejarAforoCorto(id, input.capacity);
       data.capacity = input.capacity;
