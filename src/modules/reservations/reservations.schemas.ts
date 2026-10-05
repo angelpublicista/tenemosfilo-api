@@ -3,11 +3,9 @@ import { z } from 'zod';
 const statusEnum = z.enum([
   'PENDING',
   'CONFIRMED',
-  'IN_PROGRESS',
   'COMPLETED',
   'CANCELLED',
   'NO_SHOW',
-  'RESCHEDULED',
 ]);
 const paymentStatusEnum = z.enum(['PENDING', 'PAID', 'REFUNDED', 'PARTIAL', 'FAILED']);
 const clientTypeEnum = z.enum(['GUEST', 'REGISTERED']);

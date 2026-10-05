@@ -86,7 +86,7 @@ export const ventaService = {
     if (o.status !== 'OPEN') {
       throw BadRequest('Esta oportunidad ya está cerrada');
     }
-    const yaHay = o.reservations.find((r) => r.status === 'PRE_RESERVED');
+    const yaHay = o.reservations.find((r) => r.status === 'PENDING');
     if (yaHay) throw BadRequest('Esta oportunidad ya tiene una pre-reserva');
 
     const exp = await prisma.experience.findFirst({
@@ -129,7 +129,9 @@ export const ventaService = {
         reservationDate: new Date(input.reservationDate),
         duration: input.duration ?? exp.duration ?? 60,
         participants: input.participants,
-        status: 'PRE_RESERVED',
+        // TR-01. Pendiente, que es lo que siempre fue: comprometida, sin
+        // cobrar y bloqueando el recurso.
+        status: 'PENDING',
         paymentStatus: 'PENDING',
         client: cliente as Prisma.InputJsonValue,
         collectedBy: quienCobra,
@@ -174,10 +176,10 @@ export const ventaService = {
     monto: number,
   ) {
     const o = await oportunidadDe(id, companyId);
-    // PENDING entra igual que PRE_RESERVED: la reserva de una abierta creada
+    // Pendiente o confirmada: la reserva de una abierta creada
     // desde la oportunidad nace pendiente, y sobre ella tambien se cobra.
     const reserva = o.reservations.find(
-      (r) => r.status === 'PRE_RESERVED' || r.status === 'PENDING' || r.status === 'CONFIRMED',
+      (r) => r.status === 'PENDING' || r.status === 'CONFIRMED',
     );
     if (!reserva) throw BadRequest('Esta oportunidad no tiene una reserva sobre la que registrar el pago');
     if (monto <= 0) throw BadRequest('El monto debe ser mayor que cero');
@@ -244,7 +246,7 @@ export const ventaService = {
     if (o.status !== 'OPEN') throw BadRequest('Esta oportunidad ya está cerrada');
 
     const reserva = o.reservations.find(
-      (r) => r.status === 'PRE_RESERVED' || r.status === 'PENDING' || r.status === 'CONFIRMED',
+      (r) => r.status === 'PENDING' || r.status === 'CONFIRMED',
     );
     if (!reserva) throw BadRequest('No hay una reserva que confirmar');
 
@@ -312,7 +314,7 @@ export const ventaService = {
     if (o.status !== 'OPEN') throw BadRequest('Esta oportunidad ya está cerrada');
 
     const aLiberar = o.reservations
-      .filter((r) => r.status === 'PRE_RESERVED' || r.status === 'PENDING')
+      .filter((r) => r.status === 'PENDING')
       .map((r) => r.id);
 
     const [actualizada] = await prisma.$transaction([

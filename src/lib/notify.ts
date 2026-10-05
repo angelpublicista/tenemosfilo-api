@@ -8,7 +8,7 @@
 // operacion que la origina. Si falla el aviso de "nueva reserva", la
 // reserva ya esta hecha y cobrada; perder el aviso es molesto, perder la
 // venta es inaceptable. Por eso todo va envuelto en un catch.
-import type { NotificationType, CompanyContactType } from '@prisma/client';
+import type { NotificationType, CompanyContactType, ReservationStatus } from '@prisma/client';
 import { prisma } from '../config/prisma.js';
 import { logger } from './logger.js';
 import { sendEmail } from './email.js';
@@ -392,6 +392,16 @@ export async function avisarNuevaReserva(r: DatosReserva): Promise<void> {
   ]);
 }
 
+/**
+ * Lo que le pasa a una reserva y hay que contar.
+ *
+ * No todos son estados: desde TR-08, reagendar es un hecho que le ocurre a una
+ * reserva que sigue viva. Para quien recibe el aviso es lo mismo —algo cambio
+ * en su reserva— asi que viajan por el mismo sitio, pero no se confunden con
+ * el estado que tiene guardado.
+ */
+export type SucesoDeReserva = ReservationStatus | 'RESCHEDULED';
+
 const TITULO_ESTADO: Record<string, { anfitrion: string; cliente: string }> = {
   CONFIRMED: { anfitrion: 'Reserva confirmada', cliente: 'Tu reserva fue confirmada' },
   CANCELLED: { anfitrion: 'Reserva cancelada', cliente: 'Tu reserva fue cancelada' },
@@ -406,14 +416,15 @@ const TIPO_ESTADO: Record<string, NotificationType> = {
 };
 
 /**
- * Cambio de estado de una reserva.
+ * Algo le paso a una reserva y hay que contarlo.
  *
  * Lo importante aqui es el cliente: es quien tiene que enterarse de que le
- * confirmaron o le cancelaron, y quien no esta mirando el panel.
+ * confirmaron, le cancelaron o le movieron la fecha, y quien no esta mirando
+ * el panel.
  */
 export async function avisarCambioDeEstado(
   r: DatosReserva,
-  estado: string,
+  estado: SucesoDeReserva,
   motivo?: string,
 ): Promise<void> {
   const textos = TITULO_ESTADO[estado];

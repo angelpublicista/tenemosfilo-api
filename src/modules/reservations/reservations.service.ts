@@ -753,10 +753,13 @@ export const reservationsService = {
     input: RescheduleInput,
   ) {
     const existing = await assertCanManage(id, requesterCompanyId);
+
+    // TR-08. El estado no se toca: una reserva movida sigue siendo la misma y
+    // sigue igual de viva. Lo que cambia es la fecha, y que queda constancia
+    // de la mudanza en `rescheduling` y en el aviso al comensal.
     const reprogramada = await prisma.reservation.update({
       where: { id },
       data: {
-        status: 'RESCHEDULED',
         reservationDate: new Date(input.newDate),
         rescheduling: {
           originalDate: existing.reservationDate.toISOString(),
@@ -796,11 +799,11 @@ export const reservationsService = {
       total: items.length,
       pending: items.filter((r) => r.status === 'PENDING').length,
       confirmed: items.filter((r) => r.status === 'CONFIRMED').length,
-      inProgress: items.filter((r) => r.status === 'IN_PROGRESS').length,
+
       completed: items.filter((r) => r.status === 'COMPLETED').length,
       cancelled: items.filter((r) => r.status === 'CANCELLED').length,
       noShow: items.filter((r) => r.status === 'NO_SHOW').length,
-      rescheduled: items.filter((r) => r.status === 'RESCHEDULED').length,
+
       totalRevenue,
       totalParticipants,
       averageParticipants: items.length ? totalParticipants / items.length : 0,

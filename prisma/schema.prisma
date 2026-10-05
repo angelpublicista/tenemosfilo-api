@@ -1037,18 +1037,23 @@ model Quote {
   @@index([opportunityId])
 }
 
+/// Los cinco estados de una reserva (TR-08).
+///
+/// PENDING es la que esta comprometida pero no cobrada, y bloquea el recurso
+/// igual que una confirmada: el conteo de aforo excluye solo CANCELLED y
+/// NO_SHOW. Ahi vive la antigua "pre-reserva" de una privada (TR-01), que no
+/// necesitaba un estado propio: era lo mismo contado dos veces.
+///
+/// Reagendar NO es un estado, es un hecho que le pasa a una reserva que sigue
+/// viva: queda en `rescheduling` y en su aviso, y el estado no se mueve. Como
+/// estado obligaba a elegir entre decir "esta confirmada" y decir "la
+/// movieron", cuando las dos cosas son ciertas a la vez.
 enum ReservationStatus {
-  // El espacio esta apartado mientras se espera el pago. Bloquea igual que una
-  // reserva confirmada —el conteo de aforo excluye solo CANCELLED y NO_SHOW—
-  // y NO caduca sola: se queda hasta que la venta se confirme o se pierda.
-  PRE_RESERVED
   PENDING
   CONFIRMED
-  IN_PROGRESS
   COMPLETED
   CANCELLED
   NO_SHOW
-  RESCHEDULED
 }
 
 enum PaymentStatus {

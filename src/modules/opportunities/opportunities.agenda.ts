@@ -20,7 +20,7 @@ import { Forbidden } from '../../lib/errors.js';
 export interface EspacioTomado {
   fecha: string;
   experiencia: string | null;
-  /** PRE_RESERVED es "apartado a la espera del pago"; el resto, ya vendido. */
+  /** PENDING es "apartado a la espera de la decision"; CONFIRMED, ya vendido. */
   estado: string;
 }
 
@@ -95,7 +95,7 @@ export const agendaService = {
       where: {
         companyId,
         reservationDate: { gte: inicio, lt: fin },
-        status: { in: ['PRE_RESERVED', 'PENDING', 'CONFIRMED'] },
+        status: { in: ['PENDING', 'CONFIRMED'] },
         NOT: { opportunityId },
       },
       orderBy: { reservationDate: 'asc' },

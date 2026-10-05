@@ -46,7 +46,7 @@ const ES_UNA_VENTA = Prisma.sql`
   r.status NOT IN ('CANCELLED', 'NO_SHOW')
   AND (
     r."paymentStatus" = 'PAID'
-    OR r.status IN ('CONFIRMED', 'IN_PROGRESS', 'COMPLETED', 'RESCHEDULED')
+    OR r.status IN ('CONFIRMED', 'COMPLETED')
   )
 `;
 
