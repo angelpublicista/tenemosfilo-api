@@ -693,6 +693,17 @@ model Availability {
 
   isMain         Boolean  @default(false)
   weeklySchedule Json // { mon:{isActive,timeSlots[]}, tue:{...}, ... }
+
+  // TR-35. Desde y hasta cuando se repite este horario.
+  //
+  // Un horario semanal sin fecha de corte genera inventario para siempre: en
+  // 2031 se puede reservar un sabado que nadie ha decidido abrir. Con esto, la
+  // reagenda existe mientras el anfitrion dijo que existe.
+  //
+  // `validUntil` nulo significa "sin fecha final" y es el caso de los
+  // horarios creados antes de esta regla. Los nuevos la piden.
+  validFrom  DateTime?
+  validUntil DateTime?
   bufferTime     Int      @default(0) // minutos entre reservas
   minimumNotice  Int      @default(0) // minutos minimos para reservar
   blockedDates   String[] // ISO dates "YYYY-MM-DD"

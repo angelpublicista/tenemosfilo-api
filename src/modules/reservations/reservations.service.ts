@@ -20,6 +20,7 @@ import { construirCheckout } from '../payments/payments.service.js';
 import {
   avisarBajaParcial,
   avisarCambioDeEstado,
+  avisarCambioEnLaReserva,
   avisarNuevaReserva,
   avisarPago,
   datosDeReserva,
@@ -267,6 +268,62 @@ async function colgarDelCrm(
   } catch (e) {
     console.error('[contacto del comprador] no se pudo vincular', e);
   }
+}
+
+/** Una fecha y hora en palabras, para contarsela a quien reservo. */
+function cuandoEnPalabras(d: Date): string {
+  return d.toLocaleString('es-CO', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+/**
+ * TR-48. Que cambios de una edicion se le cuentan al comensal.
+ *
+ * Solo los que le obligan a hacer algo distinto: ir otro dia, ir a otro
+ * sitio, o venir con mas o menos gente. Todo lo demas —notas internas,
+ * metodo de pago, requerimientos— se guarda sin avisar a nadie.
+ */
+function cambiosQueSeAvisan(
+  antes: {
+    reservationDate: Date;
+    participants: number;
+    locationId: string | null;
+    location: { name: string } | null;
+  } | null,
+  despues: {
+    reservationDate: Date;
+    participants: number;
+    locationId: string | null;
+    location: { name: string } | null;
+  },
+): string[] {
+  if (!antes) return [];
+  const cambios: string[] = [];
+
+  if (antes.reservationDate.getTime() !== despues.reservationDate.getTime()) {
+    cambios.push(
+      `La fecha pasa del ${cuandoEnPalabras(antes.reservationDate)} al ${cuandoEnPalabras(
+        despues.reservationDate,
+      )}`,
+    );
+  }
+
+  if (antes.participants !== despues.participants) {
+    cambios.push(`Las personas pasan de ${antes.participants} a ${despues.participants}`);
+  }
+
+  if (antes.locationId !== despues.locationId) {
+    const de = antes.location?.name ?? 'sin sede asignada';
+    const a = despues.location?.name ?? 'sin sede asignada';
+    cambios.push(`El lugar pasa de ${de} a ${a}`);
+  }
+
+  return cambios;
 }
 
 export const reservationsService = {
@@ -840,8 +897,29 @@ export const reservationsService = {
     return { items, total };
   },
 
+  /**
+   * Editar una reserva.
+   *
+   * TR-48. Lo que el comensal tiene que saber se le cuenta; lo demas no. El
+   * documento acota la lista: fecha, hora, ubicacion y cantidad de personas
+   * si; notas internas y datos administrativos no. La mitad importante de esa
+   * regla es la segunda: si cada correccion de una nota le llegara por correo,
+   * dejaria de leerlos, y el dia que cambie la fecha de verdad tampoco lo
+   * leeria.
+   */
   async update(id: string, requesterCompanyId: string | null | undefined, input: UpdateReservationInput) {
     await assertCanManage(id, requesterCompanyId);
+
+    // Lo de antes, para poder decir que cambio y no solo que cambio algo.
+    const antes = await prisma.reservation.findUnique({
+      where: { id },
+      select: {
+        reservationDate: true,
+        participants: true,
+        locationId: true,
+        location: { select: { name: true } },
+      },
+    });
 
     const data: Prisma.ReservationUpdateInput = {};
     if (input.client !== undefined) data.client = input.client as Prisma.InputJsonValue;
@@ -866,7 +944,18 @@ export const reservationsService = {
     if (input.user !== undefined && input.user !== null)
       data.user = { connect: { id: input.user } };
 
-    return prisma.reservation.update({ where: { id }, data, include: fullInclude });
+    const actualizada = await prisma.reservation.update({
+      where: { id },
+      data,
+      include: fullInclude,
+    });
+
+    const cambios = cambiosQueSeAvisan(antes, actualizada);
+    // Sin await: el aviso no puede hacer esperar —ni tumbar— una edicion que
+    // ya esta guardada.
+    if (cambios.length > 0) void avisarCambioEnLaReserva(paraAvisos(actualizada), cambios);
+
+    return actualizada;
   },
 
   async updateStatus(id: string, requesterCompanyId: string | null | undefined, status: ReservationStatus) {

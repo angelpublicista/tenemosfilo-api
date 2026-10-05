@@ -25,6 +25,7 @@ import {
   type DatosCorreoReserva,
   correoBajaParcialComensal,
   correoBajaParcialAnfitrion,
+  correoCambioEnLaReserva,
 } from './email-reservas.js';
 
 type Aviso = {
@@ -544,6 +545,46 @@ export async function avisarBajaParcial(
       : []),
     ...correos.map((to) => ({ to, ...correoBajaParcialAnfitrion(d, personasQueSeCaen, motivo) })),
   ]);
+}
+
+/**
+ * Cambio en la reserva que el comensal tiene que saber (TR-48).
+ *
+ * El documento acota cuales son: fecha, hora, ubicacion, cantidad de personas
+ * y reagendamiento. Las notas internas y lo administrativo no se avisan, y
+ * esa es la mitad importante de la regla: si cada vez que el anfitrion
+ * corrige una nota le llegara un correo al comensal, dejaria de leerlos y el
+ * dia que cambie la fecha de verdad tampoco lo leeria.
+ *
+ * `cambios` son frases ya escritas, en el orden en que se mostraran. Se
+ * componen donde se detecta el cambio, que es el unico sitio que sabe que
+ * habia antes.
+ */
+export async function avisarCambioEnLaReserva(
+  r: DatosReserva,
+  cambios: string[],
+): Promise<void> {
+  if (cambios.length === 0) return;
+
+  const resumen = cambios.join('. ');
+
+  if (r.userId) {
+    await notificar([
+      {
+        userId: r.userId,
+        type: 'RESERVATION_RESCHEDULED',
+        title: 'Cambió algo en tu reserva',
+        message: `${r.experienceTitle} · ${resumen}`,
+        data: { reservationId: r.id, reservationNumber: r.reservationNumber },
+      },
+    ]);
+  }
+
+  if (r.clienteEmail) {
+    await despachar([
+      { to: r.clienteEmail, ...correoCambioEnLaReserva(paraCorreo(r), cambios) },
+    ]);
+  }
 }
 
 /** Pago confirmado: al anfitrion le entra dinero, al cliente le queda pagado. */

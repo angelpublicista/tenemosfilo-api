@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../config/prisma.js';
-import { Forbidden, NotFound } from '../../lib/errors.js';
+import { BadRequest, Forbidden, NotFound } from '../../lib/errors.js';
 import type {
   CreateAvailabilityInput,
   ListAvailabilitiesQuery,
@@ -26,6 +26,26 @@ async function experienceCompanyId(experienceId: string): Promise<string | null>
     select: { companyId: true },
   });
   return exp?.companyId ?? null;
+}
+
+/** Las 00:00 de un dia dado en "YYYY-MM-DD" o una fecha ISO completa. */
+function inicioDelDia(v: string): Date {
+  const d = new Date(v.length <= 10 ? `${v}T00:00:00` : v);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+/**
+ * El final de un dia.
+ *
+ * Una vigencia "hasta el 31 de diciembre" incluye el 31 de diciembre: cortar
+ * a las 00:00 de ese dia dejaria fuera el ultimo dia que el anfitrion dijo
+ * que abria.
+ */
+function finDelDia(v: string): Date {
+  const d = new Date(v.length <= 10 ? `${v}T00:00:00` : v);
+  d.setHours(23, 59, 59, 999);
+  return d;
 }
 
 async function blockedDatesToStrings(input: CreateAvailabilityInput['blockedDates']): Promise<string[]> {
@@ -69,6 +89,10 @@ export const availabilitiesService = {
       if (cid !== requesterCompanyId) throw Forbidden('La experiencia no pertenece a tu company');
     }
 
+    if (finDelDia(input.validUntil) < inicioDelDia(input.validFrom)) {
+      throw BadRequest('La fecha final del horario no puede ser anterior a la de inicio.');
+    }
+
     return prisma.availability.create({
       data: {
         name: input.name,
@@ -77,6 +101,11 @@ export const availabilitiesService = {
         bufferTime: input.bufferTime ?? 0,
         minimumNotice: input.minimumNotice ?? 24,
         blockedDates: await blockedDatesToStrings(input.blockedDates),
+        // TR-35. La vigencia del horario. El inicio a las 00:00 y el final al
+        // acabar ese dia: una vigencia "hasta el 31 de diciembre" incluye el
+        // 31 de diciembre.
+        validFrom: inicioDelDia(input.validFrom),
+        validUntil: finDelDia(input.validUntil),
         notes: input.notes ?? null,
         isMain: input.isMain ?? false,
         isActive: input.isActive ?? true,
@@ -160,6 +189,29 @@ export const availabilitiesService = {
     if (input.notes !== undefined) data.notes = input.notes;
     if (input.blockedDates !== undefined)
       data.blockedDates = await blockedDatesToStrings(input.blockedDates);
+    if (input.validFrom !== undefined) data.validFrom = inicioDelDia(input.validFrom);
+    if (input.validUntil !== undefined)
+      data.validUntil = input.validUntil === null ? null : finDelDia(input.validUntil);
+
+    // Se comprueba antes de escribir: guardar un horario que termina antes de
+    // empezar y despues avisar deja la agenda rota con el aviso dado.
+    if (input.validFrom !== undefined || input.validUntil !== undefined) {
+      const actual = await prisma.availability.findUnique({
+        where: { id },
+        select: { validFrom: true, validUntil: true },
+      });
+      const desde =
+        input.validFrom !== undefined ? inicioDelDia(input.validFrom) : actual?.validFrom ?? null;
+      const hasta =
+        input.validUntil !== undefined
+          ? input.validUntil === null
+            ? null
+            : finDelDia(input.validUntil)
+          : actual?.validUntil ?? null;
+      if (desde && hasta && hasta < desde) {
+        throw BadRequest('La fecha final del horario no puede ser anterior a la de inicio.');
+      }
+    }
 
     return prisma.availability.update({ where: { id }, data, include: baseInclude });
   },

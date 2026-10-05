@@ -25,6 +25,14 @@ const blockedDateSchema = z.union([
   z.object({ date: z.string(), reason: z.string().optional(), description: z.string().optional() }),
 ]);
 
+/**
+ * TR-35. Desde y hasta cuando se repite el horario.
+ *
+ * `validUntil` se pide en los nuevos: un horario semanal sin corte genera
+ * inventario para siempre, y en 2031 se podria reservar un sabado que nadie
+ * decidio abrir. Los que ya existian lo tienen nulo —"sin fecha final"— y se
+ * les pide al editarlos, no se les inventa una.
+ */
 export const createAvailabilitySchema = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
@@ -37,6 +45,8 @@ export const createAvailabilitySchema = z.object({
   minimumNotice: z.number().int().nonnegative().optional().default(24),
   notes: z.string().optional(),
   blockedDates: z.array(blockedDateSchema).optional().default([]),
+  validFrom: z.string().min(1),
+  validUntil: z.string().min(1),
 });
 
 export const updateAvailabilitySchema = z.object({
@@ -49,6 +59,11 @@ export const updateAvailabilitySchema = z.object({
   minimumNotice: z.number().int().nonnegative().optional(),
   notes: z.string().nullable().optional(),
   blockedDates: z.array(blockedDateSchema).optional(),
+  validFrom: z.string().min(1).optional(),
+  // Nulo explicito = volver a "sin fecha final". Se permite porque hay
+  // horarios que de verdad no tienen corte —un restaurante que abre todos los
+  // sabados— y obligar a inventarse una fecha solo produce fechas falsas.
+  validUntil: z.string().min(1).nullable().optional(),
 });
 
 export const listAvailabilitiesQuerySchema = z.object({

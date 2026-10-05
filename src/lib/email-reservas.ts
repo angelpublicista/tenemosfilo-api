@@ -460,6 +460,34 @@ export function correoBajaParcialAnfitrion(
   };
 }
 
+/**
+ * Al comensal cuando cambia algo de su reserva (TR-48).
+ *
+ * Se le dice QUE cambio, no solo que cambio algo: un correo que dice "tu
+ * reserva fue modificada" obliga a abrir la ficha para averiguar si hay que
+ * hacer algo, y la mayoria no la abre.
+ */
+export function correoCambioEnLaReserva(d: DatosCorreoReserva, cambios: string[]) {
+  return {
+    subject: `Cambio en tu reserva · ${d.experienceTitle}`,
+    html: marco({
+      titulo: 'Cambió algo en tu reserva',
+      logo: d.logoEmpresa,
+      empresa: d.empresaNombre,
+      color: marca(d),
+      contenido: `
+        <p>Hola ${esc(d.clienteNombre)},</p>
+        <p>Tu reserva en <strong>${esc(d.empresaNombre)}</strong> cambió:</p>
+        <ul style="margin:0 0 16px;padding-left:20px;font-size:14px;color:#374151">
+          ${cambios.map((c) => `<li style="margin-bottom:4px">${esc(c)}</li>`).join('')}
+        </ul>
+        <p>Así queda:</p>
+        ${bloqueDatos(datosDelPlan(d))}
+        ${boton('Ver mis reservas', PANEL_COMENSAL, marca(d))}`,
+    }),
+  };
+}
+
 export function correoReprogramadaComensal(d: DatosCorreoReserva, motivo?: string) {
   return {
     subject: `Nueva fecha · ${d.experienceTitle}`,
