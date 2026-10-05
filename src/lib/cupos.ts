@@ -47,12 +47,21 @@ export function ocupanElDia(
   experienceId: string,
   fecha: Date,
   exigePago: boolean,
+  /**
+   * Una reserva que no cuenta contra si misma.
+   *
+   * Hace falta al reagendar: si se mueve dentro del mismo dia, sus propias
+   * plazas estarian contadas dos veces y una reserva de diez en un aforo de
+   * diez no se podria mover ni media hora.
+   */
+  excluirReservaId?: string | null,
 ): Prisma.ReservationWhereInput {
   const { inicio, fin } = dia(fecha);
   const desde = new Date(Date.now() - RETENCION_DE_CUPO_MIN * 60_000);
 
   return {
     experienceId,
+    ...(excluirReservaId ? { id: { not: excluirReservaId } } : {}),
     status: { notIn: ['CANCELLED', 'NO_SHOW'] },
     reservationDate: { gte: inicio, lt: fin },
     ...(exigePago
@@ -73,6 +82,7 @@ export async function cuposLibres(
   experienceId: string,
   fecha: Date,
   exigePago: boolean,
+  excluirReservaId?: string | null,
 ): Promise<number | null> {
   const exp = await cliente.experience.findUnique({
     where: { id: experienceId },
@@ -82,7 +92,7 @@ export async function cuposLibres(
   if (aforo <= 0) return null;
 
   const agregado = await cliente.reservation.aggregate({
-    where: ocupanElDia(experienceId, fecha, exigePago),
+    where: ocupanElDia(experienceId, fecha, exigePago, excluirReservaId),
     _sum: { participants: true },
   });
   return aforo - (agregado._sum?.participants ?? 0);
@@ -96,10 +106,11 @@ export async function verificarAforo(
   bloquearLleno: boolean,
   exigePago = false,
   cliente: Cliente = prisma,
+  excluirReservaId?: string | null,
 ) {
   if (!bloquearLleno) return;
 
-  const libres = await cuposLibres(cliente, experienceId, fecha, exigePago);
+  const libres = await cuposLibres(cliente, experienceId, fecha, exigePago, excluirReservaId);
   if (libres === null) return;
 
   if (participantes > libres) {
@@ -131,6 +142,8 @@ export async function conCupoApartado<T>(
   participantes: number,
   ajustes: { bloquearLleno: boolean; exigePago: boolean },
   alta: (tx: Prisma.TransactionClient) => Promise<T>,
+  /** La reserva que se esta moviendo, para que no cuente contra si misma. */
+  excluirReservaId?: string | null,
 ): Promise<T> {
   const { inicio } = dia(fecha);
   const clave = `${experienceId}:${inicio.toISOString().slice(0, 10)}`;
@@ -145,6 +158,7 @@ export async function conCupoApartado<T>(
         ajustes.bloquearLleno,
         ajustes.exigePago,
         tx,
+        excluirReservaId,
       );
       return alta(tx);
     },

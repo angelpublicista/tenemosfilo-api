@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Prisma, ReservationStatus, PaymentStatus, UserRole, type CollectedBy } from '@prisma/client';
 import { pasarelaDe } from '../../lib/pasarela.js';
 import { prisma } from '../../config/prisma.js';
@@ -5,6 +6,7 @@ import { conCupoApartado } from '../../lib/cupos.js';
 import { comprobarSedeActiva, comprobarSimultaneidad } from '../../lib/agenda-del-anfitrion.js';
 import { vincularCompradorAlCrm } from '../../lib/comprador-al-crm.js';
 import { comprobarCorte } from '../../lib/corte-de-reservas.js';
+import { cambio, type Actor, type CambioDeReserva } from '../../lib/historial-de-reserva.js';
 import {
   estadoDePagoTrasReembolso,
   nuevoReembolso,
@@ -271,6 +273,26 @@ async function colgarDelCrm(
   }
 }
 
+/**
+ * La duracion que se guarda en la reserva (TR-36).
+ *
+ * Se copia de la ficha al vender y no se lee de ella despues: los cambios en
+ * la experiencia aplican hacia adelante. Si manaña el anfitrion alarga la cena
+ * de dos a tres horas, las reservas de la semana que viene siguen siendo de
+ * dos: es lo que se les vendio y lo que esa gente tiene en su calendario.
+ */
+async function duracionAlVender(
+  experienceId: string,
+  duracionPedida: number | null | undefined,
+): Promise<number | null> {
+  if (duracionPedida !== undefined && duracionPedida !== null) return duracionPedida;
+  const exp = await prisma.experience.findUnique({
+    where: { id: experienceId },
+    select: { duration: true },
+  });
+  return exp?.duration ?? null;
+}
+
 /** Una fecha y hora en palabras, para contarsela a quien reservo. */
 function cuandoEnPalabras(d: Date): string {
   return d.toLocaleString('es-CO', {
@@ -383,6 +405,10 @@ export const reservationsService = {
     // deberian poder pasarse del aforo si la empresa lo tiene bloqueado.
     const ajustes = await ajustesDeOperacion(companyId);
 
+    // TR-36. La duracion se congela al vender: lo que la ficha diga mañana no
+    // cambia lo que esta gente tiene en su calendario.
+    const duracionCongelada = await duracionAlVender(input.experience, input.duration);
+
     // TR-37. Una sede inactiva no admite reservas nuevas, ni a mano: si el
     // anfitrion la apago, no es sitio donde mandar gente.
     await comprobarSedeActiva(input.location);
@@ -442,7 +468,7 @@ export const reservationsService = {
         ...(input.user ? { user: { connect: { id: input.user } } } : {}),
         source,
         reservationDate: new Date(input.reservationDate),
-        duration: input.duration ?? null,
+        duration: duracionCongelada,
         participants: input.participants,
         status: input.status ?? 'PENDING',
         paymentStatus: input.paymentStatus ?? 'PENDING',
@@ -545,6 +571,8 @@ export const reservationsService = {
     const ajustes = await ajustesDeOperacion(companyId);
     const { autoConfirmar } = ajustes;
 
+    const duracionCongelada = await duracionAlVender(input.experience, input.duration);
+
     await comprobarSedeActiva(input.location);
 
     // TR-06. El corte tambien vale cuando se liberan cupos: un lugar que
@@ -598,7 +626,7 @@ export const reservationsService = {
         source: 'BOOKING_ENGINE',
         ...(deOportunidad ? { opportunity: { connect: { id: deOportunidad.id } } } : {}),
         reservationDate: fecha,
-        duration: input.duration ?? null,
+        duration: duracionCongelada,
         participants: input.participants,
         // Confirmada de entrada solo si la empresa lo pidio; el aforo ya se
         // comprobo arriba, asi que no se autoconfirma nada sin sitio.
@@ -926,7 +954,12 @@ export const reservationsService = {
    * dejaria de leerlos, y el dia que cambie la fecha de verdad tampoco lo
    * leeria.
    */
-  async update(id: string, requesterCompanyId: string | null | undefined, input: UpdateReservationInput) {
+  async update(
+    id: string,
+    requesterCompanyId: string | null | undefined,
+    input: UpdateReservationInput,
+    actor?: Actor,
+  ) {
     await assertCanManage(id, requesterCompanyId);
 
     // Lo de antes, para poder decir que cambio y no solo que cambio algo.
@@ -936,6 +969,10 @@ export const reservationsService = {
         reservationDate: true,
         participants: true,
         locationId: true,
+        status: true,
+        paymentStatus: true,
+        duration: true,
+        changes: true,
         location: { select: { name: true } },
       },
     });
@@ -962,6 +999,34 @@ export const reservationsService = {
       data.location = { connect: { id: input.location } };
     if (input.user !== undefined && input.user !== null)
       data.user = { connect: { id: input.user } };
+
+    // TR-39. El historial. Se escribe junto con el cambio, no despues: si
+    // fuera otra escritura, un fallo entre las dos dejaria la reserva movida
+    // sin constancia de quien la movio.
+    if (antes) {
+      const nuevos: CambioDeReserva[] = [];
+      const anota = (campo: string, viejo: unknown, nuevo: unknown) => {
+        const a = viejo instanceof Date ? viejo.getTime() : viejo;
+        const b = nuevo instanceof Date ? nuevo.getTime() : nuevo;
+        if (nuevo !== undefined && a !== b) nuevos.push(cambio(campo, viejo, nuevo, actor));
+      };
+      if (input.reservationDate !== undefined)
+        anota('fecha', antes.reservationDate, new Date(input.reservationDate));
+      if (input.participants !== undefined)
+        anota('personas', antes.participants, input.participants);
+      if (input.location !== undefined) anota('sede', antes.locationId, input.location);
+      if (input.status !== undefined) anota('estado', antes.status, input.status);
+      if (input.paymentStatus !== undefined)
+        anota('estado de pago', antes.paymentStatus, input.paymentStatus);
+      if (input.duration !== undefined) anota('duracion', antes.duration, input.duration);
+
+      if (nuevos.length > 0) {
+        data.changes = [
+          ...(antes.changes as Prisma.InputJsonValue[]),
+          ...(nuevos as unknown as Prisma.InputJsonValue[]),
+        ];
+      }
+    }
 
     const actualizada = await prisma.reservation.update({
       where: { id },
@@ -1228,6 +1293,120 @@ export const reservationsService = {
     });
   },
 
+  /**
+   * Un cargo adicional acordado despues de vender (TR-12).
+   *
+   * El requisito pide dos cosas que parecen contrarias: que el valor vendido
+   * se conserve —un cambio de fecha o de cantidad NO recalcula el dinero por
+   * su cuenta— y que se puedan registrar cobros adicionales. Se resuelven
+   * juntas asi: el precio original no se toca nunca, y lo que se acuerde
+   * cobrar de mas se apunta aparte y suma al total.
+   *
+   * Suma a la base del fee, como el precio: es dinero que el comprador pago
+   * por esta venta, y la comision se calcula sobre lo vendido.
+   */
+  async registrarCargoAdicional(
+    id: string,
+    requesterCompanyId: string | null | undefined,
+    input: { amount: number; concept: string },
+    actor?: Actor,
+  ) {
+    const actual = await prisma.reservation.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        companyId: true,
+        experienceId: true,
+        pricing: true,
+        status: true,
+        source: true,
+        resellerCompanyId: true,
+        collectedBy: true,
+        extraCharges: true,
+        changes: true,
+      },
+    });
+    if (!actual) throw NotFound('Reserva no encontrada');
+    if (!requesterCompanyId || actual.companyId !== requesterCompanyId)
+      throw Forbidden('No tienes permiso sobre esta reserva');
+    if (actual.status === 'CANCELLED')
+      throw BadRequest('Esta reserva está cancelada: no se le puede cobrar más.');
+
+    const precio = (actual.pricing ?? {}) as Record<string, unknown>;
+    const totalViejo = Number(precio.total) || 0;
+    const totalNuevo = totalViejo + input.amount;
+
+    const pricing = await conComisiones(
+      actual.experienceId,
+      { ...precio, total: totalNuevo } as CreateReservationInput['pricing'],
+      actual.resellerCompanyId !== null,
+      actual.collectedBy,
+      actual.source,
+    );
+
+    const cargo = {
+      id: randomUUID(),
+      fecha: new Date().toISOString(),
+      importe: input.amount,
+      concepto: input.concept,
+      // Pendiente de cobro: apuntarlo no es haberlo cobrado, y confundir las
+      // dos cosas deja al anfitrion creyendo que ya le entro ese dinero.
+      estado: 'pendiente',
+    };
+
+    return prisma.reservation.update({
+      where: { id },
+      data: {
+        pricing,
+        extraCharges: [
+          ...(actual.extraCharges as Prisma.InputJsonValue[]),
+          cargo as unknown as Prisma.InputJsonValue,
+        ],
+        changes: [
+          ...(actual.changes as Prisma.InputJsonValue[]),
+          cambio(
+            'cargo adicional',
+            totalViejo,
+            totalNuevo,
+            actor,
+            input.concept,
+          ) as unknown as Prisma.InputJsonValue,
+        ],
+      },
+      include: fullInclude,
+    });
+  },
+
+  /** El historial de una reserva, para la pantalla (TR-39). */
+  async historialDe(id: string, requesterCompanyId: string | null | undefined) {
+    const r = await prisma.reservation.findUnique({
+      where: { id },
+      select: {
+        companyId: true,
+        changes: true,
+        extraCharges: true,
+        refunds: true,
+        partialCancellations: true,
+        rescheduling: true,
+        cancellation: true,
+        createdAt: true,
+      },
+    });
+    if (!r) throw NotFound('Reserva no encontrada');
+    if (!requesterCompanyId || r.companyId !== requesterCompanyId)
+      throw Forbidden('No tienes permiso sobre esta reserva');
+
+    return {
+      creada: r.createdAt,
+      cambios: r.changes,
+      cargosAdicionales: r.extraCharges,
+      reembolsos: r.refunds,
+      bajasParciales: r.partialCancellations,
+      reprogramacion: r.rescheduling,
+      cancelacion: r.cancellation,
+    };
+  },
+
   /** Marcar un reembolso como pagado: el dinero salio de verdad. */
   async marcarReembolsoPagado(
     id: string,
@@ -1276,29 +1455,91 @@ export const reservationsService = {
     };
   },
 
+  /**
+   * Mover una reserva de fecha.
+   *
+   * TR-39. La fecha nueva se comprueba contra el aforo de ESE dia: mover una
+   * reserva es ocupar un sitio nuevo, y hasta ahora se podia mover a un
+   * sabado lleno sin que nada avisara. La fecha vieja se libera sola, porque
+   * el aforo se cuenta sobre `reservationDate` y no hay contadores que
+   * actualizar: la reserva ya no esta en ese dia.
+   *
+   * TR-08. El estado no se toca: una reserva movida sigue siendo la misma y
+   * sigue igual de viva. Lo que cambia es la fecha, y que queda constancia de
+   * la mudanza en `rescheduling`, en el historial y en el aviso al comensal.
+   */
   async reschedule(
     id: string,
     requesterCompanyId: string | null | undefined,
     input: RescheduleInput,
+    actor?: Actor,
   ) {
     const existing = await assertCanManage(id, requesterCompanyId);
 
-    // TR-08. El estado no se toca: una reserva movida sigue siendo la misma y
-    // sigue igual de viva. Lo que cambia es la fecha, y que queda constancia
-    // de la mudanza en `rescheduling` y en el aviso al comensal.
-    const reprogramada = await prisma.reservation.update({
+    const datos = await prisma.reservation.findUnique({
       where: { id },
-      data: {
-        reservationDate: new Date(input.newDate),
-        rescheduling: {
-          originalDate: existing.reservationDate.toISOString(),
-          newDate: input.newDate,
-          reason: input.reason,
-          requestedBy: input.requestedBy,
-        } as Prisma.InputJsonValue,
+      select: {
+        companyId: true,
+        experienceId: true,
+        participants: true,
+        locationId: true,
+        duration: true,
+        changes: true,
       },
-      include: fullInclude,
     });
+    if (!datos) throw NotFound('Reserva no encontrada');
+
+    const nuevaFecha = new Date(input.newDate);
+    const ajustes = await ajustesDeOperacion(datos.companyId);
+
+    // TR-42. Y que no choque con otra cosa en la misma sede a esa hora. En
+    // sedes distintas solo se avisa, y quien reagenda decide con
+    // `permitirSolape`, igual que al crear.
+    await comprobarSimultaneidad(
+      {
+        companyId: datos.companyId,
+        experienceId: datos.experienceId,
+        locationId: datos.locationId,
+        fecha: nuevaFecha,
+        duracionMin: datos.duration,
+      },
+      { permitirSolape: input.permitirSolape === true },
+    );
+
+    const reprogramada = await conCupoApartado(
+      datos.experienceId,
+      nuevaFecha,
+      datos.participants,
+      ajustes,
+      (tx) =>
+        tx.reservation.update({
+          where: { id },
+          data: {
+            reservationDate: nuevaFecha,
+            rescheduling: {
+              originalDate: existing.reservationDate.toISOString(),
+              newDate: input.newDate,
+              reason: input.reason,
+              requestedBy: input.requestedBy,
+            } as Prisma.InputJsonValue,
+            changes: [
+              ...(datos.changes as Prisma.InputJsonValue[]),
+              cambio(
+                'fecha',
+                existing.reservationDate,
+                nuevaFecha,
+                actor,
+                input.reason,
+              ) as unknown as Prisma.InputJsonValue,
+            ],
+          },
+          include: fullInclude,
+        }),
+      // La reserva que se mueve no cuenta contra si misma: dentro del mismo
+      // dia, sus plazas estarian contadas dos veces.
+      id,
+    );
+
     void avisarCambioDeEstado(paraAvisos(reprogramada), 'RESCHEDULED', input.reason);
     return reprogramada;
   },

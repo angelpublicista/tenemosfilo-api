@@ -108,10 +108,24 @@ export const reembolsoSchema = z.object({
   reason: z.string().min(1),
 });
 
+/**
+ * Un cargo adicional acordado despues de vender (TR-12).
+ *
+ * El concepto es obligatorio: un cargo sin concepto es una cifra que el
+ * comensal va a discutir y nadie va a poder explicar.
+ */
+export const cargoAdicionalSchema = z.object({
+  amount: z.number().positive(),
+  concept: z.string().min(1).max(200),
+});
+
 export const rescheduleSchema = z.object({
   newDate: z.string(),
   reason: z.string().min(1),
   requestedBy: z.enum(['client', 'host']),
+  // TR-42. El "mover de todas formas" cuando el anfitrion ya tiene algo a esa
+  // hora en otra sede. Igual que al crear: sobre la misma sede no sirve.
+  permitirSolape: z.boolean().optional(),
 });
 
 /**
@@ -168,6 +182,7 @@ export type CreateReservationInput = z.infer<typeof createReservationSchema> & {
 export type UpdateReservationInput = z.infer<typeof updateReservationSchema>;
 export type CancelInput = z.infer<typeof cancelSchema>;
 export type ReembolsoInput = z.infer<typeof reembolsoSchema>;
+export type CargoAdicionalInput = z.infer<typeof cargoAdicionalSchema>;
 export type RescheduleInput = z.infer<typeof rescheduleSchema>;
 export type DeMiCanalQuery = z.infer<typeof deMiCanalQuerySchema>;
 export type ListReservationsQuery = z.infer<typeof listReservationsQuerySchema>;

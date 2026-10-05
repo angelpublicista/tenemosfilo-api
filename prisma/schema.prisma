@@ -1194,6 +1194,24 @@ model Reservation {
   contactId String?
   contact   Contact? @relation(fields: [contactId], references: [id])
 
+  // TR-39. El historial de cambios de esta reserva.
+  //
+  // Una reserva editada o reagendada sigue siendo la misma —mismo id, mismo
+  // numero— y eso solo sirve de algo si se puede ver que le fue pasando. Sin
+  // esto, "la movieron dos veces y al final se cayo" no se podia reconstruir.
+  //
+  // Cada entrada: { fecha, quien, email, campo, antes, despues, motivo }.
+  changes Json[] @default([])
+
+  // TR-12. Cargos adicionales acordados despues de vender.
+  //
+  // Van aparte del precio porque el precio original NO se recalcula: lo
+  // vendido es lo vendido, y un cambio de fecha o de cantidad no mueve el
+  // dinero por su cuenta. Lo que se cobra de mas se apunta aqui y suma.
+  //
+  // Cada entrada: { id, fecha, importe, concepto, estado }.
+  extraCharges Json[] @default([])
+
   // TR-30. Los reembolsos de esta reserva, totales o parciales, en un solo
   // sitio. Antes vivian repartidos —uno dentro de `cancellation` y otro
   // dentro de cada baja parcial— y no habia forma de preguntar "cuanto se le

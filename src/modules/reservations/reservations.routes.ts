@@ -17,6 +17,7 @@ import {
   validarCodigoSchema,
   reembolsoSchema,
   deMiCanalQuerySchema,
+  cargoAdicionalSchema,
 } from './reservations.schemas.js';
 
 export const reservationsRouter = Router();
@@ -155,6 +156,24 @@ reservationsRouter.post(
     'params',
   ),
   reservationsController.marcarReembolsoPagado,
+);
+
+// TR-12. Cargos adicionales acordados despues de vender. Suman al total y a
+// la base del fee; el precio original no se toca.
+reservationsRouter.post(
+  '/:id/cargos',
+  requireRole('HOST', 'ADMIN'),
+  validate(reservationIdParamsSchema, 'params'),
+  validate(cargoAdicionalSchema),
+  reservationsController.cargoAdicional,
+);
+
+// TR-39. Que le fue pasando a esta reserva: cambios, cargos, reembolsos.
+reservationsRouter.get(
+  '/:id/historial',
+  requireRole('HOST', 'ADMIN'),
+  validate(reservationIdParamsSchema, 'params'),
+  reservationsController.historial,
 );
 
 reservationsRouter.post(

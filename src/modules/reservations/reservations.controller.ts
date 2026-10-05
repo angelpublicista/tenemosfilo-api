@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { reservationsService } from './reservations.service.js';
 import type {
   CancelInput,
+  CargoAdicionalInput,
   DeMiCanalQuery,
   CreateReservationInput,
   ListReservationsQuery,
@@ -102,6 +103,9 @@ export const reservationsController = {
       id,
       req.user!.companyId,
       req.body as UpdateReservationInput,
+      // Quien lo hizo, para el historial. Por email y no por id: el registro
+      // tiene que seguir contando lo que paso aunque el usuario se borre.
+      { id: req.user!.id, email: req.user!.email },
     );
     res.json({ data: r });
   },
@@ -149,12 +153,32 @@ export const reservationsController = {
     res.json({ data: await reservationsService.reembolsosDe(id, req.user!.companyId) });
   },
 
+  // TR-12. Un cargo adicional acordado despues de vender. El precio original
+  // no se toca; esto suma aparte.
+  async cargoAdicional(req: Request, res: Response) {
+    const { id } = p<{ id: string }>(req);
+    const r = await reservationsService.registrarCargoAdicional(
+      id,
+      req.user!.companyId,
+      req.body as CargoAdicionalInput,
+      { id: req.user!.id, email: req.user!.email },
+    );
+    res.json({ data: r });
+  },
+
+  // TR-39. Que le fue pasando a esta reserva.
+  async historial(req: Request, res: Response) {
+    const { id } = p<{ id: string }>(req);
+    res.json({ data: await reservationsService.historialDe(id, req.user!.companyId) });
+  },
+
   async reschedule(req: Request, res: Response) {
     const { id } = p<{ id: string }>(req);
     const r = await reservationsService.reschedule(
       id,
       req.user!.companyId,
       req.body as RescheduleInput,
+      { id: req.user!.id, email: req.user!.email },
     );
     res.json({ data: r });
   },
