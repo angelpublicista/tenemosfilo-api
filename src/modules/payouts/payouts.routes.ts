@@ -6,9 +6,11 @@ import { BadRequest } from '../../lib/errors.js';
 import { payoutsService } from './payouts.service.js';
 import {
   createPayoutSchema,
+  desgloseQuerySchema,
   listEarningsQuerySchema,
   listPayoutsQuerySchema,
   type CreatePayoutInput,
+  type DesgloseQuery,
   type ListEarningsQuery,
   type ListPayoutsQuery,
 } from './payouts.schemas.js';
@@ -44,6 +46,17 @@ payoutsRouter.get(
     const query = req.query as unknown as ListEarningsQuery;
     const { items, total } = await payoutsService.ingresosEmpresa(empresaDeLaSesion(req), query);
     res.json({ data: items, meta: { total, page: query.page, pageSize: query.pageSize } });
+  },
+);
+
+// TR-28. Los ingresos del periodo cortados por periodo, experiencia,
+// modalidad y canal. Es de la propia empresa, como el resto de /me.
+payoutsRouter.get(
+  '/me/desglose',
+  validate(desgloseQuerySchema, 'query'),
+  async (req: Request, res: Response) => {
+    const query = req.query as unknown as DesgloseQuery;
+    res.json({ data: await payoutsService.desglose(empresaDeLaSesion(req), query) });
   },
 );
 

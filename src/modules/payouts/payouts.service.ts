@@ -3,6 +3,7 @@ import { prisma } from '../../config/prisma.js';
 import { BadRequest, NotFound } from '../../lib/errors.js';
 import type {
   CreatePayoutInput,
+  DesgloseQuery,
   ListEarningsQuery,
   ListPayoutsQuery,
 } from './payouts.schemas.js';
@@ -285,6 +286,149 @@ export const payoutsService = {
     });
 
     return { items: filas, total };
+  },
+
+  /**
+   * TR-28. Los ingresos del periodo, cortados por donde hay que decidir algo.
+   *
+   * Cuatro cortes porque son cuatro preguntas distintas que un anfitrion se
+   * hace de verdad: como vengo mes a mes, que experiencia me da mas, si lo
+   * virtual vale la pena, y cuanto me trae cada canal frente a lo que me
+   * cuesta su comision.
+   *
+   * Se calcula sobre las reservas cobradas del rango, con el mismo criterio
+   * que los saldos: si el desglose sumara distinto que el total de arriba,
+   * uno de los dos estaria mintiendo.
+   */
+  async desglose(companyId: string, query: DesgloseQuery) {
+    const desde = new Date(query.desde);
+    const hasta = new Date(query.hasta);
+    // El "hasta" incluye su dia completo: un rango "hasta el 31" que corta a
+    // las 00:00 deja fuera todo el 31.
+    hasta.setHours(23, 59, 59, 999);
+    if (hasta < desde) throw BadRequest('La fecha final no puede ser anterior a la inicial');
+
+    const comoReseller = query.role === 'RESELLER';
+
+    const reservas = await prisma.reservation.findMany({
+      where: {
+        paymentStatus: 'PAID',
+        status: { not: 'CANCELLED' },
+        reservationDate: { gte: desde, lte: hasta },
+        ...(comoReseller ? { resellerCompanyId: companyId } : { companyId }),
+      },
+      select: {
+        reservationDate: true,
+        pricing: true,
+        channel: true,
+        participants: true,
+        experience: { select: { id: true, title: true, experienceType: true } },
+        resellerCompany: { select: { id: true, companyName: true } },
+      },
+    });
+
+    /** Lo que gana quien pregunta, segun en calidad de que mira. */
+    const loSuyo = (p: Record<string, unknown>) =>
+      Number(p[comoReseller ? 'resellerCommission' : 'hostEarnings'] ?? 0);
+
+    type Fila = {
+      clave: string;
+      etiqueta: string;
+      reservas: number;
+      personas: number;
+      vendido: number;
+      tuyo: number;
+      feeDeFilo: number;
+      comisionDeCanal: number;
+    };
+
+    const acumular = (mapa: Map<string, Fila>, clave: string, etiqueta: string, r: typeof reservas[number]) => {
+      const p = (r.pricing ?? {}) as Record<string, unknown>;
+      const fila =
+        mapa.get(clave) ??
+        {
+          clave,
+          etiqueta,
+          reservas: 0,
+          personas: 0,
+          vendido: 0,
+          tuyo: 0,
+          feeDeFilo: 0,
+          comisionDeCanal: 0,
+        };
+      fila.reservas += 1;
+      fila.personas += r.participants;
+      fila.vendido += Number(p.total ?? 0);
+      fila.tuyo += loSuyo(p);
+      fila.feeDeFilo += Number(p.filoCommission ?? 0);
+      fila.comisionDeCanal += Number(p.resellerCommission ?? 0);
+      mapa.set(clave, fila);
+    };
+
+    const porPeriodo = new Map<string, Fila>();
+    const porExperiencia = new Map<string, Fila>();
+    const porModalidad = new Map<string, Fila>();
+    const porCanal = new Map<string, Fila>();
+
+    const MODALIDAD: Record<string, string> = {
+      PRESENTIAL: 'Presencial',
+      VIRTUAL: 'Virtual',
+      HYBRID: 'Híbrida',
+    };
+    const CANAL: Record<string, string> = {
+      MANUAL: 'Cargada a mano',
+      CHECKOUT: 'Catálogo propio',
+      CRM: 'Enlace del CRM',
+      RESELLER: 'Canal de venta',
+    };
+
+    for (const r of reservas) {
+      // Por mes: es el periodo en el que se cobra y se dispersa, y el que la
+      // gente compara contra el anterior.
+      const mes = `${r.reservationDate.getFullYear()}-${String(
+        r.reservationDate.getMonth() + 1,
+      ).padStart(2, '0')}`;
+      acumular(porPeriodo, mes, mes, r);
+
+      acumular(
+        porExperiencia,
+        r.experience?.id ?? 'sin-experiencia',
+        r.experience?.title ?? 'Sin experiencia',
+        r,
+      );
+
+      const tipo = r.experience?.experienceType ?? 'PRESENTIAL';
+      acumular(porModalidad, tipo, MODALIDAD[tipo] ?? tipo, r);
+
+      // El canal, y dentro de "canal de venta" cual: a un anfitrion le
+      // importa cuanto le trae cada revendedor, no solo el total de todos.
+      if (r.channel === 'RESELLER' && r.resellerCompany) {
+        acumular(porCanal, r.resellerCompany.id, r.resellerCompany.companyName, r);
+      } else {
+        acumular(porCanal, r.channel, CANAL[r.channel] ?? r.channel, r);
+      }
+    }
+
+    // De mayor a menor por lo que gana quien pregunta, salvo el periodo, que
+    // va en orden de tiempo: el mes pasado no es "mas importante" que este.
+    const porValor = (a: Fila, b: Fila) => b.tuyo - a.tuyo;
+    const lista = (m: Map<string, Fila>) => [...m.values()].sort(porValor);
+
+    return {
+      desde,
+      hasta,
+      role: query.role,
+      totales: {
+        reservas: reservas.length,
+        personas: reservas.reduce((s, r) => s + r.participants, 0),
+        vendido: reservas.reduce((s, r) => s + Number((r.pricing as Record<string, unknown>)?.total ?? 0), 0),
+        tuyo: reservas.reduce((s, r) => s + loSuyo((r.pricing ?? {}) as Record<string, unknown>), 0),
+      },
+      porPeriodo: [...porPeriodo.values()].sort((a, b) => a.clave.localeCompare(b.clave)),
+      porExperiencia: lista(porExperiencia),
+      porModalidad: lista(porModalidad),
+      porCanal: lista(porCanal),
+    };
   },
 
   /**

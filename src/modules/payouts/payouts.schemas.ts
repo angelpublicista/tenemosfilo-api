@@ -37,6 +37,20 @@ export const listEarningsQuerySchema = z.object({
   role: payoutRoleEnum.default('HOST'),
 });
 
+/**
+ * TR-28. Los cortes del panel de ingresos.
+ *
+ * El rango es obligatorio: un desglose "de siempre" no se puede leer y no
+ * responde a ninguna pregunta real. Las preguntas son "como fue este mes" y
+ * "que me dio mas el trimestre pasado".
+ */
+export const desgloseQuerySchema = z.object({
+  desde: z.string().min(8),
+  hasta: z.string().min(8),
+  role: payoutRoleEnum.default('HOST'),
+});
+
+export type DesgloseQuery = z.infer<typeof desgloseQuerySchema>;
 export type CreatePayoutInput = z.infer<typeof createPayoutSchema>;
 export type ListPayoutsQuery = z.infer<typeof listPayoutsQuerySchema>;
 export type ListEarningsQuery = z.infer<typeof listEarningsQuerySchema>;

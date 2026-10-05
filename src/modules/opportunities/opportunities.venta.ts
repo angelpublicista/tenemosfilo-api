@@ -131,8 +131,11 @@ export const ventaService = {
       { total: input.total } as never,
       false,
       quienCobra,
-      // Una privada se negocia y se cobra fuera de FILO: no genera fee.
-      'QUOTE',
+      // TR-04. Una pre-reserva la crea el anfitrion desde su CRM: es venta
+      // suya, negociada y cobrada fuera de FILO, y no genera fee. El canal es
+      // MANUAL aunque venga de una oportunidad, porque lo que distingue a CRM
+      // es que el cliente acabo pagando en el checkout, y aqui no pasa.
+      'MANUAL',
     );
 
     const ahora = new Date();
@@ -157,6 +160,9 @@ export const ventaService = {
         collectedBy: quienCobra,
         pricing,
         source: 'QUOTE',
+        // TR-04. La pre-reserva es venta del anfitrion: se negocia y se cobra
+        // fuera de FILO, asi que no entro por ningun canal nuestro.
+        channel: 'MANUAL',
       },
     });
 

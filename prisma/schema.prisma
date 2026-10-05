@@ -1100,10 +1100,33 @@ enum ClientType {
   REGISTERED
 }
 
+/// Como se CREO la reserva. Es historia de la operacion, no comercial.
 enum ReservationSource {
   MANUAL
   BOOKING_ENGINE
   QUOTE
+}
+
+/// TR-04. El canal por el que entro la venta.
+///
+/// Distinto del origen del lead (`Opportunity.leadSource`), que dice de donde
+/// salio el contacto: una persona puede llegar por Instagram y acabar
+/// comprando por el catalogo, y son dos hechos distintos que hay que poder
+/// mirar por separado.
+///
+/// Este es el eje que decide la comisionabilidad, y por eso es un valor tipado
+/// y guardado: antes se deducia de `source` mas "tiene revendedor", es decir
+/// de dos campos que hablaban de otra cosa, y cualquier cambio en como se crea
+/// una reserva movia sin querer a quien se le cobra.
+enum SalesChannel {
+  /// Lo cargo el anfitrion a mano. No genera fee: no paso por FILO.
+  MANUAL
+  /// El catalogo publico del propio anfitrion.
+  CHECKOUT
+  /// El catalogo o el API de un revendedor conectado.
+  RESELLER
+  /// El enlace de reserva que el anfitrion mando desde una oportunidad.
+  CRM
 }
 
 model Reservation {
@@ -1137,6 +1160,14 @@ model Reservation {
   user   User?   @relation(fields: [userId], references: [id])
 
   source          ReservationSource @default(MANUAL)
+
+  /// TR-04. El canal por el que entro esta venta, congelado al crearla.
+  ///
+  /// De el depende si genera fee. Se guarda y no se deduce porque deducirlo
+  /// significaba leer `source` y `resellerCompanyId`, dos campos que hablan de
+  /// otras cosas: el dia que cambie como se crea una reserva, cambiaria sin
+  /// querer a quien se le cobra comision.
+  channel         SalesChannel      @default(MANUAL)
   reservationDate DateTime
   duration        Int? // minutos
   participants    Int

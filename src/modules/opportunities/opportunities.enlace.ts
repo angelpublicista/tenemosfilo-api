@@ -130,6 +130,8 @@ export const enlaceService = {
         collectedBy: quienCobra,
         pricing,
         source: 'MANUAL',
+        // TR-04. Cargada a mano desde el CRM: no entro por el checkout de FILO.
+        channel: 'MANUAL',
       },
       }),
     );

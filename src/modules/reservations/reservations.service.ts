@@ -1,5 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import { Prisma, ReservationStatus, PaymentStatus, UserRole, type CollectedBy } from '@prisma/client';
+import {
+  Prisma,
+  ReservationStatus,
+  PaymentStatus,
+  UserRole,
+  type CollectedBy,
+  type SalesChannel,
+} from '@prisma/client';
 import { pasarelaDe } from '../../lib/pasarela.js';
 import { prisma } from '../../config/prisma.js';
 import { conCupoApartado } from '../../lib/cupos.js';
@@ -73,14 +80,36 @@ async function assertCanManage(id: string, requesterCompanyId: string | null | u
  * cliente, que es quien conoce la seleccion.
  */
 /**
+ * TR-04. El canal por el que entra una venta.
+ *
+ * Se decide aqui, en un solo sitio, y se guarda en la reserva. Antes se
+ * deducia en cada lectura de `source` mas "tiene revendedor", dos campos que
+ * hablan de otra cosa: el dia que cambiara como se crea una reserva, cambiaria
+ * sin querer a quien se le cobra comision.
+ *
+ * El orden importa: un revendedor manda sobre todo lo demas, porque la venta
+ * es suya aunque se haya cerrado en el checkout.
+ */
+export function canalDeVenta(opts: {
+  source?: string | null;
+  esDeReseller: boolean;
+  deOportunidad: boolean;
+}): SalesChannel {
+  if (opts.esDeReseller) return 'RESELLER';
+  if (opts.source !== 'BOOKING_ENGINE') return 'MANUAL';
+  return opts.deOportunidad ? 'CRM' : 'CHECKOUT';
+}
+
+/**
  * Si esta venta le debe comision a FILO.
  *
- * TR-13: solo las abiertas que entraron por el enlace o el checkout de FILO y
- * las de un canal conectado. Una reserva cargada a mano por el anfitrion y una
- * privada —que se negocia y se cobra fuera— no generan fee.
+ * TR-04 y TR-13: lo decide el CANAL y nada mas. Las que entraron por el
+ * checkout de FILO —propio, de un revendedor o por el enlace de una
+ * oportunidad— generan fee; lo que el anfitrion carga a mano, no: no paso por
+ * FILO y cobrarselo seria cobrarle por nada.
  */
-export function generaFeeDeFilo(source: string | null | undefined, esDeReseller: boolean): boolean {
-  return esDeReseller || source === 'BOOKING_ENGINE';
+export function generaFeeDeFilo(canal: SalesChannel): boolean {
+  return canal !== 'MANUAL';
 }
 
 export async function conComisiones(
@@ -88,7 +117,7 @@ export async function conComisiones(
   pricing: CreateReservationInput['pricing'],
   esDeReseller: boolean,
   quienCobra: CollectedBy,
-  source?: string | null,
+  canal: SalesChannel,
 ): Promise<Prisma.InputJsonValue> {
   const [experiencia, ajustes] = await Promise.all([
     prisma.experience.findUnique({
@@ -109,7 +138,7 @@ export async function conComisiones(
     {
       esDeReseller,
       cobraElAnfitrion: quienCobra === 'HOST',
-      generaFee: generaFeeDeFilo(source, esDeReseller),
+      generaFee: generaFeeDeFilo(canal),
     },
   );
 
@@ -393,12 +422,14 @@ export const reservationsService = {
     // del fee es el valor efectivamente vendido al comprador (§4.4 del
     // documento transversal, con su ejemplo de los $40.000 sobre $45.000).
     const source = input.source ?? (asReseller ? 'BOOKING_ENGINE' : 'MANUAL');
+    // TR-04. El canal se decide aqui y se guarda: de el depende el fee.
+    const canal = canalDeVenta({ source, esDeReseller: asReseller, deOportunidad: false });
     const pricing = await conComisiones(
       input.experience,
       input.pricing,
       asReseller,
       quienCobra,
-      source,
+      canal,
     );
 
     // Tambien aqui: una venta de revendedor o una reserva cargada a mano no
@@ -467,6 +498,7 @@ export const reservationsService = {
         clientType: input.clientType ?? 'GUEST',
         ...(input.user ? { user: { connect: { id: input.user } } } : {}),
         source,
+        channel: canal,
         reservationDate: new Date(input.reservationDate),
         duration: duracionCongelada,
         participants: input.participants,
@@ -558,12 +590,19 @@ export const reservationsService = {
       : null;
 
     const quienCobra = (await pasarelaDe(companyId))?.quienCobra ?? 'PLATFORM';
+    // TR-04. Tres canales posibles aqui: el catalogo de un revendedor, el
+    // enlace de una oportunidad del CRM, o el catalogo propio del anfitrion.
+    const canal = canalDeVenta({
+      source: 'BOOKING_ENGINE',
+      esDeReseller: revendedor !== null,
+      deOportunidad: deOportunidad !== null,
+    });
     const pricing = await conComisiones(
       input.experience,
       precio as unknown as CreateReservationInput['pricing'],
       revendedor !== null,
       quienCobra,
-      'BOOKING_ENGINE',
+      canal,
     );
 
     // Los ajustes de la empresa mandan sobre como entra la reserva.
@@ -624,6 +663,7 @@ export const reservationsService = {
         client: input.client as Prisma.InputJsonValue,
         ...(cuenta ? { user: { connect: { id: cuenta.id } }, clientType: 'REGISTERED' as const } : { clientType: 'GUEST' as const }),
         source: 'BOOKING_ENGINE',
+        channel: canal,
         ...(deOportunidad ? { opportunity: { connect: { id: deOportunidad.id } } } : {}),
         reservationDate: fecha,
         duration: duracionCongelada,
@@ -1098,6 +1138,7 @@ export const reservationsService = {
         pricing: true,
         status: true,
         source: true,
+        channel: true,
         resellerCompanyId: true,
         collectedBy: true,
         partialCancellations: true,
@@ -1139,7 +1180,8 @@ export const reservationsService = {
         { ...precio, total: totalNuevo } as CreateReservationInput['pricing'],
         actual.resellerCompanyId !== null,
         actual.collectedBy,
-        actual.source,
+        // El canal de la venta, que no cambia porque se devuelva dinero.
+        actual.channel,
       );
 
       const parcial = {
@@ -1240,6 +1282,7 @@ export const reservationsService = {
         pricing: true,
         status: true,
         source: true,
+        channel: true,
         resellerCompanyId: true,
         collectedBy: true,
         refunds: true,
@@ -1273,7 +1316,7 @@ export const reservationsService = {
       { ...precio, total: totalNuevo } as CreateReservationInput['pricing'],
       actual.resellerCompanyId !== null,
       actual.collectedBy,
-      actual.source,
+      actual.channel,
     );
 
     const reembolso = nuevoReembolso(input.amount, input.reason, 'AJUSTE');
@@ -1320,6 +1363,7 @@ export const reservationsService = {
         pricing: true,
         status: true,
         source: true,
+        channel: true,
         resellerCompanyId: true,
         collectedBy: true,
         extraCharges: true,
@@ -1341,7 +1385,7 @@ export const reservationsService = {
       { ...precio, total: totalNuevo } as CreateReservationInput['pricing'],
       actual.resellerCompanyId !== null,
       actual.collectedBy,
-      actual.source,
+      actual.channel,
     );
 
     const cargo = {
