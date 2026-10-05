@@ -14,7 +14,8 @@ import { prisma } from '../../config/prisma.js';
 import { env } from '../../config/env.js';
 import { BadRequest, Forbidden, NotFound } from '../../lib/errors.js';
 import { crearSeguimientoDePropuesta, retirarSeguimientos } from '../../lib/seguimientos.js';
-import { ajustesDeOperacion, conComisiones, verificarAforo } from '../reservations/reservations.service.js';
+import { ajustesDeOperacion, conComisiones } from '../reservations/reservations.service.js';
+import { conCupoApartado } from '../../lib/cupos.js';
 import { pasarelaDe } from '../../lib/pasarela.js';
 import { logger } from '../../lib/logger.js';
 
@@ -87,10 +88,7 @@ export const enlaceService = {
     // "Con disponibilidad" no es un decorado del requisito: una reserva
     // cargada desde el CRM ocupa el mismo aforo que una del catalogo, y sin
     // esta comprobacion el comercial sobrevende sin enterarse.
-    const { bloquearLleno, exigePago } = await ajustesDeOperacion(companyId!);
-    await verificarAforo(
-      exp.id, new Date(input.reservationDate), input.participants, bloquearLleno, exigePago,
-    );
+    const ajustes = await ajustesDeOperacion(companyId!);
 
     const quienCobra = (await pasarelaDe(companyId!))?.quienCobra ?? 'PLATFORM';
     // Cargada a mano desde el CRM: no entro por el checkout de FILO, asi que
@@ -103,7 +101,14 @@ export const enlaceService = {
       'MANUAL',
     );
 
-    const reserva = await prisma.reservation.create({
+    // El aforo y el alta, en la misma transaccion: comprobar y crear por
+    // separado deja pasar dos ventas del ultimo cupo (TR-45).
+    const reserva = await conCupoApartado(
+      exp.id,
+      new Date(input.reservationDate),
+      input.participants,
+      ajustes,
+      (tx) => tx.reservation.create({
       data: {
         reservationNumber: `OPO-${Date.now().toString().slice(-6)}-${randomBytes(2)
           .toString('hex')
@@ -126,7 +131,8 @@ export const enlaceService = {
         pricing,
         source: 'MANUAL',
       },
-    });
+      }),
+    );
 
     await prisma.opportunity.update({
       where: { id: o.id },

@@ -8,9 +8,26 @@ import type {
   UpdateReservationInput,
 } from './reservations.schemas.js';
 import type { PaymentStatus, ReservationStatus } from '@prisma/client';
+import { BadRequest } from '../../lib/errors.js';
 
 const p = <T,>(req: Request) => req.params as unknown as T;
 const q = <T,>(req: Request) => req.query as unknown as T;
+
+/**
+ * La clave de idempotencia que manda quien vende (TR-43).
+ *
+ * Va en cabecera y no en el cuerpo porque no es un dato de la reserva: es
+ * una propiedad de la llamada. Asi se usa en la industria —`Idempotency-Key`
+ * de Stripe— y asi lo espera quien integra.
+ *
+ * Se acota el largo: es una clave, no un sitio donde guardar texto.
+ */
+function claveDeIdempotencia(req: Request): string | undefined {
+  const v = req.header('idempotency-key')?.trim();
+  if (!v) return undefined;
+  if (v.length > 200) throw BadRequest('La clave de idempotencia es demasiado larga.');
+  return v;
+}
 
 export const reservationsController = {
   async list(req: Request, res: Response) {
@@ -23,7 +40,7 @@ export const reservationsController = {
     const asReseller = req.user!.role === 'RESELLER';
     const r = await reservationsService.create(
       req.user!.companyId,
-      req.body as CreateReservationInput,
+      { ...(req.body as CreateReservationInput), idempotencyKey: claveDeIdempotencia(req) },
       { asReseller },
     );
     res.status(201).json({ data: r });
@@ -31,7 +48,10 @@ export const reservationsController = {
 
   async createPublic(req: Request, res: Response) {
     // Endpoint sin auth; el body NO debe permitir status/paymentStatus arbitrarios
-    const r = await reservationsService.createPublic(req.body as CreateReservationInput);
+    const r = await reservationsService.createPublic({
+      ...(req.body as CreateReservationInput),
+      idempotencyKey: claveDeIdempotencia(req),
+    });
     res.status(201).json({ data: r });
   },
 

@@ -1079,6 +1079,15 @@ model Reservation {
   id                String @id @default(cuid())
   reservationNumber String @unique
 
+  // TR-43. La clave que manda quien vende para que un reintento no venda dos
+  // veces. Unica en toda la tabla: si el canal repite la llamada por un
+  // timeout, la segunda devuelve esta misma reserva en vez de crear otra,
+  // descontar otro cupo y generar otro fee.
+  //
+  // Opcional porque no todo el mundo la manda. Quien no la mande asume que un
+  // reintento suyo crea una reserva nueva.
+  idempotencyKey String? @unique
+
   experienceId String
   experience   Experience @relation(fields: [experienceId], references: [id])
 

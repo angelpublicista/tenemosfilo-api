@@ -1,6 +1,6 @@
 import { Prisma, ExperienceStatus } from '@prisma/client';
 import { prisma } from '../../config/prisma.js';
-import { Forbidden, NotFound } from '../../lib/errors.js';
+import { BadRequest, Forbidden, NotFound } from '../../lib/errors.js';
 import type {
   CreateExperienceInput,
   ListExperiencesQuery,
@@ -111,6 +111,60 @@ function buildBaseData(input: CreateExperienceInput) {
     status: input.status ?? 'DRAFT',
     isFeatured: input.isFeatured ?? false,
   };
+}
+
+/**
+ * TR-10. No se puede dejar el aforo por debajo de lo ya vendido.
+ *
+ * Bajar la capacidad de una experiencia con reservas encima deja el dia
+ * sobrevendido sin que nada avise: la gente ya pago y las plazas dejan de
+ * existir. Se mira dia por dia, porque el aforo es por dia: que el total del
+ * mes quepa no sirve de nada si un sabado no cabe.
+ *
+ * Solo cuentan los dias que estan por venir. Reducir el aforo no reescribe
+ * lo que ya paso, y un sabado del año pasado con mas gente de la que cabe
+ * ahora no es un problema que arreglar.
+ */
+async function noDejarAforoCorto(experienceId: string, nuevoAforo: number): Promise<void> {
+  if (nuevoAforo <= 0) return;
+
+  const hoy = new Date();
+  hoy.setHours(0, 0, 0, 0);
+
+  const porDia = await prisma.reservation.groupBy({
+    by: ['reservationDate'],
+    where: {
+      experienceId,
+      status: { notIn: ['CANCELLED', 'NO_SHOW'] },
+      reservationDate: { gte: hoy },
+    },
+    _sum: { participants: true },
+  });
+
+  // Las reservas del mismo dia pueden tener horas distintas, asi que se
+  // suman por fecha natural: el aforo se cuenta por dia, no por hora.
+  const ocupado = new Map<string, number>();
+  for (const f of porDia) {
+    const clave = f.reservationDate.toISOString().slice(0, 10);
+    ocupado.set(clave, (ocupado.get(clave) ?? 0) + (f._sum?.participants ?? 0));
+  }
+
+  let peorDia: string | null = null;
+  let peorCuenta = 0;
+  for (const [clave, cuenta] of ocupado) {
+    if (cuenta > nuevoAforo && cuenta > peorCuenta) {
+      peorDia = clave;
+      peorCuenta = cuenta;
+    }
+  }
+
+  if (peorDia) {
+    const [a, m, d] = [peorDia.slice(0, 4), peorDia.slice(5, 7), peorDia.slice(8, 10)];
+    throw BadRequest(
+      `No puedes bajar el aforo a ${nuevoAforo}: el ${d}/${m}/${a} ya tienes ${peorCuenta} personas reservadas. ` +
+        'Cancela o reagenda esas reservas primero.',
+    );
+  }
 }
 
 export const experiencesService = {
@@ -256,7 +310,10 @@ export const experiencesService = {
     if (input.description !== undefined) data.description = input.description ?? null;
     if (input.categories !== undefined) data.categories = input.categories;
     if (input.duration !== undefined) data.duration = input.duration;
-    if (input.capacity !== undefined) data.capacity = input.capacity;
+    if (input.capacity !== undefined) {
+      await noDejarAforoCorto(id, input.capacity);
+      data.capacity = input.capacity;
+    }
     if (input.minCapacity !== undefined) data.minCapacity = input.minCapacity;
     if (input.basePrice !== undefined) data.basePrice = input.basePrice;
 

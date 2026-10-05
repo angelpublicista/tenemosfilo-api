@@ -114,7 +114,16 @@ export const validarCodigoSchema = z.object({
   codigo: z.string().trim().min(4).max(40),
 });
 
-export type CreateReservationInput = z.infer<typeof createReservationSchema>;
+/**
+ * Lo que llega al crear una reserva.
+ *
+ * `idempotencyKey` no esta en el esquema del cuerpo a proposito: viaja en
+ * cabecera y la pone el controlador. Que no se pueda mandar en el body evita
+ * que alguien la cuele en un formulario publico.
+ */
+export type CreateReservationInput = z.infer<typeof createReservationSchema> & {
+  idempotencyKey?: string;
+};
 export type UpdateReservationInput = z.infer<typeof updateReservationSchema>;
 export type CancelInput = z.infer<typeof cancelSchema>;
 export type RescheduleInput = z.infer<typeof rescheduleSchema>;

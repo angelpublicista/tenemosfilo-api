@@ -1,6 +1,7 @@
 import { Prisma, ReservationStatus, PaymentStatus, UserRole, type CollectedBy } from '@prisma/client';
 import { pasarelaDe } from '../../lib/pasarela.js';
 import { prisma } from '../../config/prisma.js';
+import { conCupoApartado } from '../../lib/cupos.js';
 import {
   calcularDesglose,
   getPlatformSettings,
@@ -141,61 +142,6 @@ export async function ajustesDeOperacion(companyId: string) {
 }
 
 /**
- * Rechaza la reserva si pasa del aforo, cuando la empresa lo pide.
- *
- * Las canceladas y los no-show no ocupan sitio; una pendiente si, porque
- * puede pagarse en cualquier momento y vender su lugar a otro seria peor
- * que rechazar esta.
- */
-export async function verificarAforo(
-  experienceId: string,
-  fecha: Date,
-  participantes: number,
-  bloquearLleno: boolean,
-  exigePago = false,
-) {
-  if (!bloquearLleno) return;
-
-  const exp = await prisma.experience.findUnique({
-    where: { id: experienceId },
-    select: { capacity: true },
-  });
-  const aforo = exp?.capacity ?? 0;
-  // Sin aforo definido no hay nada contra que comparar.
-  if (aforo <= 0) return;
-
-  const inicio = new Date(fecha);
-  inicio.setHours(0, 0, 0, 0);
-  const fin = new Date(inicio);
-  fin.setDate(fin.getDate() + 1);
-
-  const agregado = await prisma.reservation.aggregate({
-    where: {
-      experienceId,
-      status: { notIn: ['CANCELLED', 'NO_SHOW'] },
-      reservationDate: { gte: inicio, lt: fin },
-      // Con pago obligatorio, una reserva sin pagar no retiene el lugar: si
-      // lo hiciera, cada checkout abandonado bloquearia una plaza real que
-      // nadie mas podria comprar. Las cargadas a mano por el anfitrion si
-      // cuentan siempre: no pasaron por la pasarela y son decision suya.
-      ...(exigePago
-        ? { OR: [{ paymentStatus: 'PAID' }, { source: 'MANUAL' }] }
-        : {}),
-    },
-    _sum: { participants: true },
-  });
-
-  const libres = aforo - (agregado._sum?.participants ?? 0);
-  if (participantes > libres) {
-    throw BadRequest(
-      libres > 0
-        ? `Solo quedan ${libres} ${libres === 1 ? 'lugar' : 'lugares'} para esa fecha.`
-        : 'No quedan lugares disponibles para esa fecha.',
-    );
-  }
-}
-
-/**
  * Empresa revendedora que trae la venta, o null si es venta directa.
  *
  * Devuelve null en vez de fallar cuando el identificador no corresponde a
@@ -326,17 +272,29 @@ export const reservationsService = {
 
     // Tambien aqui: una venta de revendedor o una reserva cargada a mano no
     // deberian poder pasarse del aforo si la empresa lo tiene bloqueado.
-    const { bloquearLleno, exigePago } = await ajustesDeOperacion(companyId);
-    await verificarAforo(
+    const ajustes = await ajustesDeOperacion(companyId);
+
+    const { reserva: creada, reutilizada } = await conCupoApartado(
       input.experience,
       new Date(input.reservationDate),
       input.participants,
-      bloquearLleno,
-      exigePago,
-    );
+      ajustes,
+      async (tx) => {
+        // TR-43. Dentro del cerrojo: dos reintentos de la misma venta llevan
+        // la misma experiencia y el mismo dia, asi que el segundo espera y
+        // encuentra la reserva que creo el primero. Fuera del cerrojo podrian
+        // mirar los dos a la vez y crear dos.
+        const ya = input.idempotencyKey
+          ? await tx.reservation.findUnique({
+              where: { idempotencyKey: input.idempotencyKey },
+              include: fullInclude,
+            })
+          : null;
+        if (ya) return { reserva: ya, reutilizada: true };
 
-    const creada = await prisma.reservation.create({
+        const nueva = await tx.reservation.create({
       data: {
+        idempotencyKey: input.idempotencyKey ?? null,
         reservationNumber: input.reservationNumber ?? generateReservationNumber(),
         // Todas lo llevan, no solo las de canal: si solo lo tuvieran unas, el
         // anfitrion tendria dos formas de recibir a la gente en la puerta.
@@ -366,9 +324,14 @@ export const reservationsService = {
         notes: input.notes ?? null,
       },
       include: fullInclude,
-    });
+        });
+        return { reserva: nueva, reutilizada: false };
+      },
+    );
 
-    void avisarNuevaReserva(paraAvisos(creada));
+    // Un reintento no vuelve a avisar: el anfitrion recibiria dos veces el
+    // mismo aviso de una sola venta.
+    if (!reutilizada) void avisarNuevaReserva(paraAvisos(creada));
     return creada;
   },
 
@@ -440,11 +403,28 @@ export const reservationsService = {
 
     // Los ajustes de la empresa mandan sobre como entra la reserva.
     const fecha = new Date(input.reservationDate);
-    const { autoConfirmar, bloquearLleno, exigePago } = await ajustesDeOperacion(companyId);
-    await verificarAforo(input.experience, fecha, input.participants, bloquearLleno, exigePago);
+    const ajustes = await ajustesDeOperacion(companyId);
+    const { autoConfirmar } = ajustes;
 
-    const creada = await prisma.reservation.create({
+    const { reserva: creada, reutilizada } = await conCupoApartado(
+      input.experience,
+      fecha,
+      input.participants,
+      ajustes,
+      async (tx) => {
+        // TR-43, igual que en create(): un reintento del checkout devuelve la
+        // reserva que ya existe en vez de vender el cupo otra vez.
+        const ya = input.idempotencyKey
+          ? await tx.reservation.findUnique({
+              where: { idempotencyKey: input.idempotencyKey },
+              select: { reservationNumber: true, confirmationCode: true },
+            })
+          : null;
+        if (ya) return { reserva: ya, reutilizada: true };
+
+        const nueva = await tx.reservation.create({
       data: {
+        idempotencyKey: input.idempotencyKey ?? null,
         reservationNumber: input.reservationNumber ?? generateReservationNumber(),
         // Todas lo llevan, no solo las de canal: si solo lo tuvieran unas, el
         // anfitrion tendria dos formas de recibir a la gente en la puerta.
@@ -474,16 +454,21 @@ export const reservationsService = {
       // enseña al cliente: sin el, lo unico que se lleva es el numero de
       // reserva, que no es lo que le van a pedir en la puerta.
       select: { reservationNumber: true, confirmationCode: true },
-    });
+        });
+        return { reserva: nueva, reutilizada: false };
+      },
+    );
 
     // El aviso necesita mas campos de los que devuelve el alta; se relee
     // una vez en vez de inflar el select del create. Va el include completo
     // porque el correo al comensal lleva el nombre del anfitrion y el lugar,
     // y esta es la via por la que entran las reservas del publico.
-    const completa = await prisma.reservation.findUnique({
-      where: { reservationNumber: creada.reservationNumber },
-      include: fullInclude,
-    });
+    const completa = reutilizada
+      ? null
+      : await prisma.reservation.findUnique({
+          where: { reservationNumber: creada.reservationNumber },
+          include: fullInclude,
+        });
     if (completa) void avisarNuevaReserva(paraAvisos(completa));
 
     // Si la pasarela esta activa, devolvemos ya los datos firmados para
