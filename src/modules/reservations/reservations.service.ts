@@ -2,8 +2,9 @@ import { Prisma, ReservationStatus, PaymentStatus, UserRole, type CollectedBy } 
 import { pasarelaDe } from '../../lib/pasarela.js';
 import { prisma } from '../../config/prisma.js';
 import { conCupoApartado } from '../../lib/cupos.js';
-import { comprobarSimultaneidad } from '../../lib/agenda-del-anfitrion.js';
+import { comprobarSedeActiva, comprobarSimultaneidad } from '../../lib/agenda-del-anfitrion.js';
 import { vincularCompradorAlCrm } from '../../lib/comprador-al-crm.js';
+import { comprobarCorte } from '../../lib/corte-de-reservas.js';
 import {
   estadoDePagoTrasReembolso,
   nuevoReembolso,
@@ -382,6 +383,17 @@ export const reservationsService = {
     // deberian poder pasarse del aforo si la empresa lo tiene bloqueado.
     const ajustes = await ajustesDeOperacion(companyId);
 
+    // TR-37. Una sede inactiva no admite reservas nuevas, ni a mano: si el
+    // anfitrion la apago, no es sitio donde mandar gente.
+    await comprobarSedeActiva(input.location);
+
+    // TR-06. El corte de anticipacion vale para lo que entra por un canal o
+    // por el checkout. Lo que el anfitrion carga a mano no pasa por aqui: si
+    // le llaman a las seis y decide aceptar, ya sabe lo que hay en su cocina.
+    if (source !== 'MANUAL') {
+      await comprobarCorte(input.experience, new Date(input.reservationDate));
+    }
+
     // TR-42. Que el anfitrion no acabe con dos cosas a la vez en el mismo
     // sitio. En sedes distintas solo se avisa, y quien programa decide.
     await comprobarSimultaneidad(
@@ -532,6 +544,13 @@ export const reservationsService = {
     const fecha = new Date(input.reservationDate);
     const ajustes = await ajustesDeOperacion(companyId);
     const { autoConfirmar } = ajustes;
+
+    await comprobarSedeActiva(input.location);
+
+    // TR-06. El corte tambien vale cuando se liberan cupos: un lugar que
+    // alguien cancela dos horas antes no vuelve al catalogo, porque el
+    // anfitrion ya compro contando con la gente que tenia.
+    await comprobarCorte(input.experience, fecha);
 
     // TR-42, en el checkout publico: solo el bloqueo de la misma sede. El
     // aviso de sedes distintas es una decision del anfitrion, y quien reserva

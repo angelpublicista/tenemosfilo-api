@@ -1,6 +1,11 @@
 import { Prisma, ExperienceStatus } from '@prisma/client';
 import { prisma } from '../../config/prisma.js';
 import { BadRequest, Forbidden, NotFound } from '../../lib/errors.js';
+import {
+  PARA_COMPLETITUD,
+  completitudDeExperiencia,
+  porQueNoSePuedeVender,
+} from '../../lib/completitud-de-experiencia.js';
 import { reservationsService } from '../reservations/reservations.service.js';
 import type {
   CreateExperienceInput,
@@ -227,7 +232,10 @@ export const experiencesService = {
         throw NotFound('Experiencia no encontrada');
       }
     }
-    return exp;
+    // TR-23. Que le falta para poder venderse, calculado al leer. Asi la
+    // pantalla lo dice sin tener que repetir aqui la lista de campos
+    // obligatorios, que es justo donde las dos reglas se separarian.
+    return { ...exp, completitud: completitudDeExperiencia(exp) };
   },
 
   async list(
@@ -373,9 +381,39 @@ export const experiencesService = {
       data.availabilities = { set: input.availabilities.map((id) => ({ id })) };
     }
 
-    return prisma.experience.update({ where: { id }, data, include: fullInclude });
+    const actualizada = await prisma.experience.update({
+      where: { id },
+      data,
+      include: fullInclude,
+    });
+
+    // TR-23. Si la edicion la deja incompleta y estaba publicada, deja de
+    // venderse: una ficha sin precio en el catalogo es una venta que acaba en
+    // una discusion. Vuelve a DRAFT, no se borra ni se oculta su historial.
+    if (actualizada.status === 'ACTIVE') {
+      const c = completitudDeExperiencia(actualizada);
+      if (!c.completa) {
+        return prisma.experience.update({
+          where: { id },
+          data: { status: 'DRAFT' },
+          include: fullInclude,
+        });
+      }
+    }
+
+    return actualizada;
   },
 
+  /**
+   * TR-23. Publicar exige la ficha completa; guardar a medias no.
+   *
+   * Nadie rellena una ficha de una sentada, asi que guardar incompleta tiene
+   * que poder hacerse. Lo que no puede es venderse a medias: quien compra una
+   * experiencia sin precio, sin duracion o sin sitio compra una incognita.
+   *
+   * Pasar a INACTIVE o PAUSED no comprueba nada: dejar de vender algo nunca
+   * puede estar bloqueado.
+   */
   async updateStatus(
     id: string,
     requesterCompanyId: string | null | undefined,
@@ -383,7 +421,24 @@ export const experiencesService = {
     opts?: { isAdmin?: boolean },
   ) {
     await assertCanManage(id, requesterCompanyId, opts);
+
+    if (status === 'ACTIVE') {
+      const ficha = await prisma.experience.findUnique({
+        where: { id },
+        select: PARA_COMPLETITUD,
+      });
+      const c = completitudDeExperiencia(ficha ?? {});
+      if (!c.completa) throw BadRequest(porQueNoSePuedeVender(c), { motivo: 'INCOMPLETA', ...c });
+    }
+
     return prisma.experience.update({ where: { id }, data: { status }, include: lightInclude });
+  },
+
+  /** Que le falta a una experiencia para poder venderse (TR-23). */
+  async completitud(id: string, requesterCompanyId: string | null | undefined, opts?: { isAdmin?: boolean }) {
+    await assertCanManage(id, requesterCompanyId, opts);
+    const ficha = await prisma.experience.findUnique({ where: { id }, select: PARA_COMPLETITUD });
+    return completitudDeExperiencia(ficha ?? {});
   },
 
   /**

@@ -5,12 +5,13 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
-import { requireAuth } from '../../middleware/auth.js';
+import { requireAuth, requireHumanAuth, requireRole } from '../../middleware/auth.js';
 import { validate } from '../../middleware/validate.js';
 import { pasarelaDeLaReserva, pasarelaDelAnfitrion } from '../../lib/pasarela.js';
 import { firmaValida, leerPago as leerPagoDeMercadoPago } from '../../lib/mercadopago.js';
 import { BadRequest, NotFound } from '../../lib/errors.js';
 import { logger } from '../../lib/logger.js';
+import { anotarCobroSinReserva } from '../../lib/cobro-sin-reserva.js';
 import { prisma } from '../../config/prisma.js';
 import { aEstadoDePago, webhookValido } from '../../lib/wompi.js';
 import { avisarCambioDeEstado, avisarPago, cargarDatosDeReserva } from '../../lib/notify.js';
@@ -29,6 +30,65 @@ const checkoutSchema = z.object({
 //
 // Va ANTES de requireAuth: lo llama Wompi, no un usuario. Su autenticidad se
 // comprueba con la firma del evento, no con un token.
+
+// ─── TR-44. Cobros sin reserva ────────────────────────────────────────────
+//
+// La bandeja de anomalias: cobros que llegaron y no tenian a que colgarse.
+// Es del equipo de Tenemos Filo porque lo que hay que hacer con uno —devolver
+// el dinero, buscar a quien pago— se hace desde la pasarela, no desde el
+// panel de un anfitrion.
+
+paymentsRouter.get(
+  '/cobros-sin-reserva',
+  requireAuth,
+  requireHumanAuth,
+  requireRole('ADMIN'),
+  validate(
+    z.object({
+      resueltos: z.enum(['true', 'false']).optional(),
+      limit: z.coerce.number().int().positive().max(200).default(50),
+    }),
+    'query',
+  ),
+  async (req: Request, res: Response) => {
+    const { resueltos, limit } = req.query as unknown as {
+      resueltos?: 'true' | 'false';
+      limit: number;
+    };
+    const items = await prisma.orphanPayment.findMany({
+      where: resueltos === undefined ? {} : { resolved: resueltos === 'true' },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    });
+    const pendientes = await prisma.orphanPayment.count({ where: { resolved: false } });
+    res.json({ data: items, meta: { pendientes } });
+  },
+);
+
+paymentsRouter.post(
+  '/cobros-sin-reserva/:id/resuelto',
+  requireAuth,
+  requireHumanAuth,
+  requireRole('ADMIN'),
+  validate(z.object({ id: z.string().min(1) }), 'params'),
+  validate(z.object({ notas: z.string().max(2000).optional() })),
+  async (req: Request, res: Response) => {
+    const { id } = req.params as { id: string };
+    const { notas } = req.body as { notas?: string };
+    const existe = await prisma.orphanPayment.findUnique({ where: { id } });
+    if (!existe) throw NotFound('Ese cobro no existe');
+    // Las notas son lo unico que explica que se hizo con el dinero, asi que se
+    // conservan si ya habia: se añaden, no se pisan.
+    const juntas = notas?.trim()
+      ? [existe.notes, notas.trim()].filter(Boolean).join('\n')
+      : existe.notes;
+    const actualizado = await prisma.orphanPayment.update({
+      where: { id },
+      data: { resolved: true, resolvedAt: new Date(), notes: juntas },
+    });
+    res.json({ data: actualizado });
+  },
+);
 
 paymentsRouter.post('/wompi/webhook', async (req: Request, res: Response) => {
   const evento = req.body as Record<string, unknown>;
@@ -61,6 +121,22 @@ paymentsRouter.post('/wompi/webhook', async (req: Request, res: Response) => {
     },
   });
   if (!reserva) {
+    // TR-44. Ningun cobro sin reserva, y cumplirlo es que no pase
+    // desapercibido: la reserva se pudo borrar entre el pago y este evento.
+    // Se apunta para que alguien devuelva ese dinero o encuentre a quien pago.
+    const centavosHuerfano = transaccion?.amount_in_cents;
+    await anotarCobroSinReserva({
+      gateway: 'WOMPI',
+      reference: referencia,
+      transactionId: typeof transaccion?.id === 'string' ? transaccion.id : null,
+      amount:
+        typeof centavosHuerfano === 'number' && centavosHuerfano > 0
+          ? centavosHuerfano / 100
+          : null,
+      currency: typeof transaccion?.currency === 'string' ? transaccion.currency : null,
+      gatewayStatus: typeof estado === 'string' ? estado : null,
+      event: evento,
+    });
     logger.warn({ referencia }, 'Webhook de Wompi para una reserva desconocida');
     return res.status(200).json({ received: true });
   }
@@ -251,6 +327,21 @@ paymentsRouter.post(
     // esta comprobacion, un anfitrion podria mover el estado de la reserva de
     // otro mandando su propio id de pago a su propia URL.
     if (!reserva || reserva.companyId !== companyId) {
+      // TR-44, igual que en Wompi. Si la reserva es de OTRA empresa no es un
+      // huerfano —existe y tiene dueño— sino un intento de tocar lo ajeno, y
+      // ese se descarta sin apuntar nada.
+      if (!reserva) {
+        await anotarCobroSinReserva({
+          gateway: 'MERCADO_PAGO',
+          reference: pago.referencia,
+          transactionId: pago.id ?? null,
+          amount: pago.monto ?? null,
+          currency: null,
+          gatewayStatus: pago.estadoCrudo ?? null,
+          companyId,
+          event: pago as unknown,
+        });
+      }
       logger.warn({ companyId, referencia: pago.referencia }, 'Pago de Mercado Pago para una reserva ajena o desconocida');
       return res.status(200).json({ received: true });
     }

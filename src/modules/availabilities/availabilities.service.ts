@@ -20,6 +20,26 @@ async function locationCompanyId(locationId: string): Promise<string | null> {
   return loc?.companyId ?? null;
 }
 
+/**
+ * TR-37. Una sede inactiva no admite programaciones nuevas.
+ *
+ * Desactivar una sede es decir "aqui ya no". Lo que no hace es cancelar lo que
+ * ya estaba vendido alli: eso lo decide el anfitrion reserva por reserva, y
+ * cancelar en bloque por un ajuste de ficha seria pasarse.
+ */
+async function sedeAdmiteProgramacion(locationId: string): Promise<void> {
+  const loc = await prisma.location.findFirst({
+    where: { id: locationId, deletedAt: null },
+    select: { isActive: true, name: true },
+  });
+  if (loc && !loc.isActive) {
+    throw BadRequest(
+      `${loc.name} está inactiva: actívala antes de programar horarios en ella.`,
+      { motivo: 'SEDE_INACTIVA' },
+    );
+  }
+}
+
 async function experienceCompanyId(experienceId: string): Promise<string | null> {
   const exp = await prisma.experience.findFirst({
     where: { id: experienceId, deletedAt: null },
@@ -82,6 +102,7 @@ export const availabilitiesService = {
       const cid = await locationCompanyId(input.location);
       if (!cid) throw NotFound('Location no encontrada');
       if (cid !== requesterCompanyId) throw Forbidden('La location no pertenece a tu company');
+      await sedeAdmiteProgramacion(input.location);
     }
     if (input.experience) {
       const cid = await experienceCompanyId(input.experience);

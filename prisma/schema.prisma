@@ -719,7 +719,12 @@ model Availability {
   validFrom  DateTime?
   validUntil DateTime?
   bufferTime     Int      @default(0) // minutos entre reservas
-  minimumNotice  Int      @default(0) // minutos minimos para reservar
+  // TR-06. Cuanta anticipacion necesita el anfitrion, EN HORAS.
+  //
+  // En horas y no en minutos —el comentario decia otra cosa y nadie lo leia,
+  // porque hasta ahora este campo no se usaba— porque es como lo piensa quien
+  // lo rellena: "con un dia de aviso" son 24, no 1440.
+  minimumNotice  Int      @default(0)
   blockedDates   String[] // ISO dates "YYYY-MM-DD"
   notes          String?
 
@@ -1333,6 +1338,48 @@ model ApiKey {
 //
 // No tiene relacion (FK) con User a proposito: el historial debe sobrevivir
 // al borrado del usuario que lo genero, que es justo cuando mas importa.
+/// TR-44. Un cobro que llego sin una reserva a la que colgarse.
+///
+/// El requisito dice que ningun cobro puede quedar sin reserva. Pasa poco,
+/// pero pasa: la reserva se borro entre el pago y la notificacion, o la
+/// pasarela manda una referencia que no reconocemos. Antes eso era una linea
+/// en el log que nadie iba a leer, y el dinero quedaba cobrado sin que
+/// existiera nada que lo explicara.
+///
+/// Esto no es contabilidad: es una bandeja de anomalias para que alguien
+/// devuelva ese dinero o encuentre a quien pago.
+model OrphanPayment {
+  id String @id @default(cuid())
+
+  /// WOMPI | MERCADO_PAGO
+  gateway       String
+  /// La referencia que mando la pasarela: deberia ser un numero de reserva.
+  reference     String
+  transactionId String?
+  amount        Decimal? @db.Decimal(14, 2)
+  currency      String?
+  /// El estado tal como lo dijo la pasarela, sin traducir.
+  gatewayStatus String?
+
+  /// La empresa, cuando se pudo deducir de la pasarela que recibio el evento.
+  companyId String?
+
+  /// El evento entero. Es lo unico que permite reconstruir que paso cuando
+  /// alguien lo revise semanas despues.
+  event Json
+
+  /// Lo miro alguien y lo dejo resuelto —devuelto, reconciliado, descartado.
+  resolved   Boolean   @default(false)
+  resolvedAt DateTime?
+  notes      String?   @db.Text
+
+  createdAt DateTime @default(now())
+
+  @@index([resolved])
+  @@index([reference])
+  @@index([createdAt])
+}
+
 model AuditLog {
   id String @id @default(cuid())
 

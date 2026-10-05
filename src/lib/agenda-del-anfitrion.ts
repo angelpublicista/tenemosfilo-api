@@ -153,6 +153,29 @@ const hora = (iso: string) =>
   });
 
 /**
+ * TR-37. Una sede inactiva no admite reservas nuevas.
+ *
+ * Desactivarla es decir "aqui ya no". Las que ya estaban vendidas alli siguen
+ * en pie: cancelarlas en bloque por un ajuste de ficha seria pasarse, y eso lo
+ * decide el anfitrion reserva por reserva.
+ */
+export async function comprobarSedeActiva(
+  locationId: string | null | undefined,
+  cliente: Cliente = prisma,
+): Promise<void> {
+  if (!locationId) return;
+  const sede = await cliente.location.findFirst({
+    where: { id: locationId, deletedAt: null },
+    select: { isActive: true, name: true },
+  });
+  if (sede && !sede.isActive) {
+    throw BadRequest(`${sede.name} está inactiva y no admite reservas nuevas.`, {
+      motivo: 'SEDE_INACTIVA',
+    });
+  }
+}
+
+/**
  * Rechaza lo que no puede convivir y deja pasar lo que si, con aviso.
  *
  * `permitirSolape` es el "programar de todas formas" del requisito: solo
