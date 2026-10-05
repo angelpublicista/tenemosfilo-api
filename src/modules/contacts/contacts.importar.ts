@@ -33,14 +33,6 @@ export interface ResumenDeImportacion {
   repetidosEnElArchivo: number;
   /** Contactos que entraron sin correo ni telefono. */
   sinFormaDeContacto: number;
-  /**
-   * Los que se reconocieron SOLO por el nombre.
-   *
-   * Es la unica clave que puede equivocarse de persona —dos Juan Perez son
-   * dos personas—, asi que se dicen uno por uno en vez de quedar sumados en
-   * `actualizados`. Quien importa es el unico que puede saber si son el mismo.
-   */
-  fusionadosPorNombre: Array<{ fila: number; nombre: string }>;
   /** Correos que venian mal escritos: el contacto entro, el correo no. */
   correosInvalidos: number;
   empresasCreadas: number;
@@ -83,12 +75,13 @@ function soloDigitos(v: string | null | undefined): string {
 }
 
 /**
- * Las claves por las que se reconoce un contacto, en orden de confianza.
+ * Las claves por las que se reconoce un contacto.
  *
- * El correo identifica a una persona; el telefono casi —se comparte en
- * familias y empresas pequeñas—; el nombre es el ultimo recurso y falla con
- * los homonimos. Se usa la primera que exista, y cual fue se dice en el
- * resumen para que nadie tenga que adivinar por que se fusionaron dos filas.
+ * Solo correo y telefono, normalizados. El cruce por nombre se quito: era la
+ * unica clave que podia equivocarse de persona —dos Juan Perez son dos
+ * personas— y el documento transversal lo deja fuera (TR-41). Quien importe
+ * dos veces a alguien sin correo ni telefono tendra dos fichas, que es menos
+ * malo que fundir las de dos clientes distintos.
  */
 function clavesDe(c: { email?: string | null; phone?: string | null; mobile?: string | null; firstName: string; lastName?: string | null }): string[] {
   const claves: string[] = [];
@@ -96,7 +89,6 @@ function clavesDe(c: { email?: string | null; phone?: string | null; mobile?: st
   const tel = soloDigitos(c.phone) || soloDigitos(c.mobile);
   // Menos de 7 digitos no identifica a nadie: es una extension o un error.
   if (tel.length >= 7) claves.push(`t:${tel.slice(-10)}`);
-  claves.push(`n:${normalizar(c.firstName)} ${normalizar(c.lastName)}`.trim());
   return claves;
 }
 
@@ -117,7 +109,6 @@ export const importarContactos = {
       sinFormaDeContacto: 0,
       correosInvalidos: 0,
       empresasCreadas: 0,
-      fusionadosPorNombre: [],
       errores: [],
     };
 
@@ -187,19 +178,9 @@ export const importarContactos = {
           }
         }
 
-        const claveQueCaso = claves.find((k) => porClave.has(k));
-        const existente = claveQueCaso ? porClave.get(claveQueCaso) : undefined;
+        const existente = claves.map((k) => porClave.get(k)).find(Boolean);
 
         if (existente) {
-          // Se anota en cuanto se reconoce, no al actualizar: lo que hay que
-          // contar es que dos filas se trataron como la misma persona, y eso
-          // ya paso aunque luego se omita o no cambie ningun campo.
-          if (claveQueCaso?.startsWith('n:')) {
-            resumen.fusionadosPorNombre.push({
-              fila: numeroDeFila,
-              nombre: [firstName, fila.lastName?.trim()].filter(Boolean).join(' '),
-            });
-          }
           if (siExiste === 'OMITIR') {
             resumen.omitidos += 1;
             continue;

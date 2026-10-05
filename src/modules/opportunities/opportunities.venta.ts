@@ -19,7 +19,18 @@ import { logger } from '../../lib/logger.js';
  * libre para otro. Una privada es un evento a la medida, y el abono del 50%
  * es lo que compromete a las dos partes.
  */
-const MINIMO_PARA_CONFIRMAR = { ABIERTA: 1, PRIVADA: 0.5 } as const;
+/**
+ * Cuanto hay que haber cobrado para poder confirmar.
+ *
+ * Una abierta solo queda confirmada con el pago completo: son cupos de un
+ * catalogo y no se apartan a credito.
+ *
+ * Una privada no tiene minimo. El 50% que habia aqui era una regla de la
+ * agencia, no del producto: cada anfitrion acuerda con su cliente si cobra un
+ * abono, una orden de compra o nada, y eso se registra en vez de imponerse
+ * (TR-02 del documento transversal).
+ */
+const MINIMO_PARA_CONFIRMAR = { ABIERTA: 1, PRIVADA: 0 } as const;
 
 /** El total de una reserva, que vive dentro del json de precios. */
 function totalDe(pricing: unknown): number {
@@ -100,6 +111,8 @@ export const ventaService = {
       { total: input.total } as never,
       false,
       quienCobra,
+      // Una privada se negocia y se cobra fuera de FILO: no genera fee.
+      'QUOTE',
     );
 
     const ahora = new Date();
@@ -218,9 +231,13 @@ export const ventaService = {
   /**
    * Confirmar la venta.
    *
-   * Una abierta necesita el 100%; una privada, el 50% o una condicion
-   * autorizada. La regla se comprueba aqui y no en la pantalla: es dinero, y
-   * una comprobacion que vive solo en el navegador no es una comprobacion.
+   * Una abierta necesita el pago completo, y eso se comprueba aqui y no en la
+   * pantalla: es dinero, y una comprobacion que vive solo en el navegador no
+   * es una comprobacion.
+   *
+   * Una privada la confirma el anfitrion cuando el lo decide. No hay minimo
+   * que imponer: lo que acordo con su cliente —un abono, una orden de compra,
+   * nada— es asunto suyo y se registra en `paymentConditionNote`.
    */
   async confirmarVenta(id: string, companyId: string | null | undefined) {
     const o = await oportunidadDe(id, companyId);
@@ -234,15 +251,13 @@ export const ventaService = {
     const total = totalDe(reserva.pricing);
     const pagado = Number(reserva.paidAmount);
     const minimo = MINIMO_PARA_CONFIRMAR[o.experienceKind ?? 'PRIVADA'];
-    const alcanza = total > 0 && pagado >= total * minimo;
+    const alcanza = minimo === 0 || (total > 0 && pagado >= total * minimo);
     const conCondicion = Boolean(o.paymentConditionNote);
 
     if (!alcanza && !conCondicion) {
       const falta = Math.max(0, total * minimo - pagado);
       throw BadRequest(
-        o.experienceKind === 'ABIERTA'
-          ? `Una experiencia abierta se confirma con el pago completo. Faltan ${falta.toLocaleString('es-CO')}.`
-          : `Una experiencia privada necesita al menos el 50%. Faltan ${falta.toLocaleString('es-CO')}, o autoriza una condición de pago.`,
+        `Una experiencia abierta se confirma con el pago completo. Faltan ${falta.toLocaleString('es-CO')}.`,
       );
     }
 

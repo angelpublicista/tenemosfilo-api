@@ -55,11 +55,23 @@ async function assertCanManage(id: string, requesterCompanyId: string | null | u
  * la plataforma. El resto del desglose (precios, descuentos) si viene del
  * cliente, que es quien conoce la seleccion.
  */
+/**
+ * Si esta venta le debe comision a FILO.
+ *
+ * TR-13: solo las abiertas que entraron por el enlace o el checkout de FILO y
+ * las de un canal conectado. Una reserva cargada a mano por el anfitrion y una
+ * privada —que se negocia y se cobra fuera— no generan fee.
+ */
+export function generaFeeDeFilo(source: string | null | undefined, esDeReseller: boolean): boolean {
+  return esDeReseller || source === 'BOOKING_ENGINE';
+}
+
 export async function conComisiones(
   experienceId: string,
   pricing: CreateReservationInput['pricing'],
   esDeReseller: boolean,
   quienCobra: CollectedBy,
+  source?: string | null,
 ): Promise<Prisma.InputJsonValue> {
   const [experiencia, ajustes] = await Promise.all([
     prisma.experience.findUnique({
@@ -77,7 +89,11 @@ export async function conComisiones(
   const desglose = calcularDesglose(
     Number(pricing.total) || 0,
     resolverComisiones(experiencia, ajustes),
-    { esDeReseller, cobraElAnfitrion: quienCobra === 'HOST' },
+    {
+      esDeReseller,
+      cobraElAnfitrion: quienCobra === 'HOST',
+      generaFee: generaFeeDeFilo(source, esDeReseller),
+    },
   );
 
   return {
@@ -253,37 +269,6 @@ async function precioDesdeExperiencia(
   return { basePrice, subtotal, addons, addonsTotal, discount: 0, tax: 0, total };
 }
 
-/**
- * El precio sobre el que se calculan las comisiones de una venta de canal.
- *
- * Un revendedor acuerda el precio con su cliente y puede venderlo mas caro
- * —ese margen es suyo—, pero NO puede declarar de menos: la comision es un
- * porcentaje de lo que diga, y declarando `total: 0` la reserva entraba
- * igual, el anfitrion la veia en su agenda, el cupo quedaba tomado y FILO
- * cobraba cero.
- *
- * El suelo es el precio de lista del anfitrion, que es el unico numero que
- * no pone quien vende. Cuando lo declarado se queda por debajo se guarda el
- * de lista entero y no solo el total, o la reserva quedaria diciendo un
- * subtotal que no cuadra con su propia suma.
- */
-async function conSueloDeLista(
-  input: CreateReservationInput,
-  asReseller: boolean,
-): Promise<CreateReservationInput['pricing']> {
-  if (!asReseller) return input.pricing;
-
-  const lista = await precioDesdeExperiencia(
-    input.experience,
-    input.participants,
-    input.pricing?.addons as AddonElegido[] | undefined,
-  );
-  const declarado = Number(input.pricing?.total) || 0;
-  return declarado >= lista.total
-    ? input.pricing
-    : (lista as unknown as CreateReservationInput['pricing']);
-}
-
 /** El mapeo vive en notify.ts: lo comparte con el webhook de la pasarela. */
 const paraAvisos = datosDeReserva;
 
@@ -327,8 +312,17 @@ export const reservationsService = {
     // conecte su pasarela entre medias dejaria reservas con comision
     // descontada cobrandose en su cuenta.
     const quienCobra = (await pasarelaDe(companyId))?.quienCobra ?? 'PLATFORM';
-    const declarado = await conSueloDeLista(input, asReseller);
-    const pricing = await conComisiones(input.experience, declarado, asReseller, quienCobra);
+    // El precio lo pone quien vende, tambien por debajo del de lista: la base
+    // del fee es el valor efectivamente vendido al comprador (§4.4 del
+    // documento transversal, con su ejemplo de los $40.000 sobre $45.000).
+    const source = input.source ?? (asReseller ? 'BOOKING_ENGINE' : 'MANUAL');
+    const pricing = await conComisiones(
+      input.experience,
+      input.pricing,
+      asReseller,
+      quienCobra,
+      source,
+    );
 
     // Tambien aqui: una venta de revendedor o una reserva cargada a mano no
     // deberian poder pasarse del aforo si la empresa lo tiene bloqueado.
@@ -355,7 +349,7 @@ export const reservationsService = {
         client: input.client as Prisma.InputJsonValue,
         clientType: input.clientType ?? 'GUEST',
         ...(input.user ? { user: { connect: { id: input.user } } } : {}),
-        source: input.source ?? (asReseller ? 'BOOKING_ENGINE' : 'MANUAL'),
+        source,
         reservationDate: new Date(input.reservationDate),
         duration: input.duration ?? null,
         participants: input.participants,
@@ -441,6 +435,7 @@ export const reservationsService = {
       precio as unknown as CreateReservationInput['pricing'],
       revendedor !== null,
       quienCobra,
+      'BOOKING_ENGINE',
     );
 
     // Los ajustes de la empresa mandan sobre como entra la reserva.

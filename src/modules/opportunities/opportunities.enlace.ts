@@ -93,7 +93,15 @@ export const enlaceService = {
     );
 
     const quienCobra = (await pasarelaDe(companyId!))?.quienCobra ?? 'PLATFORM';
-    const pricing = await conComisiones(exp.id, { total: input.total } as never, false, quienCobra);
+    // Cargada a mano desde el CRM: no entro por el checkout de FILO, asi que
+    // no genera fee. El enlace de reserva si, porque ese acaba en el checkout.
+    const pricing = await conComisiones(
+      exp.id,
+      { total: input.total } as never,
+      false,
+      quienCobra,
+      'MANUAL',
+    );
 
     const reserva = await prisma.reservation.create({
       data: {

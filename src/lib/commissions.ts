@@ -103,13 +103,18 @@ export function resolverComisiones(
 export function calcularDesglose(
   total: number,
   comisiones: { filo: Comision; reseller: Comision },
-  opts: { esDeReseller: boolean; cobraElAnfitrion?: boolean },
+  opts: { esDeReseller: boolean; cobraElAnfitrion?: boolean; generaFee?: boolean },
 ): DesgloseComisiones {
-  // Con pasarela propia el dinero no pasa por FILO, asi que no hay nada de
-  // donde descontar su comision: se cobra sobre lo que uno recibe, y FILO no
-  // recibe nada. La del revendedor si se devenga —el trabajo lo hizo igual—,
+  // TR-13. FILO solo cobra sobre lo que vendio su maquinaria: una abierta que
+  // entro por el enlace o el checkout, o la venta de un canal conectado. Una
+  // reserva que el anfitrion carga a mano, o una privada que negocio y cobro
+  // el por fuera, no le deben nada a FILO.
+  //
+  // Con pasarela propia tampoco: el dinero no pasa por FILO y no hay de donde
+  // descontar. La del revendedor si se devenga —el trabajo lo hizo igual—,
   // solo que la debe el anfitrion en vez de FILO.
-  const filo = opts.cobraElAnfitrion ? 0 : calcularImporte(comisiones.filo, total);
+  const noHayFee = opts.cobraElAnfitrion || opts.generaFee === false;
+  const filo = noHayFee ? 0 : calcularImporte(comisiones.filo, total);
   const reseller = opts.esDeReseller ? calcularImporte(comisiones.reseller, total) : 0;
 
   // Si entre las dos superan el total, se prorratean: el anfitrion nunca
