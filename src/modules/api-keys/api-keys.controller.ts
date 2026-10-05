@@ -101,6 +101,12 @@ export const apiKeysController = {
     });
   },
 
+  async uso(req: Request, res: Response) {
+    const { id } = req.params as { id: string };
+    const dias = Math.min(90, Math.max(1, Number(req.query.dias) || 30));
+    res.json({ data: await apiKeysService.uso(id, ambito(req), dias) });
+  },
+
   async update(req: Request, res: Response) {
     const { id } = req.params as { id: string };
     const item = await apiKeysService.update(

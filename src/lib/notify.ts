@@ -185,6 +185,8 @@ const cuando = (fecha: Date) =>
   fecha.toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' });
 
 type DatosReserva = {
+  /** El codigo de la puerta. Falta en las reservas anteriores a el. */
+  confirmationCode: string | null;
   id: string;
   reservationNumber: string;
   reservationDate: Date;
@@ -210,6 +212,7 @@ type DatosReserva = {
 type ReservaCruda = {
   id: string;
   reservationNumber: string;
+  confirmationCode?: string | null;
   reservationDate: Date;
   participants: number;
   companyId: string;
@@ -260,6 +263,7 @@ export function datosDeReserva(r: ReservaCruda): DatosReserva {
   return {
     id: r.id,
     reservationNumber: r.reservationNumber,
+    confirmationCode: r.confirmationCode ?? null,
     reservationDate: r.reservationDate,
     participants: r.participants,
     companyId: r.companyId,
@@ -307,6 +311,7 @@ export async function cargarDatosDeReserva(id: string): Promise<DatosReserva | n
 function paraCorreo(r: DatosReserva): DatosCorreoReserva {
   return {
     reservationNumber: r.reservationNumber,
+    confirmationCode: r.confirmationCode,
     experienceTitle: r.experienceTitle,
     empresaNombre: r.empresaNombre ?? 'Tenemos Filo',
     logoEmpresa: r.logoEmpresa ?? null,

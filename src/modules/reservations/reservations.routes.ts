@@ -14,6 +14,7 @@ import {
   updatePaymentStatusSchema,
   updateReservationSchema,
   updateStatusSchema,
+  validarCodigoSchema,
 } from './reservations.schemas.js';
 
 export const reservationsRouter = Router();
@@ -54,6 +55,19 @@ reservationsRouter.post(
   requireScope('reservations:write'),
   validate(createReservationSchema),
   reservationsController.create,
+);
+
+// Validar en la puerta el codigo que trae el cliente. Va ANTES de /:id para
+// que "validar-codigo" no se lea como un id de reserva.
+//
+// No la abre un revendedor: quien recibe a la gente es el anfitrion, y es el
+// quien tiene que ver si aparece alguien sin reserva en FILO.
+reservationsRouter.post(
+  '/validar-codigo',
+  requireRole('HOST', 'ADMIN'),
+  requireHumanAuth,
+  validate(validarCodigoSchema),
+  reservationsController.validarCodigo,
 );
 
 // Ver una reserva. El servicio comprueba ademas que sea suya: el rol solo

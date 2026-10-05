@@ -26,6 +26,14 @@ apiKeysRouter.get(
   apiKeysController.getById,
 );
 
+// Cuanto se usa esta key y cuanto de eso acaba en una venta aqui. Va antes
+// del PATCH por orden de lectura, no por precedencia: "/:id/uso" no colisiona.
+apiKeysRouter.get(
+  '/:id/uso',
+  validate(apiKeyIdParamsSchema, 'params'),
+  apiKeysController.uso,
+);
+
 apiKeysRouter.patch(
   '/:id',
   validate(apiKeyIdParamsSchema, 'params'),

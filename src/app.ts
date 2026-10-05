@@ -7,6 +7,7 @@ import pinoHttp from 'pino-http';
 import { corsOrigins, env } from './config/env.js';
 import { logger } from './lib/logger.js';
 import { auditLog } from './middleware/audit.js';
+import { contarUsoDeApiKey } from './middleware/uso-de-api-key.js';
 import { errorHandler, notFoundHandler } from './middleware/error.js';
 
 import { authRouter } from './modules/auth/auth.routes.js';
@@ -83,6 +84,11 @@ export function createApp() {
   // Va antes de los routers para poder engancharse al final de la respuesta,
   // y despues de express.json para ver el body ya parseado.
   app.use(auditLog);
+
+  // Igual que la auditoria, al final de la respuesta: cuenta cuanto usa el
+  // API cada canal de venta para poder ver quien lee catalogo sin vender
+  // por aqui.
+  app.use(contarUsoDeApiKey);
 
   // Documentacion. La CSP global de helmet solo permite scripts propios;
   // el visor carga el suyo desde un CDN, asi que se relaja aqui y solo

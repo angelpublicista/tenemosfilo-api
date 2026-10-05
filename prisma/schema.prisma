@@ -85,18 +85,19 @@ model User {
   sessions Session[]
 
   // Relaciones de dominio
-  ownedCompanies        Company[]            @relation("CompanyOwner")
-  contactsAssigned      Contact[]            @relation("ContactAssignedTo")
-  condicionesDePagoAutorizadas Opportunity[]  @relation("OpportunityPaymentCondition")
-  contactsCreated       Contact[]            @relation("ContactCreatedBy")
-  crmCompaniesAssigned  CrmCompany[]         @relation("CrmCompanyAssignedTo")
-  opportunitiesAssigned Opportunity[]        @relation("OpportunityAssignedTo")
-  opportunitiesCreated  Opportunity[]        @relation("OpportunityCreatedBy")
-  reservations          Reservation[]
-  quotes                Quote[]              @relation("QuoteHost")
-  integrations          Integration[]
-  apiKeysCreated        ApiKey[]             @relation("ApiKeyCreatedBy")
-  passwordResetTokens   PasswordResetToken[]
+  ownedCompanies               Company[]            @relation("CompanyOwner")
+  contactsAssigned             Contact[]            @relation("ContactAssignedTo")
+  condicionesDePagoAutorizadas Opportunity[]        @relation("OpportunityPaymentCondition")
+  contactsCreated              Contact[]            @relation("ContactCreatedBy")
+  crmCompaniesAssigned         CrmCompany[]         @relation("CrmCompanyAssignedTo")
+  opportunitiesAssigned        Opportunity[]        @relation("OpportunityAssignedTo")
+  opportunitiesCreated         Opportunity[]        @relation("OpportunityCreatedBy")
+  reservationsCheckedIn        Reservation[]        @relation("ReservationCheckedInBy")
+  reservations                 Reservation[]
+  quotes                       Quote[]              @relation("QuoteHost")
+  integrations                 Integration[]
+  apiKeysCreated               ApiKey[]             @relation("ApiKeyCreatedBy")
+  passwordResetTokens          PasswordResetToken[]
 
   isActive      Boolean        @default(true)
   notifications Notification[]
@@ -226,11 +227,11 @@ model Company {
   // no una lista cerrada: la clasificacion la fija la DIAN, cambia sin avisar
   // a nadie, y rechazar el codigo que el anfitrion tiene impreso en su RUT
   // seria decirle que su documento oficial esta mal.
-  ciiuCode       String?
+  ciiuCode String?
 
   // null = todavia no lo ha dicho. Las empresas que ya existian estan asi, y
   // mientras tanto se les piden los dos documentos, que es lo que veian antes.
-  personType     PersonType?
+  personType PersonType?
 
   // Un negocio rara vez es una sola cosa: un hotel que ademas hace catering,
   // una finca que ademas da clases. El principal es el que manda; el segundo
@@ -305,7 +306,7 @@ model Company {
   payouts                Payout[]
   // Las dispersiones que ESTA empresa paga, no las que recibe: con pasarela
   // propia el anfitrion le paga su comision al revendedor.
-  payoutsPagados         Payout[] @relation("PayoutPagador")
+  payoutsPagados         Payout[]         @relation("PayoutPagador")
   aiAgent                AiAgent?
   aiConversations        AiConversation[]
   channelListings        ChannelListing[]
@@ -333,11 +334,11 @@ model Location {
   companyId String
   company   Company @relation(fields: [companyId], references: [id])
 
-  name        String
-  slug        String?
-  description String? @db.Text
-  address     Json? // { street, city, state, postalCode, country }
-  contactInfo Json? // { phone, email }
+  name         String
+  slug         String?
+  description  String? @db.Text
+  address      Json? // { street, city, state, postalCode, country }
+  contactInfo  Json? // { phone, email }
   // Cuanta gente cabe a la vez. Columna propia y no un Json: antes era
   // { minGuests, maxGuests } y el minimo no era de la sede sino de cada
   // experiencia —una sede no tiene un minimo de personas, un evento si—.
@@ -419,17 +420,17 @@ model Location {
   // Van juntos o no van: una latitud sin longitud no ubica nada. Se guardan
   // como dos columnas porque asi se pueden consultar por rango —buscar sedes
   // cerca de un punto— cosa que un Json no deja hacer.
-  latitude    Float?
-  longitude   Float?
+  latitude  Float?
+  longitude Float?
 
   maxCapacity Int?
 
   // Si es un local abierto al publico o un espacio al que solo se entra con
   // reserva. null = las sedes anteriores a este campo, que no lo declararon:
   // no se asume ninguna de las dos, porque ninguna es mas probable.
-  isPublic    Boolean?
+  isPublic Boolean?
 
-  isMain      Boolean @default(false)
+  isMain Boolean @default(false)
 
   experiences    Experience[]   @relation("ExperienceLocations")
   availabilities Availability[]
@@ -749,7 +750,7 @@ model Contact {
   lastContactDate DateTime?
   nextFollowUp    DateTime?
 
-  decisionForOpportunities Opportunity[] @relation("OpportunityDecisionMakers")
+  decisionForOpportunities Opportunity[]    @relation("OpportunityDecisionMakers")
   opportunities            Opportunity[]
   aiConversations          AiConversation[]
 
@@ -1090,54 +1091,66 @@ model Reservation {
   userId String?
   user   User?   @relation(fields: [userId], references: [id])
 
-  source              ReservationSource @default(MANUAL)
-  reservationDate     DateTime
-  duration            Int? // minutos
-  participants        Int
-  status              ReservationStatus @default(PENDING)
-  paymentStatus       PaymentStatus     @default(PENDING)
+  source          ReservationSource @default(MANUAL)
+  reservationDate DateTime
+  duration        Int? // minutos
+  participants    Int
+  status          ReservationStatus @default(PENDING)
+  paymentStatus   PaymentStatus     @default(PENDING)
 
   // Cuanto se ha recibido de verdad. `paymentStatus` dice si esta pagada o no;
   // esto dice cuanto, que es lo unico que permite comprobar un abono parcial.
-  paidAmount          Decimal           @default(0) @db.Decimal(14, 2)
+  paidAmount Decimal @default(0) @db.Decimal(14, 2)
 
   // Quien cobro esta reserva. Se congela al crearla y NO se deduce despues de
   // la empresa: un anfitrion conecta y desconecta su pasarela cuando quiere, y
   // si esto se recalculara, una reserva vieja cambiaria de dueño el dia que el
   // toque un ajuste. Lo que importa es quien cobro ese dia.
-  collectedBy         CollectedBy       @default(PLATFORM)
+  collectedBy CollectedBy @default(PLATFORM)
 
   // Los datos de facturacion tal y como estaban al venderse: razon social,
   // documento y direccion. Se congelan aqui porque la empresa del CRM cambia
   // y una factura se emite contra lo que era cierto ese dia.
-  billingData         Json?
+  billingData Json?
 
   // De que oportunidad salio, si salio de una. Las reservas que entran por el
   // catalogo publico no tienen oportunidad detras.
   opportunityId       String?
-  opportunity         Opportunity?      @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  opportunity         Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
   pricing             Json // { basePrice, subtotal, addons[], addonsTotal, discount, tax, commission, total, hostEarnings }
   paymentMethod       String?
   paymentDetails      Json?
   locationId          String?
-  location            Location?         @relation(fields: [locationId], references: [id])
-  isVirtual           Boolean           @default(false)
+  location            Location?    @relation(fields: [locationId], references: [id])
+  isVirtual           Boolean      @default(false)
   virtualDetails      String?
-  specialRequirements String?           @db.Text
+  specialRequirements String?      @db.Text
   cancellation        Json? // { cancelledAt, cancelledBy, cancellationReason, refundAmount, refundStatus }
   rescheduling        Json? // { originalDate, newDate, reason, requestedBy }
   rating              Int?
-  notes               String?           @db.Text
+  notes               String?      @db.Text
+
+  // Codigo que el cliente enseña al llegar y el anfitrion valida.
+  //
+  // Es lo que hace que pasar por FILO no sea opcional para un canal: una
+  // venta que no entro aqui no tiene codigo valido, y el anfitrion se entera
+  // en la puerta en vez de nunca. Va aparte del numero de reserva a
+  // proposito: ese lleva la hora dentro y solo tres caracteres al azar, asi
+  // que se puede adivinar; este no.
+  confirmationCode String?   @unique
+  checkedInAt      DateTime?
+  checkedInById    String?
+  checkedInBy      User?     @relation("ReservationCheckedInBy", fields: [checkedInById], references: [id])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([companyId])
   @@index([resellerCompanyId])
+  @@index([checkedInAt])
   @@index([experienceId])
   @@index([status])
   @@index([reservationDate])
-
   @@index([opportunityId])
   @@index([collectedBy])
 }
@@ -1181,6 +1194,34 @@ model Integration {
 // el hash sha256. `scopes` controla que endpoints puede llamar la key.
 // ============================================================
 
+/// Cuanto se usa cada API key, por dia.
+///
+/// Una fila por key y dia en vez de una por peticion: lo que hace falta es
+/// ver el patron —quien lee mucho catalogo y vende poco por aqui—, no
+/// auditar llamada a llamada. Guardar cada peticion de un canal activo
+/// serian millones de filas para responder la misma pregunta.
+model ApiKeyUsage {
+  id String @id @default(cuid())
+
+  apiKeyId String
+  apiKey   ApiKey @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
+
+  /// El dia, a medianoche UTC.
+  dia DateTime @db.Date
+
+  lecturas   Int @default(0)
+  escrituras Int @default(0)
+
+  /// Reservas creadas: las ventas que SI entraron por aqui.
+  reservas Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([apiKeyId, dia])
+  @@index([dia])
+}
+
 model ApiKey {
   id      String   @id @default(cuid())
   name    String
@@ -1197,6 +1238,8 @@ model ApiKey {
   lastUsedAt DateTime?
   expiresAt  DateTime?
   revokedAt  DateTime?
+
+  uso ApiKeyUsage[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1430,11 +1473,11 @@ model Followup {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Un mismo seguimiento no se crea dos veces por la misma oportunidad.
+  @@unique([opportunityId, kind])
   // Para la lista de pendientes, que es la consulta que se hace todo el rato.
   @@index([opportunityId])
   @@index([status, dueAt])
-  // Un mismo seguimiento no se crea dos veces por la misma oportunidad.
-  @@unique([opportunityId, kind])
 }
 
 /// El agente de IA de un anfitrion, conectado a su WhatsApp.
@@ -1447,11 +1490,11 @@ model AiAgent {
   companyId String  @unique
   company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
-  enabled Boolean @default(false)
+  enabled       Boolean @default(false)
   /// Como se presenta al cliente.
-  nombre  String  @default("Asistente")
+  nombre        String  @default("Asistente")
   /// Como habla: cercano, formal, breve. Va al prompt tal cual.
-  tono    String?
+  tono          String?
   /// Lo que el anfitrion quiere que diga y que no. Es lo que lo hace suyo.
   instrucciones String? @db.Text
 
@@ -1520,8 +1563,8 @@ model AiMessage {
   conversation   AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   /// CLIENTE, AGENTE o SISTEMA.
-  rol   String
-  texto String @db.Text
+  rol         String
+  texto       String  @db.Text
   /// Que herramienta uso en ese turno, si uso alguna: es lo que permite
   /// entender despues por que contesto lo que contesto.
   herramienta String?

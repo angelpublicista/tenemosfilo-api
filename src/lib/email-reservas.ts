@@ -59,6 +59,8 @@ function esc(valor: unknown): string {
 
 export type DatosCorreoReserva = {
   reservationNumber: string;
+  /** El que se enseña al llegar. Puede faltar en reservas anteriores a el. */
+  confirmationCode?: string | null;
   experienceTitle: string;
   empresaNombre: string;
   reservationDate: Date;
@@ -237,7 +239,11 @@ const datosDelPlan = (d: DatosCorreoReserva): Fila[] => [
   { etiqueta: 'Fecha', valor: `${esc(fechaLarga(d.reservationDate))}, ${esc(hora(d.reservationDate))}` },
   { etiqueta: 'Personas', valor: esc(personas(d.participants)) },
   { etiqueta: 'Lugar', valor: esc(d.lugar ?? '') },
-  { etiqueta: 'Código', valor: esc(d.reservationNumber) },
+  // El de la puerta, no el numero de reserva: ese lleva la hora dentro y solo
+  // tres caracteres al azar, asi que se puede adivinar. El numero sigue siendo
+  // la referencia para el pago y para soporte.
+  { etiqueta: 'Código', valor: esc(d.confirmationCode ?? d.reservationNumber) },
+  { etiqueta: 'N.º de reserva', valor: esc(d.reservationNumber) },
 ];
 
 // ---------------------------------------------------------------------------
@@ -263,7 +269,7 @@ export function correoReservaComensal(d: DatosCorreoReserva) {
         ])}
         ${boton('Ver mi reserva', PANEL_COMENSAL, marca(d))}
         <p style="font-size:13px;color:#6b7280;margin-top:24px;">
-          Guarda el código <strong>${esc(d.reservationNumber)}</strong>: es lo que te van a pedir el día de la experiencia.
+          Guarda el código <strong>${esc(d.confirmationCode ?? d.reservationNumber)}</strong>: es lo que te van a pedir el día de la experiencia.
         </p>`,
     }),
   };

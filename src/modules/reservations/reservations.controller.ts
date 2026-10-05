@@ -40,6 +40,22 @@ export const reservationsController = {
     res.json({ data: items });
   },
 
+  /**
+   * El anfitrion valida el codigo que le enseña el cliente en la puerta.
+   *
+   * Un 404 aqui no es un fallo: significa que esa venta no entro por FILO, y
+   * es la unica forma de enterarse.
+   */
+  async validarCodigo(req: Request, res: Response) {
+    const { codigo } = req.body as { codigo: string };
+    const r = await reservationsService.validarCodigo(codigo, {
+      companyId: req.user!.companyId,
+      role: req.user!.role,
+      id: req.user!.id,
+    });
+    res.json({ data: r.reserva, meta: { yaHabiaLlegado: r.yaHabiaLlegado } });
+  },
+
   async getById(req: Request, res: Response) {
     const { id } = p<{ id: string }>(req);
     const r = await reservationsService.getById(id, {

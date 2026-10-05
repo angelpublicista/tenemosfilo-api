@@ -7,6 +7,7 @@ import {
   resolverComisiones,
 } from '../../lib/commissions.js';
 import { BadRequest, Forbidden, NotFound } from '../../lib/errors.js';
+import { generarCodigoDeConfirmacion, normalizarCodigo } from '../../lib/codigo-de-confirmacion.js';
 import { construirCheckout } from '../payments/payments.service.js';
 import {
   avisarCambioDeEstado,
@@ -252,6 +253,37 @@ async function precioDesdeExperiencia(
   return { basePrice, subtotal, addons, addonsTotal, discount: 0, tax: 0, total };
 }
 
+/**
+ * El precio sobre el que se calculan las comisiones de una venta de canal.
+ *
+ * Un revendedor acuerda el precio con su cliente y puede venderlo mas caro
+ * —ese margen es suyo—, pero NO puede declarar de menos: la comision es un
+ * porcentaje de lo que diga, y declarando `total: 0` la reserva entraba
+ * igual, el anfitrion la veia en su agenda, el cupo quedaba tomado y FILO
+ * cobraba cero.
+ *
+ * El suelo es el precio de lista del anfitrion, que es el unico numero que
+ * no pone quien vende. Cuando lo declarado se queda por debajo se guarda el
+ * de lista entero y no solo el total, o la reserva quedaria diciendo un
+ * subtotal que no cuadra con su propia suma.
+ */
+async function conSueloDeLista(
+  input: CreateReservationInput,
+  asReseller: boolean,
+): Promise<CreateReservationInput['pricing']> {
+  if (!asReseller) return input.pricing;
+
+  const lista = await precioDesdeExperiencia(
+    input.experience,
+    input.participants,
+    input.pricing?.addons as AddonElegido[] | undefined,
+  );
+  const declarado = Number(input.pricing?.total) || 0;
+  return declarado >= lista.total
+    ? input.pricing
+    : (lista as unknown as CreateReservationInput['pricing']);
+}
+
 /** El mapeo vive en notify.ts: lo comparte con el webhook de la pasarela. */
 const paraAvisos = datosDeReserva;
 
@@ -295,7 +327,8 @@ export const reservationsService = {
     // conecte su pasarela entre medias dejaria reservas con comision
     // descontada cobrandose en su cuenta.
     const quienCobra = (await pasarelaDe(companyId))?.quienCobra ?? 'PLATFORM';
-    const pricing = await conComisiones(input.experience, input.pricing, asReseller, quienCobra);
+    const declarado = await conSueloDeLista(input, asReseller);
+    const pricing = await conComisiones(input.experience, declarado, asReseller, quienCobra);
 
     // Tambien aqui: una venta de revendedor o una reserva cargada a mano no
     // deberian poder pasarse del aforo si la empresa lo tiene bloqueado.
@@ -311,6 +344,9 @@ export const reservationsService = {
     const creada = await prisma.reservation.create({
       data: {
         reservationNumber: input.reservationNumber ?? generateReservationNumber(),
+        // Todas lo llevan, no solo las de canal: si solo lo tuvieran unas, el
+        // anfitrion tendria dos formas de recibir a la gente en la puerta.
+        confirmationCode: generarCodigoDeConfirmacion(),
         experience: { connect: { id: input.experience } },
         company: { connect: { id: companyId } },
         ...(resellerCompanyId
@@ -415,6 +451,9 @@ export const reservationsService = {
     const creada = await prisma.reservation.create({
       data: {
         reservationNumber: input.reservationNumber ?? generateReservationNumber(),
+        // Todas lo llevan, no solo las de canal: si solo lo tuvieran unas, el
+        // anfitrion tendria dos formas de recibir a la gente en la puerta.
+        confirmationCode: generarCodigoDeConfirmacion(),
         experience: { connect: { id: input.experience } },
         company: { connect: { id: companyId } },
         ...(revendedor ? { resellerCompany: { connect: { id: revendedor } } } : {}),
@@ -436,7 +475,10 @@ export const reservationsService = {
         specialRequirements: input.specialRequirements ?? null,
         notes: input.notes ?? null,
       },
-      select: { reservationNumber: true },
+      // El codigo sale aqui porque es lo que la pantalla de confirmacion le
+      // enseña al cliente: sin el, lo unico que se lleva es el numero de
+      // reserva, que no es lo que le van a pedir en la puerta.
+      select: { reservationNumber: true, confirmationCode: true },
     });
 
     // El aviso necesita mas campos de los que devuelve el alta; se relee
@@ -524,6 +566,64 @@ export const reservationsService = {
     }
 
     return r;
+  },
+
+  /**
+   * Validar en la puerta el codigo que trae el cliente.
+   *
+   * Es el control que hace que una venta de canal no pueda quedarse fuera de
+   * FILO: quien vendio por su cuenta y no registro la reserva no tiene codigo
+   * que dar, y el anfitrion lo descubre cuando el cliente llega en vez de
+   * nunca. Por eso el "no existe" es una respuesta util y no un error a
+   * esconder: es justo la señal que hay que ver.
+   *
+   * Marca la llegada en el mismo paso. Separarlo en buscar y luego confirmar
+   * obligaria a dos toques con gente esperando en la entrada.
+   */
+  async validarCodigo(
+    codigo: string,
+    solicitante: { companyId?: string | null; role: UserRole; id: string },
+  ) {
+    const normalizado = normalizarCodigo(codigo);
+    const r = await prisma.reservation.findUnique({
+      where: { confirmationCode: normalizado },
+      include: {
+        ...fullInclude,
+        resellerCompany: { select: { id: true, companyName: true } },
+      },
+    });
+
+    // Mismo mensaje para "no existe" y "es de otra empresa": si fueran
+    // distintos, cualquiera con un anfitrion podria ir probando codigos para
+    // averiguar cuales existen.
+    const suya = solicitante.role === 'ADMIN' || r?.companyId === solicitante.companyId;
+    if (!r || !suya) {
+      throw NotFound(
+        'Ese código no corresponde a ninguna reserva tuya. Si el cliente insiste en que ya pagó, ' +
+          'pídele por dónde compró: puede ser una venta que no entró por FILO.',
+      );
+    }
+
+    if (r.status === 'CANCELLED') {
+      throw BadRequest('Esa reserva está cancelada.');
+    }
+
+    // Ya validada: no se vuelve a escribir la hora de llegada. El codigo de
+    // una reserva para cuatro no deberia servir para entrar dos veces, y el
+    // anfitrion necesita ver que esto ya paso.
+    if (r.checkedInAt) {
+      return { reserva: r, yaHabiaLlegado: true };
+    }
+
+    const actualizada = await prisma.reservation.update({
+      where: { id: r.id },
+      data: { checkedInAt: new Date(), checkedInById: solicitante.id },
+      include: {
+        ...fullInclude,
+        resellerCompany: { select: { id: true, companyName: true } },
+      },
+    });
+    return { reserva: actualizada, yaHabiaLlegado: false };
   },
 
   async list(requesterCompanyId: string | null | undefined, query: ListReservationsQuery) {
