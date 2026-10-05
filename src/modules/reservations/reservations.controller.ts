@@ -4,6 +4,7 @@ import type {
   CancelInput,
   CreateReservationInput,
   ListReservationsQuery,
+  ReembolsoInput,
   RescheduleInput,
   UpdateReservationInput,
 } from './reservations.schemas.js';
@@ -113,6 +114,29 @@ export const reservationsController = {
     const { id } = p<{ id: string }>(req);
     const r = await reservationsService.cancel(id, req.user!.companyId, req.body as CancelInput);
     res.json({ data: r });
+  },
+
+  // TR-30. Devolver dinero de una reserva que sigue en pie. Ajusta la venta
+  // y la base del fee, no solo apunta el numero.
+  async reembolsar(req: Request, res: Response) {
+    const { id } = p<{ id: string }>(req);
+    const r = await reservationsService.registrarReembolso(
+      id,
+      req.user!.companyId,
+      req.body as ReembolsoInput,
+    );
+    res.json({ data: r });
+  },
+
+  async marcarReembolsoPagado(req: Request, res: Response) {
+    const { id, refundId } = p<{ id: string; refundId: string }>(req);
+    const r = await reservationsService.marcarReembolsoPagado(id, req.user!.companyId, refundId);
+    res.json({ data: r });
+  },
+
+  async reembolsos(req: Request, res: Response) {
+    const { id } = p<{ id: string }>(req);
+    res.json({ data: await reservationsService.reembolsosDe(id, req.user!.companyId) });
   },
 
   async reschedule(req: Request, res: Response) {

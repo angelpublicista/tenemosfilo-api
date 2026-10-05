@@ -51,6 +51,26 @@ async function oportunidadDe(id: string, companyId: string | null | undefined) {
   return o;
 }
 
+/**
+ * Cuantas opciones distintas se le pusieron sobre la mesa al cliente (TR-15).
+ *
+ * Primero las de la propia oportunidad; si no tiene, las de su cotizacion
+ * vigente, que es de donde salen cuando se armo desde ahi. Misma regla de
+ * vigencia que en la agenda: enviada de version mas alta, y si ninguna se
+ * envio, la ultima armada.
+ */
+async function opcionesDe(opportunityId: string): Promise<number> {
+  const propias = await prisma.opportunityExperience.count({ where: { opportunityId } });
+  if (propias > 0) return propias;
+
+  const q = await prisma.quote.findFirst({
+    where: { opportunityId },
+    orderBy: [{ sentAt: { sort: 'desc', nulls: 'last' } }, { version: 'desc' }],
+    select: { experiences: { select: { id: true } } },
+  });
+  return q?.experiences.length ?? 0;
+}
+
 export const ventaService = {
   /**
    * Medios de pago enviados: el espacio queda apartado.
@@ -263,6 +283,14 @@ export const ventaService = {
       );
     }
 
+    // TR-15. Con varias opciones sobre la mesa, confirmar la primera reserva
+    // no cierra la venta. El cliente puede haber dicho que si a la cena del
+    // sabado y seguir pensando el almuerzo del domingo; darla por ganada
+    // ahora borra del embudo lo que todavia se esta vendiendo, y nadie
+    // vuelve a llamar. Quien lleva la venta la cierra cuando lo sepa.
+    const opciones = await opcionesDe(id);
+    const variasOpciones = o.experienceKind === 'PRIVADA' && opciones > 1;
+
     // CRM-31. Los datos de facturacion se congelan aqui, no antes.
     //
     // Al abrir el lead no se piden —pedir el NIT a quien acaba de escribir
@@ -276,7 +304,11 @@ export const ventaService = {
     const [actualizada] = await prisma.$transaction([
       prisma.opportunity.update({
         where: { id },
-        data: { stage: 'CLOSED_WON', status: 'WON', actualCloseDate: new Date() },
+        data: variasOpciones
+          ? // Sigue abierta y en la etapa en la que se decide: hay una venta
+            // hecha y otras en el aire.
+            { stage: 'APPROVAL' }
+          : { stage: 'CLOSED_WON', status: 'WON', actualCloseDate: new Date() },
         include: { contact: true },
       }),
       // El espacio sigue bloqueado: pasa de apartado a confirmado.
@@ -290,6 +322,37 @@ export const ventaService = {
         },
       }),
     ]);
+
+    // Los seguimientos solo se retiran si se cerro: mientras siga abierta hay
+    // algo que perseguir, y quitarselos es perder de vista lo que falta.
+    if (!variasOpciones) void retirarSeguimientos(id);
+    return { ...actualizada, opcionesPendientes: variasOpciones ? opciones - 1 : 0 };
+  },
+
+  /**
+   * Cerrar como ganada a mano (TR-15).
+   *
+   * Hace falta porque con varias opciones confirmar una reserva ya no cierra
+   * la oportunidad: alguien tiene que decir "esto ya esta". Exige que haya al
+   * menos una reserva confirmada, porque "ganada" sin nada vendido no
+   * significa nada y descuadraria el embudo.
+   */
+  async cerrarGanada(id: string, companyId: string | null | undefined) {
+    const o = await oportunidadDe(id, companyId);
+    if (o.status !== 'OPEN') throw BadRequest('Esta oportunidad ya está cerrada');
+
+    const confirmadas = o.reservations.filter((r) => r.status === 'CONFIRMED').length;
+    if (confirmadas === 0) {
+      throw BadRequest(
+        'No hay ninguna reserva confirmada. Confirma la venta antes de cerrar la oportunidad.',
+      );
+    }
+
+    const actualizada = await prisma.opportunity.update({
+      where: { id },
+      data: { stage: 'CLOSED_WON', status: 'WON', actualCloseDate: new Date() },
+      include: { contact: true },
+    });
 
     void retirarSeguimientos(id);
     return actualizada;

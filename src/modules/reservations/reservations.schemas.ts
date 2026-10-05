@@ -97,6 +97,17 @@ export const cancelSchema = z.object({
   participants: z.number().int().positive().optional(),
 });
 
+/**
+ * Devolver dinero de una reserva que sigue en pie (TR-30).
+ *
+ * El motivo es obligatorio: un reembolso sin motivo es un descuadre que nadie
+ * puede explicar tres meses despues.
+ */
+export const reembolsoSchema = z.object({
+  amount: z.number().positive(),
+  reason: z.string().min(1),
+});
+
 export const rescheduleSchema = z.object({
   newDate: z.string(),
   reason: z.string().min(1),
@@ -143,6 +154,7 @@ export type CreateReservationInput = z.infer<typeof createReservationSchema> & {
 };
 export type UpdateReservationInput = z.infer<typeof updateReservationSchema>;
 export type CancelInput = z.infer<typeof cancelSchema>;
+export type ReembolsoInput = z.infer<typeof reembolsoSchema>;
 export type RescheduleInput = z.infer<typeof rescheduleSchema>;
 export type ListReservationsQuery = z.infer<typeof listReservationsQuerySchema>;
 export type ValidarCodigoInput = z.infer<typeof validarCodigoSchema>;

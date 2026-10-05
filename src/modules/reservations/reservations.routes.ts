@@ -15,6 +15,7 @@ import {
   updateReservationSchema,
   updateStatusSchema,
   validarCodigoSchema,
+  reembolsoSchema,
 } from './reservations.schemas.js';
 
 export const reservationsRouter = Router();
@@ -114,6 +115,33 @@ reservationsRouter.post(
   validate(reservationIdParamsSchema, 'params'),
   validate(cancelSchema),
   reservationsController.cancel,
+);
+
+// TR-30. Reembolsos de una reserva que sigue en pie: se registran aqui y
+// ajustan la venta y la base del fee.
+reservationsRouter.get(
+  '/:id/reembolsos',
+  requireRole('HOST', 'ADMIN'),
+  validate(reservationIdParamsSchema, 'params'),
+  reservationsController.reembolsos,
+);
+
+reservationsRouter.post(
+  '/:id/reembolsos',
+  requireRole('HOST', 'ADMIN'),
+  validate(reservationIdParamsSchema, 'params'),
+  validate(reembolsoSchema),
+  reservationsController.reembolsar,
+);
+
+reservationsRouter.post(
+  '/:id/reembolsos/:refundId/pagado',
+  requireRole('HOST', 'ADMIN'),
+  validate(
+    z.object({ id: z.string().min(1), refundId: z.string().min(1) }),
+    'params',
+  ),
+  reservationsController.marcarReembolsoPagado,
 );
 
 reservationsRouter.post(

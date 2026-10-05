@@ -4,6 +4,11 @@ import { prisma } from '../../config/prisma.js';
 import { conCupoApartado } from '../../lib/cupos.js';
 import { comprobarSimultaneidad } from '../../lib/agenda-del-anfitrion.js';
 import {
+  estadoDePagoTrasReembolso,
+  nuevoReembolso,
+  totalReembolsado,
+} from '../../lib/reembolsos.js';
+import {
   calcularDesglose,
   getPlatformSettings,
   resolverComisiones,
@@ -773,6 +778,7 @@ export const reservationsService = {
         resellerCompanyId: true,
         collectedBy: true,
         partialCancellations: true,
+        refunds: true,
       },
     });
     if (!actual) throw NotFound('Reserva no encontrada');
@@ -827,6 +833,16 @@ export const reservationsService = {
         data: {
           participants: quedan,
           pricing,
+          // TR-30. El reembolso tambien al registro unico: es el sitio donde
+          // se pregunta cuanto se le ha devuelto a esta reserva.
+          ...(reembolso > 0
+            ? {
+                refunds: [
+                  ...(actual.refunds as Prisma.InputJsonValue[]),
+                  nuevoReembolso(reembolso, input.reason, 'BAJA_PARCIAL') as unknown as Prisma.InputJsonValue,
+                ],
+              }
+            : {}),
           partialCancellations: [
             ...(actual.partialCancellations as Prisma.InputJsonValue[]),
             parcial as Prisma.InputJsonValue,
@@ -846,6 +862,17 @@ export const reservationsService = {
       where: { id },
       data: {
         status: 'CANCELLED',
+        // El pricing NO se toca al cancelar entero: una cancelada ya sale de
+        // lo que se le debe a cada empresa, y bajarlo ademas lo contaria dos
+        // veces.
+        ...(reembolso > 0
+          ? {
+              refunds: [
+                ...(actual.refunds as Prisma.InputJsonValue[]),
+                nuevoReembolso(reembolso, input.reason, 'CANCELACION') as unknown as Prisma.InputJsonValue,
+              ],
+            }
+          : {}),
         cancellation: {
           cancelledAt: new Date().toISOString(),
           cancelledBy: input.cancelledBy,
@@ -858,6 +885,137 @@ export const reservationsService = {
     });
     void avisarCambioDeEstado(paraAvisos(cancelada), 'CANCELLED', input.reason);
     return cancelada;
+  },
+
+  /**
+   * Devolver dinero de una reserva que sigue en pie (TR-30).
+   *
+   * El caso que faltaba: la experiencia se dio, pero hubo que devolver algo
+   * —un plato que no salio, una hora menos de lo prometido—. No es una
+   * cancelacion y no cambia el estado de la reserva.
+   *
+   * Lo importante es que ajusta la venta y, con ella, la base del fee: si solo
+   * se apuntara, FILO seguiria cobrando comision sobre un dinero devuelto y al
+   * anfitrion se le seguiria dispersando por una venta que ya no vale eso.
+   *
+   * Si la transferencia del periodo ya salio, el saldo queda en negativo y se
+   * descuenta de la siguiente. No hay nada que reabrir: lo que se debe se
+   * calcula como devengado menos transferido.
+   */
+  async registrarReembolso(
+    id: string,
+    requesterCompanyId: string | null | undefined,
+    input: { amount: number; reason: string },
+  ) {
+    const actual = await prisma.reservation.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        companyId: true,
+        experienceId: true,
+        paidAmount: true,
+        pricing: true,
+        status: true,
+        source: true,
+        resellerCompanyId: true,
+        collectedBy: true,
+        refunds: true,
+      },
+    });
+    if (!actual) throw NotFound('Reserva no encontrada');
+    if (!requesterCompanyId || actual.companyId !== requesterCompanyId)
+      throw Forbidden('No tienes permiso sobre esta reserva');
+    if (actual.status === 'CANCELLED') {
+      throw BadRequest(
+        'Esta reserva está cancelada: su reembolso se registró al cancelarla.',
+      );
+    }
+
+    const pagado = Number(actual.paidAmount) || 0;
+    if (input.amount > pagado) {
+      throw BadRequest(
+        pagado > 0
+          ? `Solo se han cobrado ${pagado.toLocaleString('es-CO')}: no se puede devolver más de eso.`
+          : 'Esta reserva no tiene dinero cobrado que devolver.',
+      );
+    }
+
+    const precio = (actual.pricing ?? {}) as Record<string, unknown>;
+    const totalViejo = Number(precio.total) || 0;
+    const totalNuevo = Math.max(0, totalViejo - input.amount);
+    const pagadoNuevo = pagado - input.amount;
+
+    const pricing = await conComisiones(
+      actual.experienceId,
+      { ...precio, total: totalNuevo } as CreateReservationInput['pricing'],
+      actual.resellerCompanyId !== null,
+      actual.collectedBy,
+      actual.source,
+    );
+
+    const reembolso = nuevoReembolso(input.amount, input.reason, 'AJUSTE');
+
+    return prisma.reservation.update({
+      where: { id },
+      data: {
+        pricing,
+        paidAmount: pagadoNuevo,
+        paymentStatus: estadoDePagoTrasReembolso(pagadoNuevo, totalNuevo),
+        refunds: [
+          ...(actual.refunds as Prisma.InputJsonValue[]),
+          reembolso as unknown as Prisma.InputJsonValue,
+        ],
+      },
+      include: fullInclude,
+    });
+  },
+
+  /** Marcar un reembolso como pagado: el dinero salio de verdad. */
+  async marcarReembolsoPagado(
+    id: string,
+    requesterCompanyId: string | null | undefined,
+    refundId: string,
+  ) {
+    const actual = await prisma.reservation.findUnique({
+      where: { id },
+      select: { id: true, companyId: true, refunds: true },
+    });
+    if (!actual) throw NotFound('Reserva no encontrada');
+    if (!requesterCompanyId || actual.companyId !== requesterCompanyId)
+      throw Forbidden('No tienes permiso sobre esta reserva');
+
+    const lista = actual.refunds as unknown as Array<Record<string, unknown>>;
+    const i = lista.findIndex((r) => r?.id === refundId);
+    if (i < 0) throw NotFound('Ese reembolso no existe en esta reserva');
+    if (lista[i]?.estado === 'pagado') throw BadRequest('Ese reembolso ya está marcado como pagado');
+
+    const actualizados = lista.map((r, n) =>
+      n === i ? { ...r, estado: 'pagado', pagadoEl: new Date().toISOString() } : r,
+    );
+
+    return prisma.reservation.update({
+      where: { id },
+      data: { refunds: actualizados as unknown as Prisma.InputJsonValue[] },
+      include: fullInclude,
+    });
+  },
+
+  /** Lo devuelto de una reserva, para no tener que sumarlo en la pantalla. */
+  async reembolsosDe(id: string, requesterCompanyId: string | null | undefined) {
+    const r = await prisma.reservation.findUnique({
+      where: { id },
+      select: { companyId: true, refunds: true, paidAmount: true, pricing: true },
+    });
+    if (!r) throw NotFound('Reserva no encontrada');
+    if (!requesterCompanyId || r.companyId !== requesterCompanyId)
+      throw Forbidden('No tienes permiso sobre esta reserva');
+
+    return {
+      reembolsos: r.refunds,
+      totalReembolsado: totalReembolsado(r.refunds),
+      cobrado: Number(r.paidAmount) || 0,
+      vendido: Number((r.pricing as Record<string, unknown>)?.total ?? 0),
+    };
   },
 
   async reschedule(

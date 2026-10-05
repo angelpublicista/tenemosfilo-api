@@ -68,6 +68,15 @@ opportunitiesRouter.post(
   opportunitiesController.confirmarVenta,
 );
 
+// TR-15. Cerrar como ganada a mano: con varias opciones, confirmar una
+// reserva ya no cierra la oportunidad.
+opportunitiesRouter.post(
+  '/:id/cerrar-ganada',
+  requireScope('opportunities:write'),
+  validate(opportunityIdParamsSchema, 'params'),
+  opportunitiesController.cerrarGanada,
+);
+
 // CRM-19. Cerrar como perdida, con motivo. Libera el espacio apartado.
 opportunitiesRouter.post(
   '/:id/perder',

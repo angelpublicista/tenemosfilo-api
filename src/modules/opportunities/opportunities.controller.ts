@@ -49,6 +49,13 @@ export const opportunitiesController = {
     res.json({ data: await ventaService.confirmarVenta(id, req.user!.companyId) });
   },
 
+  // TR-15. Cerrar como ganada cuando lo decide quien lleva la venta, que es
+  // lo que hace falta desde que confirmar una reserva ya no la cierra sola.
+  async cerrarGanada(req: Request, res: Response) {
+    const { id } = p<{ id: string }>(req);
+    res.json({ data: await ventaService.cerrarGanada(id, req.user!.companyId) });
+  },
+
   async perder(req: Request, res: Response) {
     const { id } = p<{ id: string }>(req);
     const { motivo, notas } = req.body as { motivo: string; notas?: string };
