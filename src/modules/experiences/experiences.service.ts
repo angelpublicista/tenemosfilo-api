@@ -1,6 +1,7 @@
 import { Prisma, ExperienceStatus } from '@prisma/client';
 import { prisma } from '../../config/prisma.js';
 import { BadRequest, Forbidden, NotFound } from '../../lib/errors.js';
+import { notasDeExperiencia } from '../../lib/calificacion.js';
 import {
   PARA_COMPLETITUD,
   completitudDeExperiencia,
@@ -432,6 +433,12 @@ export const experiencesService = {
     }
 
     return prisma.experience.update({ where: { id }, data: { status }, include: lightInclude });
+  },
+
+  /** TR-24. Las notas del comensal, promediadas por dimension. */
+  async notas(id: string, requesterCompanyId: string | null | undefined, opts?: { isAdmin?: boolean }) {
+    await assertCanManage(id, requesterCompanyId, opts);
+    return notasDeExperiencia(id);
   },
 
   /** Que le falta a una experiencia para poder venderse (TR-23). */

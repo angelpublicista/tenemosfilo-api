@@ -10,6 +10,7 @@
 // venta es inaceptable. Por eso todo va envuelto en un catch.
 import type { NotificationType, CompanyContactType, ReservationStatus } from '@prisma/client';
 import { prisma } from '../config/prisma.js';
+import { env } from '../config/env.js';
 import { logger } from './logger.js';
 import { sendEmail } from './email.js';
 import {
@@ -26,6 +27,7 @@ import {
   correoBajaParcialComensal,
   correoBajaParcialAnfitrion,
   correoCambioEnLaReserva,
+  correoCalificacionComensal,
 } from './email-reservas.js';
 
 type Aviso = {
@@ -585,6 +587,18 @@ export async function avisarCambioEnLaReserva(
       { to: r.clienteEmail, ...correoCambioEnLaReserva(paraCorreo(r), cambios) },
     ]);
   }
+}
+
+/**
+ * Pedirle al comensal que califique (TR-24).
+ *
+ * Solo por correo: es alguien que ya se fue y puede no tener cuenta. Una
+ * notificacion en una campana que no va a abrir no pide nada.
+ */
+export async function pedirCalificacion(r: DatosReserva, token: string): Promise<void> {
+  if (!r.clienteEmail) return;
+  const enlace = `${env.APP_URL}/calificar/${token}`;
+  await despachar([{ to: r.clienteEmail, ...correoCalificacionComensal(paraCorreo(r), enlace) }]);
 }
 
 /** Pago confirmado: al anfitrion le entra dinero, al cliente le queda pagado. */

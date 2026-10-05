@@ -1,4 +1,6 @@
 import { prisma } from '../../config/prisma.js';
+import { nuevoTokenDeCalificacion } from '../../lib/calificacion.js';
+import { cargarDatosDeReserva, pedirCalificacion } from '../../lib/notify.js';
 import { BadRequest, Forbidden, NotFound } from '../../lib/errors.js';
 import { retirarPropuestasPosteriores } from '../../lib/seguimientos.js';
 
@@ -179,9 +181,16 @@ export const crmPanelService = {
       );
     }
 
-    return prisma.reservation.update({
+    // TR-24. Si vino alguien, se le pide que califique. Si no vino nadie no se
+    // le pide nada: preguntarle que tal estuvo a quien no fue es la mejor
+    // forma de recordarle que pago algo que no uso.
+    const pedirleQueCalifique = realizada && asistentes > 0;
+    const token = pedirleQueCalifique ? nuevoTokenDeCalificacion() : null;
+
+    const cerrada = await prisma.reservation.update({
       where: { id: reservationId },
       data: {
+        ...(token ? { ratingToken: token, ratingRequestedAt: new Date() } : {}),
         // Una realizada a la que no fue nadie es un no-show, lo diga como lo
         // diga quien cierra: si se guardara como completada, se cobraria como
         // una experiencia que no ocurrio.
@@ -199,6 +208,17 @@ export const crmPanelService = {
         participants: true,
       },
     });
+
+    if (token) {
+      // Sin await: el pendiente se cierra ya, y el correo va detras. Si falla
+      // el envio, la experiencia sigue cerrada y el anfitrion puede seguir.
+      void (async () => {
+        const datos = await cargarDatosDeReserva(reservationId);
+        if (datos) await pedirCalificacion(datos, token);
+      })();
+    }
+
+    return cerrada;
   },
 
   /**

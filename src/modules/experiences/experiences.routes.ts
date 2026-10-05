@@ -52,6 +52,14 @@ experiencesRouter.get(
   experiencesController.getById,
 );
 
+// TR-24. Las notas del comensal por dimension.
+experiencesRouter.get(
+  '/:id/notas',
+  requireRole('HOST', 'ADMIN'),
+  validate(experienceIdParamsSchema, 'params'),
+  experiencesController.notas,
+);
+
 experiencesRouter.patch(
   '/:id',
   requireRole('HOST', 'ADMIN'),

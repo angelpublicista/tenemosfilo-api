@@ -1230,7 +1230,31 @@ model Reservation {
   partialCancellations Json[] @default([])
 
   rescheduling        Json? // { originalDate, newDate, reason, requestedBy }
+  /// La nota que le pone el ANFITRION al cerrar la experiencia: como le fue a
+  /// el. Es suya y nadie mas la ve.
   rating              Int?
+
+  /// TR-24. Las estrellas que pone el COMENSAL, en cuatro cosas distintas:
+  /// experiencia general, servicio, ubicacion y comida.
+  ///
+  /// Cuatro y no una porque son cuatro decisiones distintas del anfitrion: un
+  /// sitio incomodo con comida excelente no se arregla igual que lo contrario,
+  /// y una nota unica no dice cual de las dos pasa.
+  ///
+  /// Sin comentarios ni fotos a proposito (§7 del documento): moderar texto de
+  /// desconocidos es un producto en si mismo.
+  ///
+  /// { general, servicio, ubicacion, comida, fecha }
+  ratings             Json?
+
+  /// Con que enlace puede calificar quien vino.
+  ///
+  /// Un token opaco y de un solo uso, no el numero de reserva: el enlace va
+  /// por correo, se reenvia y acaba en sitios que nadie previo. Se genera solo
+  /// cuando la experiencia se cierra con asistencia > 0, que es cuando hay
+  /// algo que calificar.
+  ratingToken         String?   @unique
+  ratingRequestedAt   DateTime?
   notes               String?      @db.Text
 
   // Codigo que el cliente enseña al llegar y el anfitrion valida.

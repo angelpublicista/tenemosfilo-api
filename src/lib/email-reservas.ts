@@ -488,6 +488,40 @@ export function correoCambioEnLaReserva(d: DatosCorreoReserva, cambios: string[]
   };
 }
 
+/**
+ * Al comensal, despues de la experiencia: que la califique (TR-24).
+ *
+ * Se manda solo si aparecio: pedirle una opinion a quien no vino es la mejor
+ * forma de recordarle que pago algo que no uso.
+ *
+ * El enlace lleva un token opaco porque va por correo y los correos se
+ * reenvian. Nada de pedir cuenta: quien cena no tiene por que registrarse
+ * para decir si le gusto.
+ */
+export function correoCalificacionComensal(d: DatosCorreoReserva, enlace: string) {
+  return {
+    subject: `¿Qué tal estuvo? · ${d.experienceTitle}`,
+    html: marco({
+      titulo: '¿Qué tal estuvo?',
+      logo: d.logoEmpresa,
+      empresa: d.empresaNombre,
+      color: marca(d),
+      contenido: `
+        <p>Hola ${esc(d.clienteNombre)},</p>
+        <p>Gracias por venir a <strong>${esc(d.experienceTitle)}</strong>. Si tienes un
+           minuto, cuéntanos cómo estuvo: son cuatro estrellas y nada más que marcar.</p>
+        ${bloqueDatos([
+          { etiqueta: 'Experiencia', valor: esc(d.experienceTitle) },
+          { etiqueta: 'Fecha', valor: esc(fechaLarga(d.reservationDate)) },
+        ])}
+        ${boton('Calificar', enlace, marca(d))}
+        <p style="font-size:13px;color:#6b7280;">
+          No hace falta crear una cuenta ni escribir nada.
+        </p>`,
+    }),
+  };
+}
+
 export function correoReprogramadaComensal(d: DatosCorreoReserva, motivo?: string) {
   return {
     subject: `Nueva fecha · ${d.experienceTitle}`,

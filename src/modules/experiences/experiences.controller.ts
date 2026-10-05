@@ -42,6 +42,18 @@ export const experiencesController = {
     res.json({ data: exp });
   },
 
+  // TR-24. Las notas del comensal por dimension. Es lo que dice QUE arreglar:
+  // un sitio incomodo con comida excelente no se arregla igual que lo
+  // contrario, y una nota unica no distingue las dos cosas.
+  async notas(req: Request, res: Response) {
+    const { id } = p<{ id: string }>(req);
+    res.json({
+      data: await experiencesService.notas(id, req.user!.companyId, {
+        isAdmin: req.user!.role === 'ADMIN',
+      }),
+    });
+  },
+
   async create(req: Request, res: Response) {
     const exp = await experiencesService.create(
       req.user!.companyId,

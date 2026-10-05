@@ -8,12 +8,13 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { validate } from '../../middleware/validate.js';
-import { NotFound } from '../../lib/errors.js';
+import { BadRequest, NotFound } from '../../lib/errors.js';
 import { prisma } from '../../config/prisma.js';
 import { getPlatformSettings } from '../../lib/commissions.js';
 import { dondeEstaElCatalogo } from '../companies/companies.service.js';
 import { empresasQuePuedenCobrar, pasarelaDe } from '../../lib/pasarela.js';
 import { enlaceService } from '../opportunities/opportunities.enlace.js';
+import { recalcularNotaDeExperiencia } from '../../lib/calificacion.js';
 
 export const publicRouter = Router();
 
@@ -239,5 +240,84 @@ publicRouter.get(
   async (req: Request, res: Response) => {
     const { token } = req.params as { token: string };
     res.json({ data: await enlaceService.datosDelEnlace(token) });
+  },
+);
+
+// ─── TR-24. Calificar, sin cuenta ─────────────────────────────────────────
+//
+// Quien cena no tiene por que registrarse para decir si le gusto. El enlace
+// llega por correo con un token opaco y solo se puede usar una vez: si se
+// reenvia a un grupo, el segundo que entre ya no puede cambiar la nota del
+// primero.
+
+const estrellaSchema = z.number().int().min(1).max(5);
+
+const calificarSchema = z.object({
+  general: estrellaSchema,
+  servicio: estrellaSchema,
+  ubicacion: estrellaSchema,
+  comida: estrellaSchema,
+});
+
+/** Que es lo que se va a calificar. Lo minimo para pintar la pagina. */
+publicRouter.get(
+  '/calificar/:token',
+  validate(z.object({ token: z.string().min(16).max(80) }), 'params'),
+  async (req: Request, res: Response) => {
+    const { token } = req.params as { token: string };
+    const r = await prisma.reservation.findUnique({
+      where: { ratingToken: token },
+      select: {
+        reservationNumber: true,
+        reservationDate: true,
+        ratings: true,
+        experience: { select: { title: true } },
+        company: { select: { companyName: true, logo: true, brandPrimary: true } },
+      },
+    });
+    if (!r) throw NotFound('Ese enlace no es válido');
+
+    res.json({
+      data: {
+        experiencia: r.experience?.title ?? null,
+        fecha: r.reservationDate,
+        empresa: r.company?.companyName ?? null,
+        logo: r.company?.logo ?? null,
+        colorMarca: r.company?.brandPrimary ?? null,
+        // Si ya califico, la pagina lo enseña en vez de pedirlo otra vez.
+        yaCalificada: r.ratings !== null,
+      },
+    });
+  },
+);
+
+publicRouter.post(
+  '/calificar/:token',
+  validate(z.object({ token: z.string().min(16).max(80) }), 'params'),
+  validate(calificarSchema),
+  async (req: Request, res: Response) => {
+    const { token } = req.params as { token: string };
+    const notas = req.body as z.infer<typeof calificarSchema>;
+
+    const r = await prisma.reservation.findUnique({
+      where: { ratingToken: token },
+      select: { id: true, experienceId: true, ratings: true },
+    });
+    if (!r) throw NotFound('Ese enlace no es válido');
+    if (r.ratings !== null) {
+      throw BadRequest('Esta experiencia ya fue calificada. Gracias.');
+    }
+
+    await prisma.reservation.update({
+      where: { id: r.id },
+      data: {
+        ratings: { ...notas, fecha: new Date().toISOString() },
+        // El token se gasta: el enlace vale una vez.
+        ratingToken: null,
+      },
+    });
+
+    await recalcularNotaDeExperiencia(r.experienceId);
+    res.json({ data: { gracias: true } });
   },
 );
