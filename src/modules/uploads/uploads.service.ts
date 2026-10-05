@@ -2,6 +2,7 @@ import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { randomUUID } from 'node:crypto';
 import { env } from '../../config/env.js';
+import { traerDeInternet } from '../../lib/url-externa.js';
 import { prisma } from '../../config/prisma.js';
 import { BadRequest, Forbidden } from '../../lib/errors.js';
 import { PREFIJO_PRIVADO, PREFIJO_PUBLICO, type PresignInput } from './uploads.schemas.js';
@@ -72,6 +73,39 @@ async function puedeLeer(key: string, userId: string, role: string): Promise<boo
 }
 
 export const uploadsService = {
+  /**
+   * Copia una imagen de una web al bucket.
+   *
+   * La usa el asistente de catalogo: el anfitrion marca cuales de las fotos de
+   * su propia web quiere, y se traen aqui. No se enlaza la original a proposito
+   * —si cambia o desaparece su sitio, su catalogo en FILO se queda con huecos—
+   * y ademas muchos servidores bloquean el hotlinking.
+   *
+   * La descarga pasa por `traerDeInternet`, que comprueba el destino en cada
+   * redireccion: una URL que escribe un usuario puede apuntar a nuestra propia
+   * red.
+   */
+  async copiarDesdeUrl({ userId, url }: { userId: string; url: string }) {
+    const r = await traerDeInternet(url, {
+      maxBytes: env.UPLOADS_MAX_BYTES,
+      tiposAceptados: /^image\/(png|jpe?g|webp|gif)$/,
+    });
+
+    const ext = r.contentType.replace('image/', '').replace('jpeg', 'jpg');
+    const key = `${PREFIJO_PUBLICO}/experiencias/${userId}/${randomUUID()}.${ext}`;
+
+    await getS3().send(
+      new PutObjectCommand({
+        Bucket: env.S3_BUCKET,
+        Key: key,
+        Body: r.cuerpo,
+        ContentType: r.contentType,
+      }),
+    );
+
+    return { key, publicUrl: `${publicBase()}/${key}`, bytes: r.cuerpo.byteLength };
+  },
+
   async presign({
     userId,
     filename,

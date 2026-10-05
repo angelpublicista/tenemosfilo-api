@@ -76,3 +76,10 @@ export const firmaLecturaSchema = z.object({
 
 export type PresignInput = z.infer<typeof presignSchema>;
 export type FirmaLecturaInput = z.infer<typeof firmaLecturaSchema>;
+
+/** Una imagen de la web del anfitrion que se trae a nuestro almacenamiento. */
+export const copiarDesdeUrlSchema = z.object({
+  url: z.string().url(),
+});
+
+export type CopiarDesdeUrlInput = z.infer<typeof copiarDesdeUrlSchema>;
