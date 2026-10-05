@@ -244,6 +244,9 @@ export const payoutsService = {
           reservationNumber: true,
           reservationDate: true,
           participants: true,
+          // TR-25. Cuanta gente aparecio, no solo cuanta se vendio: el canal
+          // tiene que poder reportarselo a su cliente.
+          attendedCount: true,
           status: true,
           pricing: true,
           collectedBy: true,
@@ -264,6 +267,7 @@ export const payoutsService = {
         reservationNumber: r.reservationNumber,
         reservationDate: r.reservationDate,
         participants: r.participants,
+        attendedCount: r.attendedCount,
         status: r.status,
         experienceTitle: r.experience?.title ?? null,
         companyName: r.company?.companyName ?? null,

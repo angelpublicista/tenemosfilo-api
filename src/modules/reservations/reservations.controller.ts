@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { reservationsService } from './reservations.service.js';
 import type {
   CancelInput,
+  DeMiCanalQuery,
   CreateReservationInput,
   ListReservationsQuery,
   ReembolsoInput,
@@ -54,6 +55,15 @@ export const reservationsController = {
       idempotencyKey: claveDeIdempotencia(req),
     });
     res.status(201).json({ data: r });
+  },
+
+  // TR-25. Lo que vendio este canal, con la asistencia de cada reserva.
+  async deMiCanal(req: Request, res: Response) {
+    const { items, total, resumen } = await reservationsService.deMiCanal(
+      req.user!.companyId,
+      q<DeMiCanalQuery>(req),
+    );
+    res.json({ data: items, meta: { total, resumen } });
   },
 
   async mias(req: Request, res: Response) {

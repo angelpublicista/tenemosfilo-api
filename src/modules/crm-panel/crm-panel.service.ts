@@ -80,6 +80,9 @@ export const crmPanelService = {
           reservationNumber: true,
           reservationDate: true,
           client: true,
+          // TR-09. Cuanta gente se vendio, para poder preguntar cuanta vino
+          // sin tener que ir a buscar la reserva.
+          participants: true,
           experience: { select: { title: true } },
         },
       }),
@@ -136,13 +139,18 @@ export const crmPanelService = {
   async cerrarExperiencia(
     reservationId: string,
     companyId: string | null | undefined,
-    input: { resultado: 'REALIZADA' | 'NO_SE_PRESENTO'; rating?: number; notas?: string },
+    input: {
+      resultado: 'REALIZADA' | 'NO_SE_PRESENTO';
+      rating?: number;
+      notas?: string;
+      asistentes?: number;
+    },
   ) {
     if (!companyId) throw Forbidden('No tienes una company asociada');
 
     const reserva = await prisma.reservation.findFirst({
       where: { id: reservationId, companyId },
-      select: { id: true, notes: true, reservationDate: true },
+      select: { id: true, notes: true, reservationDate: true, participants: true },
     });
     if (!reserva) throw NotFound('Reserva no encontrada');
     // Cerrar algo que todavia no ha ocurrido no es cerrarlo: es cancelarlo o
@@ -157,14 +165,39 @@ export const crmPanelService = {
       ? [reserva.notes, input.notas.trim()].filter(Boolean).join('\n')
       : undefined;
 
+    // TR-09. La asistencia se registra al cerrar, y no se presume: si no se
+    // dice, una realizada vino completa y una que no se presento vino con
+    // nadie. Eso es lo que significan esas dos palabras.
+    const realizada = input.resultado === 'REALIZADA';
+    const asistentes =
+      input.asistentes ?? (realizada ? reserva.participants : 0);
+    if (asistentes > reserva.participants) {
+      throw BadRequest(
+        `Se reservaron ${reserva.participants} ${
+          reserva.participants === 1 ? 'persona' : 'personas'
+        }: no pueden haber asistido ${asistentes}.`,
+      );
+    }
+
     return prisma.reservation.update({
       where: { id: reservationId },
       data: {
-        status: input.resultado === 'REALIZADA' ? 'COMPLETED' : 'NO_SHOW',
-        ...(input.resultado === 'REALIZADA' && input.rating ? { rating: input.rating } : {}),
+        // Una realizada a la que no fue nadie es un no-show, lo diga como lo
+        // diga quien cierra: si se guardara como completada, se cobraria como
+        // una experiencia que no ocurrio.
+        status: realizada && asistentes > 0 ? 'COMPLETED' : 'NO_SHOW',
+        attendedCount: asistentes,
+        ...(realizada && input.rating ? { rating: input.rating } : {}),
         ...(notas !== undefined ? { notes: notas } : {}),
       },
-      select: { id: true, reservationNumber: true, status: true, rating: true },
+      select: {
+        id: true,
+        reservationNumber: true,
+        status: true,
+        rating: true,
+        attendedCount: true,
+        participants: true,
+      },
     });
   },
 

@@ -114,6 +114,19 @@ export const rescheduleSchema = z.object({
   requestedBy: z.enum(['client', 'host']),
 });
 
+/**
+ * TR-25. Lo que vendio un canal, para reportarle la asistencia.
+ *
+ * Sin filtro de empresa: la empresa es la de quien llama, siempre. Dejar que
+ * se mande seria dejar que un revendedor pida las ventas de otro.
+ */
+export const deMiCanalQuerySchema = z.object({
+  page: z.coerce.number().int().positive().default(1),
+  pageSize: z.coerce.number().int().positive().max(200).default(50),
+  dateFrom: z.string().optional(),
+  dateTo: z.string().optional(),
+});
+
 export const listReservationsQuerySchema = z.object({
   companyId: z.string().optional(),
   status: statusEnum.optional(),
@@ -156,5 +169,6 @@ export type UpdateReservationInput = z.infer<typeof updateReservationSchema>;
 export type CancelInput = z.infer<typeof cancelSchema>;
 export type ReembolsoInput = z.infer<typeof reembolsoSchema>;
 export type RescheduleInput = z.infer<typeof rescheduleSchema>;
+export type DeMiCanalQuery = z.infer<typeof deMiCanalQuerySchema>;
 export type ListReservationsQuery = z.infer<typeof listReservationsQuerySchema>;
 export type ValidarCodigoInput = z.infer<typeof validarCodigoSchema>;

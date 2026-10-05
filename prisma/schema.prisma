@@ -753,6 +753,7 @@ model Contact {
   decisionForOpportunities Opportunity[]    @relation("OpportunityDecisionMakers")
   opportunities            Opportunity[]
   aiConversations          AiConversation[]
+  reservations             Reservation[]
 
   isActive  Boolean   @default(true)
   createdAt DateTime  @default(now())
@@ -1140,6 +1141,28 @@ model Reservation {
   virtualDetails      String?
   specialRequirements String?      @db.Text
   cancellation        Json? // { cancelledAt, cancelledBy, cancellationReason, refundAmount, refundStatus }
+
+  // TR-09 y TR-25. Cuanta gente aparecio de verdad.
+  //
+  // Es distinto de `participants`, que es lo vendido: de diez reservados
+  // pueden venir ocho. Hace falta para dos cosas que el documento pide por
+  // separado: cerrar la experiencia con la asistencia registrada, y poder
+  // reportarsela al canal que vendio esa reserva.
+  //
+  // Null mientras no se haya cerrado: no se presume que vinieron todos.
+  attendedCount Int?
+
+  // TR-26. El contacto del CRM del anfitrion al que corresponde el comprador.
+  //
+  // Existe porque una venta de revendedor tiene que dejarle al anfitrion el
+  // cliente: antes el comprador vivia solo dentro del JSON `client` de la
+  // reserva y no llegaba al CRM, asi que el anfitrion vendia y no se quedaba
+  // con nadie a quien volver a venderle.
+  //
+  // Opcional: una venta sin correo ni telefono no se puede cruzar con nadie
+  // sin arriesgarse a confundir a dos personas.
+  contactId String?
+  contact   Contact? @relation(fields: [contactId], references: [id])
 
   // TR-30. Los reembolsos de esta reserva, totales o parciales, en un solo
   // sitio. Antes vivian repartidos —uno dentro de `cancellation` y otro

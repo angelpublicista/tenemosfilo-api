@@ -3,6 +3,7 @@ import { pasarelaDe } from '../../lib/pasarela.js';
 import { prisma } from '../../config/prisma.js';
 import { conCupoApartado } from '../../lib/cupos.js';
 import { comprobarSimultaneidad } from '../../lib/agenda-del-anfitrion.js';
+import { vincularCompradorAlCrm } from '../../lib/comprador-al-crm.js';
 import {
   estadoDePagoTrasReembolso,
   nuevoReembolso,
@@ -42,6 +43,10 @@ const fullInclude = {
   company: { select: { id: true, companyName: true, companyEmail: true, companyPhone: true, logo: true } },
   user: { select: { id: true, name: true, email: true, phone: true } },
   location: { select: { id: true, name: true, address: true } },
+  // TR-26. El contacto del CRM al que corresponde el comprador. Se devuelve
+  // para poder llegar a su ficha desde la reserva: ahi esta su historial, y
+  // es la mitad util de haberlo vinculado.
+  contact: { select: { id: true, firstName: true, lastName: true } },
 } satisfies Prisma.ReservationInclude;
 
 async function assertCanManage(id: string, requesterCompanyId: string | null | undefined) {
@@ -225,6 +230,45 @@ async function precioDesdeExperiencia(
 /** El mapeo vive en notify.ts: lo comparte con el webhook de la pasarela. */
 const paraAvisos = datosDeReserva;
 
+/**
+ * TR-26. Cuelga el comprador del CRM del anfitrion y lo ata a la reserva.
+ *
+ * Aparte y sin await porque no es parte de la venta: es su consecuencia. Un
+ * CRM que no se actualiza es un problema; una reserva que no se crea porque
+ * el CRM fallo es otro mucho peor.
+ */
+async function colgarDelCrm(
+  reservationId: string,
+  companyId: string,
+  cliente: unknown,
+  source: string | null | undefined,
+  resellerCompanyId: string | null,
+): Promise<void> {
+  try {
+    const c = (cliente ?? {}) as { name?: string; email?: string; phone?: string };
+
+    // De donde vino el cliente, en palabras que el anfitrion reconozca al
+    // verlas en la ficha meses despues.
+    let origen = 'Reserva directa';
+    if (resellerCompanyId) {
+      const rev = await prisma.company.findUnique({
+        where: { id: resellerCompanyId },
+        select: { companyName: true },
+      });
+      origen = rev?.companyName ? `Canal: ${rev.companyName}` : 'Canal de venta';
+    } else if (source === 'BOOKING_ENGINE') {
+      origen = 'Catálogo público';
+    }
+
+    const contactId = await vincularCompradorAlCrm(companyId, c, origen);
+    if (contactId) {
+      await prisma.reservation.update({ where: { id: reservationId }, data: { contactId } });
+    }
+  } catch (e) {
+    console.error('[contacto del comprador] no se pudo vincular', e);
+  }
+}
+
 export const reservationsService = {
   async create(
     requesterCompanyId: string | null | undefined,
@@ -352,6 +396,12 @@ export const reservationsService = {
     // Un reintento no vuelve a avisar: el anfitrion recibiria dos veces el
     // mismo aviso de una sola venta.
     if (!reutilizada) void avisarNuevaReserva(paraAvisos(creada));
+
+    // TR-26. El comprador queda como contacto del anfitrion. Sin await: si
+    // falla, la venta ya esta hecha y perder el contacto es molesto, perder
+    // la reserva es inaceptable.
+    if (!reutilizada) void colgarDelCrm(creada.id, companyId, input.client, source, resellerCompanyId);
+
     return creada;
   },
 
@@ -506,6 +556,9 @@ export const reservationsService = {
         });
     if (completa) void avisarNuevaReserva(paraAvisos(completa));
 
+    // TR-26, igual que en create(): la venta le deja al anfitrion el cliente.
+    if (completa) void colgarDelCrm(completa.id, companyId, input.client, 'BOOKING_ENGINE', revendedor);
+
     // Si la pasarela esta activa, devolvemos ya los datos firmados para
     // cobrar. Asi el cliente paga sin un endpoint publico adicional, que
     // seria una via para enumerar reservas ajenas.
@@ -639,6 +692,103 @@ export const reservationsService = {
       },
     });
     return { reserva: actualizada, yaHabiaLlegado: false };
+  },
+
+  /**
+   * Lo que vendio un canal, con la asistencia de cada reserva (TR-25).
+   *
+   * El revendedor no puede ver el listado de reservas del anfitrion —no son
+   * suyas— pero si las que vendio el, y necesita saber quien aparecio: es lo
+   * que le permite contarselo a su cliente corporativo y cuadrar su propia
+   * facturacion.
+   *
+   * Va aparte de "Mis ingresos" a proposito: eso es dinero y solo cuenta lo
+   * cobrado. Esto es operacion, e incluye lo que todavia no se ha pagado.
+   */
+  async deMiCanal(
+    resellerCompanyId: string | null | undefined,
+    query: { page: number; pageSize: number; dateFrom?: string; dateTo?: string },
+  ) {
+    if (!resellerCompanyId) throw Forbidden('No tienes una company asociada');
+
+    const where: Prisma.ReservationWhereInput = {
+      resellerCompanyId,
+      ...(query.dateFrom || query.dateTo
+        ? {
+            reservationDate: {
+              ...(query.dateFrom ? { gte: new Date(query.dateFrom) } : {}),
+              ...(query.dateTo ? { lte: new Date(query.dateTo) } : {}),
+            },
+          }
+        : {}),
+    };
+
+    const [items, total] = await Promise.all([
+      prisma.reservation.findMany({
+        where,
+        orderBy: { reservationDate: 'desc' },
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+        select: {
+          id: true,
+          reservationNumber: true,
+          confirmationCode: true,
+          reservationDate: true,
+          participants: true,
+          attendedCount: true,
+          status: true,
+          paymentStatus: true,
+          client: true,
+          pricing: true,
+          experience: { select: { id: true, title: true } },
+          company: { select: { id: true, companyName: true } },
+        },
+      }),
+      prisma.reservation.count({ where }),
+    ]);
+
+    const filas = items.map((r) => {
+      const p = (r.pricing ?? {}) as Record<string, unknown>;
+      const c = (r.client ?? {}) as { name?: string };
+      return {
+        id: r.id,
+        reservationNumber: r.reservationNumber,
+        confirmationCode: r.confirmationCode,
+        reservationDate: r.reservationDate,
+        experienceTitle: r.experience?.title ?? null,
+        hostCompanyName: r.company?.companyName ?? null,
+        clienteNombre: c.name ?? null,
+        participants: r.participants,
+        // null hasta que el anfitrion cierre la experiencia. No se presume que
+        // vinieron todos: decirlo sin saberlo es peor que no decir nada.
+        attendedCount: r.attendedCount,
+        status: r.status,
+        paymentStatus: r.paymentStatus,
+        total: Number(p.total ?? 0),
+        resellerCommission: Number(p.resellerCommission ?? 0),
+      };
+    });
+
+    // El resumen del periodo: es lo primero que se mira al reportarle a un
+    // cliente, y sumarlo en la pantalla obligaria a traerse todas las paginas.
+    const agregado = await prisma.reservation.aggregate({
+      where,
+      _sum: { participants: true, attendedCount: true },
+    });
+    const cerradas = await prisma.reservation.count({
+      where: { ...where, attendedCount: { not: null } },
+    });
+
+    return {
+      items: filas,
+      total,
+      resumen: {
+        vendidas: total,
+        personasVendidas: agregado._sum?.participants ?? 0,
+        personasAsistieron: agregado._sum?.attendedCount ?? 0,
+        conAsistenciaRegistrada: cerradas,
+      },
+    };
   },
 
   async list(requesterCompanyId: string | null | undefined, query: ListReservationsQuery) {

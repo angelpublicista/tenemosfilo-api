@@ -16,6 +16,7 @@ import {
   updateStatusSchema,
   validarCodigoSchema,
   reembolsoSchema,
+  deMiCanalQuerySchema,
 } from './reservations.schemas.js';
 
 export const reservationsRouter = Router();
@@ -35,6 +36,18 @@ reservationsRouter.use(requireAuth);
 // que reserve — comensal, anfitrion o revendedor — puede ver las suyas.
 // Va antes de /:id para que "mine" no se tome por un id.
 reservationsRouter.get('/mine', requireHumanAuth, reservationsController.mias);
+
+// TR-25. Lo que vendio un canal, con la asistencia. Va antes de /:id para que
+// "de-mi-canal" no se lea como el id de una reserva.
+//
+// Lo abre tambien un ADMIN actuando como la empresa revendedora, que es como
+// se revisa un canal desde dentro sin pedirle sus credenciales.
+reservationsRouter.get(
+  '/de-mi-canal',
+  requireRole('RESELLER', 'ADMIN'),
+  validate(deMiCanalQuerySchema, 'query'),
+  reservationsController.deMiCanal,
+);
 
 reservationsRouter.get(
   '/stats/by-company/:companyId',

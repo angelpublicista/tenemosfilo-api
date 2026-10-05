@@ -15,6 +15,10 @@ const cerrarExperienciaSchema = z.object({
   resultado: z.enum(['REALIZADA', 'NO_SE_PRESENTO']),
   rating: z.number().int().min(1).max(5).optional(),
   notas: z.string().max(1000).optional(),
+  // TR-09 y TR-25. Cuanta gente aparecio. Opcional por lo mismo que la
+  // calificacion: si no se dice, se asume lo reservado en una realizada y
+  // cero en una que no se presento, que es lo que significan.
+  asistentes: z.number().int().min(0).optional(),
 });
 
 type CerrarExperienciaInput = z.infer<typeof cerrarExperienciaSchema>;
