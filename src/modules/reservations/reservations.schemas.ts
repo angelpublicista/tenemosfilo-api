@@ -64,6 +64,10 @@ export const createReservationSchema = z.object({
   virtualDetails: z.record(z.string(), z.unknown()).optional(),
   specialRequirements: z.string().optional(),
   notes: z.string().optional(),
+  // TR-42. El "programar de todas formas" cuando el anfitrion ya tiene algo a
+  // esa hora en OTRA sede. Sobre la misma sede no sirve de nada: el sitio es
+  // uno y no se parte en dos.
+  permitirSolape: z.boolean().optional(),
 });
 
 export const updateReservationSchema = createReservationSchema.partial().extend({
@@ -74,10 +78,23 @@ export const updateReservationSchema = createReservationSchema.partial().extend(
 export const updateStatusSchema = z.object({ status: statusEnum });
 export const updatePaymentStatusSchema = z.object({ paymentStatus: paymentStatusEnum });
 
+/**
+ * Cancelar una reserva, entera o en parte (TR-07).
+ *
+ * `participants` es cuanta gente se cae. Sin el, se cae la reserva completa;
+ * con menos gente de la que hay, la reserva sigue viva con los que quedan y
+ * los cupos de los que se fueron se liberan.
+ *
+ * `refundAmount` queda opcional porque quien cancela cambia la respuesta: si
+ * cancela el anfitrion corresponde devolver lo cobrado y el servidor lo pone
+ * por defecto; si cancela el comensal, depende de los terminos del anfitrion
+ * y tiene que decirlo quien cancela.
+ */
 export const cancelSchema = z.object({
   cancelledBy: z.enum(['client', 'host', 'system']),
   reason: z.string().min(1),
   refundAmount: z.number().nonnegative().optional(),
+  participants: z.number().int().positive().optional(),
 });
 
 export const rescheduleSchema = z.object({

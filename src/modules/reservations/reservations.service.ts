@@ -2,6 +2,7 @@ import { Prisma, ReservationStatus, PaymentStatus, UserRole, type CollectedBy } 
 import { pasarelaDe } from '../../lib/pasarela.js';
 import { prisma } from '../../config/prisma.js';
 import { conCupoApartado } from '../../lib/cupos.js';
+import { comprobarSimultaneidad } from '../../lib/agenda-del-anfitrion.js';
 import {
   calcularDesglose,
   getPlatformSettings,
@@ -11,6 +12,7 @@ import { BadRequest, Forbidden, NotFound } from '../../lib/errors.js';
 import { generarCodigoDeConfirmacion, normalizarCodigo } from '../../lib/codigo-de-confirmacion.js';
 import { construirCheckout } from '../payments/payments.service.js';
 import {
+  avisarBajaParcial,
   avisarCambioDeEstado,
   avisarNuevaReserva,
   avisarPago,
@@ -274,6 +276,19 @@ export const reservationsService = {
     // deberian poder pasarse del aforo si la empresa lo tiene bloqueado.
     const ajustes = await ajustesDeOperacion(companyId);
 
+    // TR-42. Que el anfitrion no acabe con dos cosas a la vez en el mismo
+    // sitio. En sedes distintas solo se avisa, y quien programa decide.
+    await comprobarSimultaneidad(
+      {
+        companyId,
+        experienceId: input.experience,
+        locationId: input.location ?? null,
+        fecha: new Date(input.reservationDate),
+        duracionMin: input.duration ?? null,
+      },
+      { permitirSolape: input.permitirSolape === true },
+    );
+
     const { reserva: creada, reutilizada } = await conCupoApartado(
       input.experience,
       new Date(input.reservationDate),
@@ -405,6 +420,21 @@ export const reservationsService = {
     const fecha = new Date(input.reservationDate);
     const ajustes = await ajustesDeOperacion(companyId);
     const { autoConfirmar } = ajustes;
+
+    // TR-42, en el checkout publico: solo el bloqueo de la misma sede. El
+    // aviso de sedes distintas es una decision del anfitrion, y quien reserva
+    // desde el catalogo no puede tomarla ni sabe de que se le hablaria; si se
+    // le preguntara, lo unico que pasaria es que se perderia la venta.
+    await comprobarSimultaneidad(
+      {
+        companyId,
+        experienceId: input.experience,
+        locationId: input.location ?? null,
+        fecha,
+        duracionMin: input.duration ?? null,
+      },
+      { permitirSolape: true },
+    );
 
     const { reserva: creada, reutilizada } = await conCupoApartado(
       input.experience,
@@ -712,8 +742,106 @@ export const reservationsService = {
     return actualizada;
   },
 
+  /**
+   * Cancelar una reserva, entera o en parte (TR-07).
+   *
+   * Lo que decide casi todo es quien cancela. Si cancela el anfitrion, el
+   * comensal no ha hecho nada mal y le corresponde lo que pago: el reembolso
+   * sale por defecto de `paidAmount` y no hay que acordarse de mandarlo. Si
+   * cancela el comensal, lo que se devuelve depende de los terminos del
+   * anfitrion, y eso no lo puede adivinar el servidor: va a cero salvo que
+   * quien cancela diga otra cosa.
+   *
+   * Una baja parcial no cancela nada: la reserva sigue viva con menos gente.
+   * Los cupos de los que se cayeron quedan libres en el acto, porque el aforo
+   * se cuenta sobre `participants`. El importe baja en proporcion y las
+   * comisiones se recalculan sobre la nueva base: cobrarle al anfitrion el
+   * fee de diez personas cuando vinieron ocho seria cobrarle de mas.
+   */
   async cancel(id: string, requesterCompanyId: string | null | undefined, input: CancelInput) {
-    await assertCanManage(id, requesterCompanyId);
+    const actual = await prisma.reservation.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        companyId: true,
+        experienceId: true,
+        participants: true,
+        paidAmount: true,
+        pricing: true,
+        status: true,
+        source: true,
+        resellerCompanyId: true,
+        collectedBy: true,
+        partialCancellations: true,
+      },
+    });
+    if (!actual) throw NotFound('Reserva no encontrada');
+    if (!requesterCompanyId || actual.companyId !== requesterCompanyId)
+      throw Forbidden('No tienes permiso sobre esta reserva');
+    if (actual.status === 'CANCELLED') throw BadRequest('Esta reserva ya está cancelada');
+
+    const pagado = Number(actual.paidAmount) || 0;
+    const sePierden = input.participants ?? actual.participants;
+    if (sePierden > actual.participants) {
+      throw BadRequest(
+        `Esta reserva es de ${actual.participants} ${
+          actual.participants === 1 ? 'persona' : 'personas'
+        }: no se pueden dar de baja ${sePierden}.`,
+      );
+    }
+
+    // ── Baja parcial: la reserva sigue, con menos gente ──
+    if (sePierden < actual.participants) {
+      const quedan = actual.participants - sePierden;
+      const precio = (actual.pricing ?? {}) as Record<string, unknown>;
+      const totalViejo = Number(precio.total) || 0;
+      // Proporcional: es la unica reparticion defendible cuando el total se
+      // negocio y no sale de multiplicar el precio de lista.
+      const totalNuevo = Math.round((totalViejo * quedan) / actual.participants);
+
+      const reembolso =
+        input.refundAmount ??
+        (input.cancelledBy === 'host'
+          ? Math.min(pagado, Math.round((pagado * sePierden) / actual.participants))
+          : 0);
+
+      const pricing = await conComisiones(
+        actual.experienceId,
+        { ...precio, total: totalNuevo } as CreateReservationInput['pricing'],
+        actual.resellerCompanyId !== null,
+        actual.collectedBy,
+        actual.source,
+      );
+
+      const parcial = {
+        fecha: new Date().toISOString(),
+        personas: sePierden,
+        canceladaPor: input.cancelledBy,
+        motivo: input.reason,
+        reembolso,
+        estadoDelReembolso: reembolso > 0 ? 'pendiente' : null,
+      };
+
+      const reducida = await prisma.reservation.update({
+        where: { id },
+        data: {
+          participants: quedan,
+          pricing,
+          partialCancellations: [
+            ...(actual.partialCancellations as Prisma.InputJsonValue[]),
+            parcial as Prisma.InputJsonValue,
+          ],
+        },
+        include: fullInclude,
+      });
+
+      void avisarBajaParcial(paraAvisos(reducida), sePierden, input.reason, reembolso);
+      return reducida;
+    }
+
+    // ── Baja total ──
+    const reembolso = input.refundAmount ?? (input.cancelledBy === 'host' ? pagado : 0);
+
     const cancelada = await prisma.reservation.update({
       where: { id },
       data: {
@@ -722,8 +850,8 @@ export const reservationsService = {
           cancelledAt: new Date().toISOString(),
           cancelledBy: input.cancelledBy,
           cancellationReason: input.reason,
-          refundAmount: input.refundAmount ?? 0,
-          refundStatus: input.refundAmount ? 'pending' : null,
+          refundAmount: reembolso,
+          refundStatus: reembolso > 0 ? 'pending' : null,
         } as Prisma.InputJsonValue,
       },
       include: fullInclude,

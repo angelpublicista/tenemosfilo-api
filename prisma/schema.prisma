@@ -1140,6 +1140,15 @@ model Reservation {
   virtualDetails      String?
   specialRequirements String?      @db.Text
   cancellation        Json? // { cancelledAt, cancelledBy, cancellationReason, refundAmount, refundStatus }
+
+  // TR-07. Las bajas parciales: dos de las diez personas se caen y los otros
+  // ocho siguen viniendo. Es una lista y no un campo porque pueden caerse en
+  // tandas, y cada una tiene su propio reembolso que alguien tiene que pagar.
+  //
+  // Cada entrada: { fecha, personas, canceladaPor, motivo, reembolso,
+  // estadoDelReembolso }.
+  partialCancellations Json[] @default([])
+
   rescheduling        Json? // { originalDate, newDate, reason, requestedBy }
   rating              Int?
   notes               String?      @db.Text

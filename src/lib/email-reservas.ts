@@ -394,6 +394,72 @@ export function correoCanceladaAnfitrion(d: DatosCorreoReserva, motivo?: string)
   };
 }
 
+/**
+ * Al comensal cuando se cae parte de su grupo (TR-07).
+ *
+ * Distinto de la cancelacion entera a proposito: la reserva sigue en pie y lo
+ * que tiene que quedar claro es con cuanta gente. Un correo de "reserva
+ * cancelada" cuando siguen viniendo ocho personas haria que nadie apareciera.
+ */
+export function correoBajaParcialComensal(
+  d: DatosCorreoReserva,
+  personasQueSeCaen: number,
+  motivo?: string,
+  reembolso?: number,
+) {
+  return {
+    subject: `Cambio en tu reserva · ${d.experienceTitle}`,
+    html: marco({
+      titulo: 'Tu reserva queda con menos personas',
+      logo: d.logoEmpresa,
+      empresa: d.empresaNombre,
+      color: marca(d),
+      contenido: `
+        <p>Hola ${esc(d.clienteNombre)},</p>
+        <p>Se dieron de baja <strong>${esc(personas(personasQueSeCaen))}</strong> de tu reserva en
+           <strong>${esc(d.empresaNombre)}</strong>. El resto sigue en pie:</p>
+        ${bloqueDatos([
+          ...datosDelPlan(d),
+          { etiqueta: 'Motivo', valor: esc(motivo ?? '') },
+          ...(reembolso && reembolso > 0
+            ? [{ etiqueta: 'Reembolso', valor: esc(dinero(reembolso)) }]
+            : []),
+        ])}
+        ${
+          reembolso && reembolso > 0
+            ? '<p style="font-size:13px;color:#6b7280;">El reembolso se gestiona con el anfitrión.</p>'
+            : ''
+        }
+        ${boton('Ver mis reservas', PANEL_COMENSAL, marca(d))}`,
+    }),
+  };
+}
+
+/** Al anfitrion: se cayo parte del grupo y esos cupos vuelven a estar libres. */
+export function correoBajaParcialAnfitrion(
+  d: DatosCorreoReserva,
+  personasQueSeCaen: number,
+  motivo?: string,
+) {
+  return {
+    subject: `Baja parcial · ${d.reservationNumber} · ${d.experienceTitle}`,
+    html: marco({
+      titulo: 'Se cayó parte de un grupo',
+      logo: d.logoEmpresa,
+      empresa: d.empresaNombre,
+      color: ROJO,
+      contenido: `
+        <p>La reserva de <strong>${esc(d.clienteNombre)}</strong> baja
+           ${esc(personas(personasQueSeCaen))}. Esos cupos quedan libres.</p>
+        ${bloqueDatos([
+          ...datosDelPlan(d),
+          { etiqueta: 'Motivo', valor: esc(motivo ?? '') },
+        ])}
+        ${boton('Ver reservas', PANEL_ANFITRION, marca(d))}`,
+    }),
+  };
+}
+
 export function correoReprogramadaComensal(d: DatosCorreoReserva, motivo?: string) {
   return {
     subject: `Nueva fecha · ${d.experienceTitle}`,

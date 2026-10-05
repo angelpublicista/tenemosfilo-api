@@ -1,6 +1,7 @@
 import { Prisma, ExperienceStatus } from '@prisma/client';
 import { prisma } from '../../config/prisma.js';
 import { BadRequest, Forbidden, NotFound } from '../../lib/errors.js';
+import { reservationsService } from '../reservations/reservations.service.js';
 import type {
   CreateExperienceInput,
   ListExperiencesQuery,
@@ -378,16 +379,66 @@ export const experiencesService = {
     return prisma.experience.update({ where: { id }, data: { status }, include: lightInclude });
   },
 
+  /**
+   * TR-11. Borrar una experiencia con reservas encima no puede ser silencioso.
+   *
+   * Hasta ahora se marcaba como borrada y las reservas se quedaban colgando
+   * de una experiencia que ya no existe: la gente seguia esperando una cena
+   * que nadie iba a dar, y el anfitrion se quedaba con un dinero cobrado por
+   * algo que no va a ocurrir.
+   *
+   * Asi que se pregunta primero. Sin `cancelarReservas` se devuelve cuantas
+   * hay y no se borra nada; con el, se cancelan una por una —cada una con su
+   * aviso y su reembolso apuntado— y despues se borra.
+   *
+   * Solo cuentan las que estan por venir: las pasadas son historia y
+   * cancelarlas seria reescribirla.
+   */
   async softDelete(
     id: string,
     requesterCompanyId: string | null | undefined,
-    opts?: { isAdmin?: boolean },
+    opts?: { isAdmin?: boolean; cancelarReservas?: boolean },
   ) {
-    await assertCanManage(id, requesterCompanyId, opts);
+    const exp = await assertCanManage(id, requesterCompanyId, opts);
+
+    const vivas = await prisma.reservation.findMany({
+      where: {
+        experienceId: id,
+        status: { notIn: ['CANCELLED', 'NO_SHOW', 'COMPLETED'] },
+        reservationDate: { gte: new Date() },
+      },
+      select: { id: true, paidAmount: true },
+    });
+
+    if (vivas.length > 0 && !opts?.cancelarReservas) {
+      const conPago = vivas.filter((r) => Number(r.paidAmount) > 0).length;
+      throw BadRequest(
+        `Esta experiencia tiene ${vivas.length} ${
+          vivas.length === 1 ? 'reserva' : 'reservas'
+        } por venir${conPago > 0 ? `, ${conPago} con dinero cobrado` : ''}. ` +
+          'Si la eliminas se cancelarán y habrá que devolver lo cobrado. Confirma para continuar.',
+        { motivo: 'TIENE_RESERVAS', reservas: vivas.length, conPago },
+      );
+    }
+
+    for (const r of vivas) {
+      // Por el servicio de reservas y no a mano: ahi vive el aviso al
+      // comensal y el apunte del reembolso, y duplicarlo aqui acabaria en
+      // dos reglas distintas para la misma cancelacion.
+      // Con la empresa de la experiencia, no con la de quien llama: un ADMIN
+      // puede borrar la de otro y su propio companyId no pasaria el control.
+      await reservationsService.cancel(r.id, exp.companyId, {
+        cancelledBy: 'host',
+        reason: 'El anfitrión eliminó la experiencia',
+      });
+    }
+
     await prisma.experience.update({
       where: { id },
       data: { deletedAt: new Date(), isActive: false, status: 'INACTIVE' },
     });
+
+    return { reservasCanceladas: vivas.length };
   },
 
   async statsByCompany(requesterCompanyId: string | null | undefined, companyId: string) {

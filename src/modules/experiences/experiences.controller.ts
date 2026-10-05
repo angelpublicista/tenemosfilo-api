@@ -80,11 +80,23 @@ export const experiencesController = {
     res.json({ data: exp });
   },
 
+  /**
+   * TR-11. `?cancelarReservas=true` es la confirmacion de que se asume lo que
+   * implica: cancelar lo que estaba vendido y devolver lo cobrado. Sin ella,
+   * el servicio responde cuantas reservas hay y no borra nada.
+   */
   async remove(req: Request, res: Response) {
     const { id } = p<{ id: string }>(req);
-    await experiencesService.softDelete(id, req.user!.companyId, {
+    const resultado = await experiencesService.softDelete(id, req.user!.companyId, {
       isAdmin: req.user!.role === 'ADMIN',
+      cancelarReservas: req.query.cancelarReservas === 'true',
     });
+    // Cuando se cancelo algo hay que contarlo: un 204 mudo dejaria al
+    // anfitrion sin saber que acaba de cancelar seis reservas.
+    if (resultado.reservasCanceladas > 0) {
+      res.json({ data: resultado });
+      return;
+    }
     res.status(204).end();
   },
 };

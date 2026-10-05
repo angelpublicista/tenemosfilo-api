@@ -23,6 +23,8 @@ import {
   correoReservaAnfitrion,
   correoReservaComensal,
   type DatosCorreoReserva,
+  correoBajaParcialComensal,
+  correoBajaParcialAnfitrion,
 } from './email-reservas.js';
 
 type Aviso = {
@@ -486,6 +488,62 @@ export async function avisarCambioDeEstado(
   }
 
   await despachar(envios);
+}
+
+/**
+ * Se cayo parte de un grupo (TR-07).
+ *
+ * Va aparte del aviso de cancelacion porque no es lo mismo: la reserva sigue
+ * viva y lo que cambia es con cuanta gente. Al anfitrion le importa porque
+ * esos cupos vuelven a estar libres y puede revenderlos.
+ */
+export async function avisarBajaParcial(
+  r: DatosReserva,
+  personasQueSeCaen: number,
+  motivo?: string,
+  reembolso?: number,
+): Promise<void> {
+  const avisos: Aviso[] = [];
+  const cuantas = `${personasQueSeCaen} ${personasQueSeCaen === 1 ? 'persona' : 'personas'}`;
+
+  if (r.userId) {
+    avisos.push({
+      userId: r.userId,
+      type: 'RESERVATION_CANCELLED',
+      title: 'Tu reserva queda con menos personas',
+      message:
+        `${r.experienceTitle} · ${cuando(r.reservationDate)}. Se dieron de baja ${cuantas}` +
+        (motivo ? `. Motivo: ${motivo}` : '.'),
+      data: { reservationId: r.id, reservationNumber: r.reservationNumber },
+    });
+  }
+
+  const anfitriones = await personasDeLaEmpresa(r.companyId);
+  avisos.push(
+    ...anfitriones.map((userId) => ({
+      userId,
+      type: 'RESERVATION_CANCELLED' as const,
+      title: 'Baja parcial en una reserva',
+      message: `${r.reservationNumber} · ${r.experienceTitle}. Se cayeron ${cuantas}, esos cupos quedan libres`,
+      data: { reservationId: r.id, reservationNumber: r.reservationNumber },
+    })),
+  );
+
+  await notificar(avisos);
+
+  const d = paraCorreo(r);
+  const correos = await correosDeLaEmpresa(r.companyId, 'RESERVAS');
+  await despachar([
+    ...(r.clienteEmail
+      ? [
+          {
+            to: r.clienteEmail,
+            ...correoBajaParcialComensal(d, personasQueSeCaen, motivo, reembolso),
+          },
+        ]
+      : []),
+    ...correos.map((to) => ({ to, ...correoBajaParcialAnfitrion(d, personasQueSeCaen, motivo) })),
+  ]);
 }
 
 /** Pago confirmado: al anfitrion le entra dinero, al cliente le queda pagado. */
