@@ -54,8 +54,7 @@ const experienciaPublica = {
       id: true,
       name: true,
       weeklySchedule: true,
-      bufferTime: true,
-      minimumNotice: true,
+
       blockedDates: true,
       locationId: true,
       // TR-35. Hasta cuando se repite este horario. Sin esto el catalogo
@@ -80,8 +79,7 @@ const agendaPropia = {
     id: true,
     name: true,
     weeklySchedule: true,
-    bufferTime: true,
-    minimumNotice: true,
+
     blockedDates: true,
     locationId: true,
     validFrom: true,

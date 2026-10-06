@@ -31,6 +31,10 @@ export const createExperienceSchema = z.object({
   // En ese rato no cabe otra cosa, y la agenda lo cuenta.
   prepTime: z.number().int().nonnegative().max(1440).nullish(),
   cleanupTime: z.number().int().nonnegative().max(1440).nullish(),
+  // Cuanta anticipacion hace falta para reservarla, en horas. Estaba en el
+  // horario y ahi no era: un mismo horario sirve a experiencias que necesitan
+  // avisos muy distintos.
+  minimumNotice: z.number().int().nonnegative().max(8760).nullish(),
   capacity: z.number().int().positive().optional(),
   minCapacity: z.number().int().nonnegative().optional(),
   basePrice: z.number().nonnegative().optional(),

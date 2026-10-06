@@ -55,8 +55,6 @@ const fullInclude = {
       id: true,
       name: true,
       weeklySchedule: true,
-      bufferTime: true,
-      minimumNotice: true,
       blockedDates: true,
       locationId: true,
     },
@@ -99,6 +97,7 @@ function buildBaseData(input: CreateExperienceInput) {
     // decir que no hace falta montaje que no haberlo pensado todavia.
     prepTime: input.prepTime ?? null,
     cleanupTime: input.cleanupTime ?? null,
+    minimumNotice: input.minimumNotice ?? null,
     capacity: input.capacity ?? null,
     minCapacity: input.minCapacity ?? null,
     basePrice: input.basePrice ?? null,
@@ -331,6 +330,7 @@ export const experiencesService = {
     if (input.duration !== undefined) data.duration = input.duration;
     if (input.prepTime !== undefined) data.prepTime = input.prepTime ?? null;
     if (input.cleanupTime !== undefined) data.cleanupTime = input.cleanupTime ?? null;
+    if (input.minimumNotice !== undefined) data.minimumNotice = input.minimumNotice ?? null;
     if (input.capacity !== undefined) {
       await noDejarAforoCorto(id, input.capacity);
       data.capacity = input.capacity;

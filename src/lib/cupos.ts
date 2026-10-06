@@ -8,6 +8,7 @@
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { prisma } from '../config/prisma.js';
 import { BadRequest } from './errors.js';
+import { franjaDeLaReserva } from './franjas.js';
 
 /** El cliente de Prisma dentro o fuera de una transaccion. */
 type Cliente = PrismaClient | Prisma.TransactionClient;
@@ -76,7 +77,19 @@ export function ocupanElDia(
   };
 }
 
-/** Cuantos lugares quedan ese dia. `null` si la experiencia no define aforo. */
+/**
+ * Cuantos lugares quedan, y contra que se cuentan.
+ *
+ * Dos modos, y cual aplica lo decide el horario:
+ *
+ *  - Si la franja en la que cae la reserva tiene cupos propios, el inventario
+ *    es de ESA franja y se cuenta solo lo que esta dentro de su rango. El
+ *    almuerzo y la cena de un sabado se llenan por separado.
+ *  - Si no, el aforo es el de la experiencia y se cuenta por dia, como venia
+ *    funcionando. A quien no use cupos por franja no le cambia nada.
+ *
+ * `null` cuando no hay nada contra que comparar.
+ */
 export async function cuposLibres(
   cliente: Cliente,
   experienceId: string,
@@ -84,6 +97,20 @@ export async function cuposLibres(
   exigePago: boolean,
   excluirReservaId?: string | null,
 ): Promise<number | null> {
+  const franja = await franjaDeLaReserva(experienceId, fecha);
+
+  if (franja) {
+    const agregado = await cliente.reservation.aggregate({
+      where: {
+        ...ocupanElDia(experienceId, fecha, exigePago, excluirReservaId),
+        // Dentro de la franja, no de todo el dia.
+        reservationDate: { gte: franja.inicio, lt: franja.fin },
+      },
+      _sum: { participants: true },
+    });
+    return franja.cupos - (agregado._sum?.participants ?? 0);
+  }
+
   const exp = await cliente.experience.findUnique({
     where: { id: experienceId },
     select: { capacity: true },

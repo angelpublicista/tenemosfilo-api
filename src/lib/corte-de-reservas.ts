@@ -13,56 +13,19 @@ import { prisma } from '../config/prisma.js';
 import { BadRequest } from './errors.js';
 
 /**
- * El aviso minimo que aplica a una experiencia, en horas.
+ * El aviso minimo de una experiencia, en horas.
  *
- * Si tiene varios horarios, manda el mas exigente. Son suyos los dos y el
- * mayor es el que expresa de verdad cuanta anticipacion necesita; tomar el
- * menor dejaria entrar reservas que un horario rechaza.
+ * Vive en la experiencia y no en el horario: la anticipacion que necesita una
+ * cena de quince personas es de la cena, no del sabado. Un mismo horario sirve
+ * a experiencias que necesitan avisos muy distintos, y cuando el dato estaba
+ * ahi habia que elegir entre ellas.
  */
 export async function horasDeAviso(experienceId: string): Promise<number> {
-  const horarios = await prisma.availability.findMany({
-    where: {
-      deletedAt: null,
-      isActive: true,
-      experiences: { some: { id: experienceId } },
-    },
-    select: { minimumNotice: true },
-  });
-
-  if (horarios.length > 0) return horarios.reduce((max, h) => Math.max(max, h.minimumNotice), 0);
-
-  // Tambien valen los de la sede: una experiencia puede no tener horario
-  // propio y colgar del de su sitio.
-  const porSede = await prisma.availability.findMany({
-    where: {
-      deletedAt: null,
-      isActive: true,
-      location: { experiences: { some: { id: experienceId } } },
-    },
-    select: { minimumNotice: true },
-  });
-  if (porSede.length > 0) return porSede.reduce((max, h) => Math.max(max, h.minimumNotice), 0);
-
-  // TR-21. Y si no hay ni lo uno ni lo otro, la agenda propia del anfitrion:
-  // un cocinero que va a casa del cliente no tiene sede, y su aviso minimo
-  // esta ahi o no esta en ningun sitio.
   const exp = await prisma.experience.findUnique({
     where: { id: experienceId },
-    select: { companyId: true },
-  });
-  if (!exp) return 0;
-
-  const propias = await prisma.availability.findMany({
-    where: {
-      deletedAt: null,
-      isActive: true,
-      companyId: exp.companyId,
-      locationId: null,
-      experiences: { none: {} },
-    },
     select: { minimumNotice: true },
   });
-  return propias.reduce((max, h) => Math.max(max, h.minimumNotice), 0);
+  return exp?.minimumNotice ?? 0;
 }
 
 /**

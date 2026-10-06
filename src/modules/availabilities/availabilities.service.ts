@@ -68,6 +68,30 @@ function finDelDia(v: string): Date {
   return d;
 }
 
+/**
+ * Normaliza el horario a `franjas`.
+ *
+ * Un cliente viejo puede seguir mandando `timeSlots`; lo que se guarda es
+ * `franjas`, una sola forma. Aceptar las dos al escribir y guardar una sola
+ * es lo que evita que la base acabe con las dos conviviendo.
+ */
+function aFranjas(semana: unknown): unknown {
+  if (!semana || typeof semana !== 'object') return semana;
+  const salida: Record<string, unknown> = {};
+  for (const [dia, valor] of Object.entries(semana as Record<string, unknown>)) {
+    if (!valor || typeof valor !== 'object') {
+      salida[dia] = valor;
+      continue;
+    }
+    const d = valor as { isActive?: boolean; franjas?: unknown[]; timeSlots?: unknown[] };
+    salida[dia] = {
+      isActive: d.isActive ?? false,
+      franjas: d.franjas ?? d.timeSlots ?? [],
+    };
+  }
+  return salida;
+}
+
 async function blockedDatesToStrings(input: CreateAvailabilityInput['blockedDates']): Promise<string[]> {
   if (!input) return [];
   return input.map((d) => (typeof d === 'string' ? d : d.date));
@@ -142,9 +166,7 @@ export const availabilitiesService = {
         company: { connect: { id: requesterCompanyId } },
         name: input.name,
         description: input.description ?? null,
-        weeklySchedule: input.weeklySchedule as Prisma.InputJsonValue,
-        bufferTime: input.bufferTime ?? 0,
-        minimumNotice: input.minimumNotice ?? 24,
+        weeklySchedule: aFranjas(input.weeklySchedule) as Prisma.InputJsonValue,
         blockedDates: await blockedDatesToStrings(input.blockedDates),
         // TR-35. La vigencia del horario. El inicio a las 00:00 y el final al
         // acabar ese dia: una vigencia "hasta el 31 de diciembre" incluye el
@@ -222,9 +244,7 @@ export const availabilitiesService = {
     if (input.isMain !== undefined) data.isMain = input.isMain;
     if (input.isActive !== undefined) data.isActive = input.isActive;
     if (input.weeklySchedule !== undefined)
-      data.weeklySchedule = input.weeklySchedule as Prisma.InputJsonValue;
-    if (input.bufferTime !== undefined) data.bufferTime = input.bufferTime;
-    if (input.minimumNotice !== undefined) data.minimumNotice = input.minimumNotice;
+      data.weeklySchedule = aFranjas(input.weeklySchedule) as Prisma.InputJsonValue;
     if (input.notes !== undefined) data.notes = input.notes;
     if (input.blockedDates !== undefined)
       data.blockedDates = await blockedDatesToStrings(input.blockedDates);

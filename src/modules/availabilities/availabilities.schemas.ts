@@ -1,13 +1,24 @@
 import { z } from 'zod';
 
-const timeSlotSchema = z.object({
+/**
+ * Una franja horaria de un dia.
+ *
+ * `cupos` es el inventario de ESA franja: el almuerzo y la cena de un sabado
+ * son dos cosas distintas y se llenan por separado. Sin `cupos`, manda el
+ * aforo de la experiencia, que es como venia funcionando.
+ */
+const franjaSchema = z.object({
   startTime: z.string(),
   endTime: z.string(),
+  cupos: z.number().int().positive().nullish(),
 });
 
 const dayScheduleSchema = z.object({
   isActive: z.boolean(),
-  timeSlots: z.array(timeSlotSchema),
+  // `timeSlots` se sigue aceptando al escribir —hay clientes viejos en
+  // circulacion— pero lo que se guarda es `franjas`.
+  franjas: z.array(franjaSchema).optional(),
+  timeSlots: z.array(franjaSchema).optional(),
 });
 
 export const weeklyScheduleSchema = z.object({
@@ -41,8 +52,12 @@ export const createAvailabilitySchema = z.object({
   isMain: z.boolean().optional().default(false),
   isActive: z.boolean().optional().default(true),
   weeklySchedule: weeklyScheduleSchema,
-  bufferTime: z.number().int().nonnegative().optional().default(0),
-  minimumNotice: z.number().int().nonnegative().optional().default(24),
+  // `bufferTime` y `minimumNotice` ya no se guardan aqui: son de la
+  // experiencia. Se siguen aceptando para no romper clientes viejos, y se
+  // ignoran — el horario no es quien decide cuanta preparacion necesita una
+  // cena ni cuanta anticipacion hace falta para pedirla.
+  bufferTime: z.number().int().nonnegative().optional(),
+  minimumNotice: z.number().int().nonnegative().optional(),
   notes: z.string().optional(),
   blockedDates: z.array(blockedDateSchema).optional().default([]),
   validFrom: z.string().min(1),

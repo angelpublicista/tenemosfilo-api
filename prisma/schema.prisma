@@ -641,8 +641,19 @@ model Experience {
   // Van en la experiencia y no en el horario a proposito: montar un taller de
   // coctelería no cuesta lo mismo que montar una cata, y es propio de la
   // experiencia, no del dia en que se haga.
+  /// Preparacion: lo que se tarda en montar antes de empezar.
+  ///
+  /// Absorbe el viejo `bufferTime` del horario, que era lo mismo visto desde
+  /// el otro lado —"tiempo entre reservas"— y vivia en el sitio equivocado.
   prepTime    Int? // minutos antes
   cleanupTime Int? // minutos despues
+
+  /// Cuanta anticipacion hace falta para reservarla, EN HORAS.
+  ///
+  /// Estaba en el horario, y ahi no era: la anticipacion que necesita una
+  /// cena de quince personas es de la cena, no del sabado. Un mismo horario
+  /// sirve a experiencias que necesitan avisos muy distintos.
+  minimumNotice Int? // horas
 
   capacity           Int?
   minCapacity        Int?
@@ -729,7 +740,18 @@ model Availability {
   experiences Experience[] @relation("ExperienceAvailabilities")
 
   isMain         Boolean  @default(false)
-  weeklySchedule Json // { mon:{isActive,timeSlots[]}, tue:{...}, ... }
+  /// Las franjas horarias de cada dia de la semana.
+  ///
+  /// { monday: { isActive, franjas: [{ startTime, endTime, cupos? }] }, ... }
+  ///
+  /// `franjas` y no `timeSlots`: es el nombre que se usa en el producto, y
+  /// tener dos palabras para lo mismo —una en pantalla y otra en los datos—
+  /// es como empiezan las confusiones al leer un JSON seis meses despues.
+  ///
+  /// `cupos` por franja: el almuerzo y la cena de un sabado son inventarios
+  /// distintos, no uno compartido. Sin `cupos`, manda el aforo de la
+  /// experiencia, que es como venia funcionando.
+  weeklySchedule Json
 
   // TR-35. Desde y hasta cuando se repite este horario.
   //
@@ -741,7 +763,13 @@ model Availability {
   // horarios creados antes de esta regla. Los nuevos la piden.
   validFrom  DateTime?
   validUntil DateTime?
-  bufferTime     Int      @default(0) // minutos entre reservas
+  /// Se van a la experiencia: el tiempo entre reservas y la anticipacion que
+  /// hace falta son propios de lo que se vende, no del dia en que se vende.
+  /// Montar un taller de cocteleria no cuesta lo mismo que montar una cata.
+  ///
+  /// Aqui quedan solo para no romper el codigo viejo durante el despliegue;
+  /// se borran en el siguiente.
+  bufferTime     Int      @default(0)
   // TR-06. Cuanta anticipacion necesita el anfitrion, EN HORAS.
   //
   // En horas y no en minutos —el comentario decia otra cosa y nadie lo leia,
