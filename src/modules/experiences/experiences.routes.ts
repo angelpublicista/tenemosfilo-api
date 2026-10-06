@@ -5,10 +5,12 @@ import { requireScope } from '../../middleware/scope.js';
 import { validate } from '../../middleware/validate.js';
 import { experiencesController } from './experiences.controller.js';
 import {
+  condicionesDeSedeSchema,
   createExperienceSchema,
   experienceIdParamsSchema,
   featuredQuerySchema,
   listExperiencesQuerySchema,
+  sedeParamsSchema,
   updateExperienceSchema,
   updateStatusSchema,
 } from './experiences.schemas.js';
@@ -66,6 +68,32 @@ experiencesRouter.patch(
   validate(experienceIdParamsSchema, 'params'),
   validate(updateExperienceSchema),
   experiencesController.update,
+);
+
+// La experiencia en cada sede: la misma pieza puede estar en un sitio como
+// abierta y en otro como privada, con otro aforo y otra anticipacion.
+experiencesRouter.get(
+  '/:id/sedes',
+  requireScope('experiences:read'),
+  validate(experienceIdParamsSchema, 'params'),
+  experiencesController.sedes,
+);
+
+experiencesRouter.put(
+  '/:id/sedes/:locationId',
+  requireRole('HOST', 'ADMIN'),
+  validate(sedeParamsSchema, 'params'),
+  validate(condicionesDeSedeSchema),
+  experiencesController.fijarSede,
+);
+
+// Borrar la ficha es volver a las condiciones de la experiencia, no quitar la
+// sede: donde se ofrece lo sigue diciendo la lista de sedes de la experiencia.
+experiencesRouter.delete(
+  '/:id/sedes/:locationId',
+  requireRole('HOST', 'ADMIN'),
+  validate(sedeParamsSchema, 'params'),
+  experiencesController.soltarSede,
 );
 
 experiencesRouter.patch(

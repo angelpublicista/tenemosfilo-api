@@ -145,6 +145,9 @@ export const enlaceService = {
         channel: 'MANUAL',
       },
       }),
+      null,
+      // El aforo se cuenta por sede: dos sedes son dos inventarios.
+      input.locationId ?? null,
     );
 
     await prisma.opportunity.update({

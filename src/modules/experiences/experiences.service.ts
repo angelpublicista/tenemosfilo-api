@@ -8,7 +8,9 @@ import {
   porQueNoSePuedeVender,
 } from '../../lib/completitud-de-experiencia.js';
 import { reservationsService } from '../reservations/reservations.service.js';
+import { sedesDe } from '../../lib/sede-de-la-experiencia.js';
 import type {
+  CondicionesDeSedeInput,
   CreateExperienceInput,
   ListExperiencesQuery,
   UpdateExperienceInput,
@@ -59,6 +61,10 @@ const fullInclude = {
       locationId: true,
     },
   },
+  // Las condiciones propias de cada sede, para que la pantalla de la
+  // experiencia las enseñe sin una segunda llamada. Aqui si van las notas:
+  // esto lo lee el anfitrion, no el comensal.
+  locationListings: { where: { deletedAt: null } },
 } satisfies Prisma.ExperienceInclude;
 
 const lightInclude = {
@@ -135,12 +141,28 @@ function buildBaseData(input: CreateExperienceInput) {
  * Solo cuentan los dias que estan por venir. Reducir el aforo no reescribe
  * lo que ya paso, y un sabado del año pasado con mas gente de la que cabe
  * ahora no es un problema que arreglar.
+ *
+ * Con `locationId` se mira el aforo de ESA sede, y solo cuentan las reservas
+ * que caen ahi: bajar el aforo de la finca no tiene por que tropezar con lo
+ * que se vendio en el local del centro. Las reservas sin sede cuentan en todas
+ * porque no se puede saber donde caen, y dejarlas fuera dejaria un dia
+ * sobrevendido sin que nada avise.
  */
-async function noDejarAforoCorto(experienceId: string, nuevoAforo: number): Promise<void> {
-  if (nuevoAforo <= 0) return;
+async function noDejarAforoCorto(
+  experienceId: string,
+  nuevoAforo: number | undefined,
+  locationId?: string | null,
+): Promise<void> {
+  if (!nuevoAforo || nuevoAforo <= 0) return;
 
   const hoy = new Date();
   hoy.setHours(0, 0, 0, 0);
+
+  const sedes = locationId
+    ? await prisma.location.count({
+        where: { deletedAt: null, experiences: { some: { id: experienceId } } },
+      })
+    : 0;
 
   const porDia = await prisma.reservation.groupBy({
     by: ['reservationDate'],
@@ -148,6 +170,7 @@ async function noDejarAforoCorto(experienceId: string, nuevoAforo: number): Prom
       experienceId,
       status: { notIn: ['CANCELLED', 'NO_SHOW'] },
       reservationDate: { gte: hoy },
+      ...(locationId && sedes > 1 ? { OR: [{ locationId }, { locationId: null }] } : {}),
     },
     _sum: { participants: true },
   });
@@ -172,8 +195,8 @@ async function noDejarAforoCorto(experienceId: string, nuevoAforo: number): Prom
   if (peorDia) {
     const [a, m, d] = [peorDia.slice(0, 4), peorDia.slice(5, 7), peorDia.slice(8, 10)];
     throw BadRequest(
-      `No puedes bajar el aforo a ${nuevoAforo}: el ${d}/${m}/${a} ya tienes ${peorCuenta} personas reservadas. ` +
-        'Cancela o reagenda esas reservas primero.',
+      `No puedes bajar el aforo${locationId ? ' de esa sede' : ''} a ${nuevoAforo}: el ${d}/${m}/${a} ya tienes ` +
+        `${peorCuenta} personas reservadas. Cancela o reagenda esas reservas primero.`,
     );
   }
 }
@@ -443,6 +466,95 @@ export const experiencesService = {
   async notas(id: string, requesterCompanyId: string | null | undefined, opts?: { isAdmin?: boolean }) {
     await assertCanManage(id, requesterCompanyId, opts);
     return notasDeExperiencia(id);
+  },
+
+  /**
+   * Las sedes donde se ofrece la experiencia, con las condiciones de cada una.
+   *
+   * Una experiencia es una pieza con la que se arma el catalogo: la misma
+   * puede estar en el local del centro como abierta y en la finca como
+   * privada, con otro aforo y otra anticipacion. Esto es lo que se enseña para
+   * revisarlo de un vistazo, sede por sede.
+   */
+  async sedes(id: string, requesterCompanyId: string | null | undefined, opts?: { isAdmin?: boolean }) {
+    await assertCanManage(id, requesterCompanyId, opts);
+    return sedesDe(id);
+  },
+
+  /**
+   * Fija las condiciones de la experiencia en una sede.
+   *
+   * Cada campo en null vuelve a heredar de la experiencia, y eso es
+   * deliberado: lo normal es que una sede cambie una cosa —el aforo, o el
+   * precio— y obligarla a repetir las otras seis solo serviria para que se
+   * queden viejas cuando la experiencia cambie.
+   *
+   * La sede tiene que estar entre las de la experiencia. Guardar condiciones
+   * para un sitio donde no se ofrece dejaria filas que no rigen nada y que
+   * reaparecerian el dia que alguien añada esa sede.
+   */
+  async fijarSede(
+    id: string,
+    locationId: string,
+    input: CondicionesDeSedeInput,
+    requesterCompanyId: string | null | undefined,
+    opts?: { isAdmin?: boolean },
+  ) {
+    await assertCanManage(id, requesterCompanyId, opts);
+
+    const sede = await prisma.location.findFirst({
+      where: { id: locationId, deletedAt: null, experiences: { some: { id } } },
+      select: { id: true },
+    });
+    if (!sede) {
+      throw BadRequest('Esa sede no está entre las de la experiencia.', {
+        motivo: 'SEDE_AJENA',
+      });
+    }
+
+    const datos = {
+      kind: input.kind ?? null,
+      capacity: input.capacity ?? null,
+      minCapacity: input.minCapacity ?? null,
+      basePrice: input.basePrice ?? null,
+      prepTime: input.prepTime ?? null,
+      cleanupTime: input.cleanupTime ?? null,
+      minimumNotice: input.minimumNotice ?? null,
+      notes: input.notes ?? null,
+      ...(input.isPublished === undefined ? {} : { isPublished: input.isPublished }),
+      deletedAt: null,
+    };
+
+    await prisma.locationListing.upsert({
+      where: { experienceId_locationId: { experienceId: id, locationId } },
+      create: { experienceId: id, locationId, ...datos },
+      update: datos,
+    });
+
+    // El aforo de la sede tambien tiene que caber en lo que ya esta vendido
+    // ahi: bajarlo por debajo de lo reservado dejaria reservas que no entran
+    // en su propia sede.
+    await noDejarAforoCorto(id, input.capacity ?? undefined, locationId);
+
+    return sedesDe(id);
+  },
+
+  /**
+   * Devuelve una sede a las condiciones de la experiencia.
+   *
+   * Se borra la fila entera en vez de vaciarla campo a campo: una fila con
+   * todo en null y una fila que no existe significan lo mismo, y tener las dos
+   * formas de decirlo solo da ocasion de que se interpreten distinto.
+   */
+  async soltarSede(
+    id: string,
+    locationId: string,
+    requesterCompanyId: string | null | undefined,
+    opts?: { isAdmin?: boolean },
+  ) {
+    await assertCanManage(id, requesterCompanyId, opts);
+    await prisma.locationListing.deleteMany({ where: { experienceId: id, locationId } });
+    return sedesDe(id);
   },
 
   /** Que le falta a una experiencia para poder venderse (TR-23). */

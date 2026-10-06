@@ -142,7 +142,20 @@ async function verExperiencia(id: string, ctx: ContextoDelAgente): Promise<Resul
       capacity: true, presentialCity: true,
       locations: {
         where: { deletedAt: null },
-        select: { name: true, address: true, isMain: true },
+        select: { id: true, name: true, address: true, isMain: true },
+      },
+      // Las condiciones propias de cada sede. Sin esto el agente contesta el
+      // precio de la experiencia en una sede donde el precio es otro, y lo que
+      // le dice al cliente no es lo que se le va a cobrar.
+      locationListings: {
+        where: { deletedAt: null, isPublished: true },
+        select: {
+          locationId: true,
+          kind: true,
+          capacity: true,
+          basePrice: true,
+          minimumNotice: true,
+        },
       },
       availabilities: {
         where: { deletedAt: null, isActive: true },
@@ -167,7 +180,18 @@ async function verExperiencia(id: string, ctx: ContextoDelAgente): Promise<Resul
       ? `Sedes: ${e.locations
           .map((l) => {
             const d = l.address as { street?: string; city?: string } | null;
-            return `${l.name}${d?.street ? ` (${d.street}${d.city ? ', ' + d.city : ''})` : ''}`;
+            const donde = `${l.name}${d?.street ? ` (${d.street}${d.city ? ', ' + d.city : ''})` : ''}`;
+            // Lo que cambia en esta sede, y solo eso: repetir el precio de la
+            // experiencia en cada una alargaria la respuesta sin decir nada.
+            const f = e.locationListings.find((x) => x.locationId === l.id);
+            const propio = [
+              f?.kind === 'PRIVADA' ? 'solo por encargo, para grupo completo' : '',
+              f?.kind === 'ABIERTA' ? 'con cupos sueltos' : '',
+              f?.basePrice ? `${pesos(Number(f.basePrice))} por persona` : '',
+              f?.capacity ? `hasta ${f.capacity} personas` : '',
+              f?.minimumNotice ? `con ${f.minimumNotice} h de anticipación` : '',
+            ].filter(Boolean);
+            return propio.length ? `${donde} — ${propio.join(', ')}` : donde;
           })
           .join(' · ')}`
       : '',

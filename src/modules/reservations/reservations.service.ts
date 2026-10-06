@@ -13,6 +13,7 @@ import { conCupoApartado } from '../../lib/cupos.js';
 import { comprobarSedeActiva, comprobarSimultaneidad } from '../../lib/agenda-del-anfitrion.js';
 import { vincularCompradorAlCrm } from '../../lib/comprador-al-crm.js';
 import { comprobarCorte } from '../../lib/corte-de-reservas.js';
+import { condicionesDe } from '../../lib/sede-de-la-experiencia.js';
 import { cambio, type Actor, type CambioDeReserva } from '../../lib/historial-de-reserva.js';
 import {
   estadoDePagoTrasReembolso,
@@ -245,19 +246,25 @@ async function resolverRevendedor(
  * venir del cliente: enviaria el que quisiera. Se toma el basePrice de la
  * experiencia y se cobran los adicionales segun su definicion; del cliente
  * solo se acepta *que* eligio, no *cuanto* cuesta.
+ *
+ * El precio es el de LA SEDE donde se reserva: la misma experiencia puede
+ * valer una cosa en el local del centro y otra en la finca. Sin esto el
+ * catalogo enseñaba el precio de la finca y se cobraba el del centro.
  */
 async function precioDesdeExperiencia(
   experienceId: string,
   participants: number,
   elegidos: AddonElegido[] | undefined,
+  locationId?: string | null,
 ) {
   const exp = await prisma.experience.findFirst({
     where: { id: experienceId, deletedAt: null },
-    select: { basePrice: true, addons: true },
+    select: { addons: true },
   });
   if (!exp) throw NotFound('Experiencia no disponible');
 
-  const basePrice = Number(exp.basePrice ?? 0);
+  const { basePrice: deLaSede } = await condicionesDe(experienceId, locationId);
+  const basePrice = Number(deLaSede ?? 0);
   const subtotal = basePrice * participants;
 
   const definidos = (Array.isArray(exp.addons) ? exp.addons : []) as AddonExperiencia[];
@@ -470,7 +477,11 @@ export const reservationsService = {
     // por el checkout. Lo que el anfitrion carga a mano no pasa por aqui: si
     // le llaman a las seis y decide aceptar, ya sabe lo que hay en su cocina.
     if (source !== 'MANUAL') {
-      await comprobarCorte(input.experience, new Date(input.reservationDate));
+      await comprobarCorte(
+        input.experience,
+        new Date(input.reservationDate),
+        input.location ?? null,
+      );
     }
 
     // TR-42. Que el anfitrion no acabe con dos cosas a la vez en el mismo
@@ -540,6 +551,9 @@ export const reservationsService = {
         });
         return { reserva: nueva, reutilizada: false };
       },
+      null,
+      // El aforo se cuenta por sede: dos sedes son dos inventarios.
+      input.location ?? null,
     );
 
     // Un reintento no vuelve a avisar: el anfitrion recibiria dos veces el
@@ -571,6 +585,7 @@ export const reservationsService = {
       input.experience,
       input.participants,
       input.pricing?.addons as AddonElegido[] | undefined,
+      input.location ?? null,
     );
 
     // Si quien reserva ya tiene cuenta, la reserva queda vinculada a ella.
@@ -639,7 +654,7 @@ export const reservationsService = {
     // TR-06. El corte tambien vale cuando se liberan cupos: un lugar que
     // alguien cancela dos horas antes no vuelve al catalogo, porque el
     // anfitrion ya compro contando con la gente que tenia.
-    await comprobarCorte(input.experience, fecha);
+    await comprobarCorte(input.experience, fecha, input.location ?? null);
 
     // TR-42, en el checkout publico: solo el bloqueo de la misma sede. El
     // aviso de sedes distintas es una decision del anfitrion, y quien reserva
@@ -708,6 +723,9 @@ export const reservationsService = {
         });
         return { reserva: nueva, reutilizada: false };
       },
+      null,
+      // El aforo se cuenta por sede: dos sedes son dos inventarios.
+      input.location ?? null,
     );
 
     // El aviso necesita mas campos de los que devuelve el alta; se relee
@@ -1630,6 +1648,7 @@ export const reservationsService = {
       // La reserva que se mueve no cuenta contra si misma: dentro del mismo
       // dia, sus plazas estarian contadas dos veces.
       id,
+      datos.locationId,
     );
 
     void avisarCambioDeEstado(paraAvisos(reprogramada), 'RESCHEDULED', input.reason);

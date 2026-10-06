@@ -9,6 +9,7 @@ import type { Prisma, PrismaClient } from '@prisma/client';
 import { prisma } from '../config/prisma.js';
 import { BadRequest } from './errors.js';
 import { franjaDeLaReserva } from './franjas.js';
+import { condicionesDe } from './sede-de-la-experiencia.js';
 
 /** El cliente de Prisma dentro o fuera de una transaccion. */
 type Cliente = PrismaClient | Prisma.TransactionClient;
@@ -56,12 +57,21 @@ export function ocupanElDia(
    * diez no se podria mover ni media hora.
    */
   excluirReservaId?: string | null,
+  /**
+   * Con que sede se cuenta, cuando el inventario esta separado por sedes.
+   * Vacio = todas, que es lo que vale cuando la experiencia tiene una sola.
+   */
+  porSede?: Prisma.ReservationWhereInput,
 ): Prisma.ReservationWhereInput {
   const { inicio, fin } = dia(fecha);
   const desde = new Date(Date.now() - RETENCION_DE_CUPO_MIN * 60_000);
 
   return {
     experienceId,
+    // En `AND` y no suelto: el filtro de pago de abajo ya usa `OR` y dos
+    // claves `OR` en el mismo objeto se pisan —la segunda gana y el aforo se
+    // cuenta mal, sin que nada falle a la vista—.
+    ...(porSede ? { AND: [porSede] } : {}),
     ...(excluirReservaId ? { id: { not: excluirReservaId } } : {}),
     status: { notIn: ['CANCELLED', 'NO_SHOW'] },
     reservationDate: { gte: inicio, lt: fin },
@@ -75,6 +85,32 @@ export function ocupanElDia(
         }
       : {}),
   };
+}
+
+/**
+ * Con que reservas se cuenta el aforo de una sede.
+ *
+ * Dos sedes son dos inventarios: llenar el local del centro no deberia dejar
+ * sin sitio a la finca. Pero solo se separa cuando la experiencia esta en mas
+ * de una sede; con una sola, filtrar no cambiaria el resultado y dejaria fuera
+ * las reservas antiguas, que no guardaban sede.
+ *
+ * Las que no dicen sede cuentan en TODAS: no se puede saber donde caen, y
+ * dejarlas fuera seria vender dos veces el mismo sitio. Contarlas de mas puede
+ * rechazar una reserva que cabia; contarlas de menos sienta a dos grupos en la
+ * misma mesa.
+ */
+async function filtroDeSede(
+  cliente: Cliente,
+  experienceId: string,
+  locationId?: string | null,
+): Promise<Prisma.ReservationWhereInput | undefined> {
+  if (!locationId) return undefined;
+  const sedes = await cliente.location.count({
+    where: { deletedAt: null, experiences: { some: { id: experienceId } } },
+  });
+  if (sedes < 2) return undefined;
+  return { OR: [{ locationId }, { locationId: null }] };
 }
 
 /**
@@ -96,30 +132,38 @@ export async function cuposLibres(
   fecha: Date,
   exigePago: boolean,
   excluirReservaId?: string | null,
+  locationId?: string | null,
 ): Promise<number | null> {
-  const franja = await franjaDeLaReserva(experienceId, fecha);
+  const condiciones = await condicionesDe(experienceId, locationId, cliente);
+  const sede = await filtroDeSede(cliente, experienceId, condiciones.locationId);
+  const ocupan = ocupanElDia(experienceId, fecha, exigePago, excluirReservaId, sede);
+  const franja = await franjaDeLaReserva(experienceId, fecha, condiciones.locationId);
+  // Dentro de la franja, no de todo el dia.
+  const rango = franja ? { reservationDate: { gte: franja.inicio, lt: franja.fin } } : {};
+
+  // En una sede privada no se venden cupos sueltos: la primera reserva se
+  // queda el sitio entero. Caben los que caben, pero una vez hay una
+  // celebracion no se mete a otro grupo dentro, sobre aforo o no.
+  if (condiciones.kind === 'PRIVADA') {
+    const ya = await cliente.reservation.count({ where: { ...ocupan, ...rango } });
+    if (ya > 0) return 0;
+    const tope = franja?.cupos ?? condiciones.capacity ?? 0;
+    return tope > 0 ? tope : null;
+  }
 
   if (franja) {
     const agregado = await cliente.reservation.aggregate({
-      where: {
-        ...ocupanElDia(experienceId, fecha, exigePago, excluirReservaId),
-        // Dentro de la franja, no de todo el dia.
-        reservationDate: { gte: franja.inicio, lt: franja.fin },
-      },
+      where: { ...ocupan, ...rango },
       _sum: { participants: true },
     });
     return franja.cupos - (agregado._sum?.participants ?? 0);
   }
 
-  const exp = await cliente.experience.findUnique({
-    where: { id: experienceId },
-    select: { capacity: true },
-  });
-  const aforo = exp?.capacity ?? 0;
+  const aforo = condiciones.capacity ?? 0;
   if (aforo <= 0) return null;
 
   const agregado = await cliente.reservation.aggregate({
-    where: ocupanElDia(experienceId, fecha, exigePago, excluirReservaId),
+    where: ocupan,
     _sum: { participants: true },
   });
   return aforo - (agregado._sum?.participants ?? 0);
@@ -134,10 +178,18 @@ export async function verificarAforo(
   exigePago = false,
   cliente: Cliente = prisma,
   excluirReservaId?: string | null,
+  locationId?: string | null,
 ) {
   if (!bloquearLleno) return;
 
-  const libres = await cuposLibres(cliente, experienceId, fecha, exigePago, excluirReservaId);
+  const libres = await cuposLibres(
+    cliente,
+    experienceId,
+    fecha,
+    exigePago,
+    excluirReservaId,
+    locationId,
+  );
   if (libres === null) return;
 
   if (participantes > libres) {
@@ -171,6 +223,8 @@ export async function conCupoApartado<T>(
   alta: (tx: Prisma.TransactionClient) => Promise<T>,
   /** La reserva que se esta moviendo, para que no cuente contra si misma. */
   excluirReservaId?: string | null,
+  /** En que sede se vende, cuando la experiencia esta en varias. */
+  locationId?: string | null,
 ): Promise<T> {
   const { inicio } = dia(fecha);
   const clave = `${experienceId}:${inicio.toISOString().slice(0, 10)}`;
@@ -186,6 +240,7 @@ export async function conCupoApartado<T>(
         ajustes.exigePago,
         tx,
         excluirReservaId,
+        locationId,
       );
       return alta(tx);
     },

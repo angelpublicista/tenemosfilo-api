@@ -46,6 +46,26 @@ const experienciaPublica = {
     where: { deletedAt: null, isActive: true },
     select: { id: true, name: true, description: true, sections: true },
   },
+  // Las condiciones de cada sede: la misma experiencia puede estar en el local
+  // del centro como abierta —cupos que se compran sueltos— y en la finca como
+  // privada, con otro aforo, otro precio y otra anticipacion. Sin esto el
+  // motor de reservas ofreceria en las dos las condiciones de la primera.
+  //
+  // `notes` NO sale: son apuntes internos del anfitrion —"la cocina de esta
+  // sede no tiene horno"— y no material comercial.
+  locationListings: {
+    where: { deletedAt: null, isPublished: true },
+    select: {
+      locationId: true,
+      kind: true,
+      capacity: true,
+      minCapacity: true,
+      basePrice: true,
+      prepTime: true,
+      cleanupTime: true,
+      minimumNotice: true,
+    },
+  },
   // Sin esto el paso de fecha y hora no tiene horarios que ofrecer y el
   // cliente no puede completar la reserva.
   availabilities: {
@@ -64,6 +84,40 @@ const experienciaPublica = {
     },
   },
 } as const;
+
+/**
+ * Quita del catalogo las sedes donde la experiencia no se esta ofreciendo.
+ *
+ * Retirar una experiencia de una sede sin borrar sus condiciones ni tocar las
+ * otras es justo para lo que esta `isPublished`, y si la sede siguiera
+ * saliendo en el catalogo no habria servido de nada: el comensal la elegiria y
+ * la reserva se crearia igual.
+ *
+ * Se filtra aqui y no en la consulta porque la condicion mira la ficha del par
+ * experiencia-sede, y el `include` de las sedes no sabe de que experiencia
+ * cuelga.
+ */
+async function soloSedesOfrecidas<T extends { id: string; locations: { id: string }[] }>(
+  experiences: T[],
+): Promise<T[]> {
+  if (experiences.length === 0) return experiences;
+
+  const retiradas = await prisma.locationListing.findMany({
+    where: {
+      deletedAt: null,
+      isPublished: false,
+      experienceId: { in: experiences.map((e) => e.id) },
+    },
+    select: { experienceId: true, locationId: true },
+  });
+  if (retiradas.length === 0) return experiences;
+
+  const fuera = new Set(retiradas.map((r) => `${r.experienceId}:${r.locationId}`));
+  return experiences.map((e) => ({
+    ...e,
+    locations: e.locations.filter((l) => !fuera.has(`${e.id}:${l.id}`)),
+  }));
+}
 
 /**
  * TR-21. La agenda propia del anfitrion, para el catalogo.
@@ -159,7 +213,7 @@ publicRouter.get(
       where: { deletedAt: null, status: 'ACTIVE', company: { deletedAt: null, isActive: true } },
       include: experienciaPublica,
       orderBy: [{ isFeatured: 'desc' }, { createdAt: 'desc' }],
-    });
+    }).then(soloSedesOfrecidas);
 
     // Aqui salen experiencias de varias empresas, y desde que cada anfitrion
     // puede cobrar con su pasarela la respuesta ya no es una sola para todas.
@@ -194,7 +248,7 @@ publicRouter.get(
       where: { companyId: company.id, deletedAt: null, status: 'ACTIVE' },
       include: experienciaPublica,
       orderBy: [{ isFeatured: 'desc' }, { createdAt: 'desc' }],
-    });
+    }).then(soloSedesOfrecidas);
 
     // Solo si se cobra en linea. El resumen previo a confirmar cambia el
     // texto segun esto: prometer "pagas ahora" con la pasarela apagada deja

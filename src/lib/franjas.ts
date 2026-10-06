@@ -45,28 +45,75 @@ export function franjasDelDia(semana: unknown, fecha: Date): Franja[] {
 }
 
 /**
- * Los horarios activos que aplican a una experiencia, en orden de prioridad.
+ * Los horarios activos que aplican a una experiencia en una sede, por orden
+ * de prioridad.
  *
- * Los suyos mandan; si no tiene, los de su sede; si tampoco, la agenda propia
- * del anfitrion (TR-21). Devuelve el primer nivel que exista, no la union:
- * un horario propio esta ahi justamente para no usar el general.
+ * Los suyos en ESA sede mandan; si no tiene, los suyos sin sede —que valen
+ * para todas—; si tampoco, los de la sede; y de ultimo la agenda propia del
+ * anfitrion (TR-21). Devuelve el primer nivel que exista, no la union: un
+ * horario propio esta ahi justamente para no usar el general.
+ *
+ * La sede importa porque la misma experiencia puede estar en dos sitios con
+ * condiciones distintas: abierta los sabados en el local y solo por encargo en
+ * la finca. Sin filtrar por sede, los dos calendarios se sumaban y en la finca
+ * aparecian sabados que nadie habia abierto alli.
+ *
+ * Sin `locationId` se asume la sede cuando hay una sola —no hay ambiguedad que
+ * resolver— y si hay varias se mira todo, que es como venia funcionando.
  */
-export async function horariosQueAplican(experienceId: string) {
-  const propios = await prisma.availability.findMany({
-    where: { deletedAt: null, isActive: true, experiences: { some: { id: experienceId } } },
-    select: { id: true, weeklySchedule: true, validFrom: true, validUntil: true, blockedDates: true },
-  });
-  if (propios.length > 0) return propios;
+export async function horariosQueAplican(experienceId: string, locationId?: string | null) {
+  const sede = locationId ?? (await sedeUnica(experienceId));
+  const seleccion = {
+    id: true,
+    weeklySchedule: true,
+    validFrom: true,
+    validUntil: true,
+    blockedDates: true,
+  } as const;
+  const vivos = { deletedAt: null, isActive: true } as const;
+  const suyos = { experiences: { some: { id: experienceId } } } as const;
 
-  const porSede = await prisma.availability.findMany({
-    where: {
-      deletedAt: null,
-      isActive: true,
-      location: { experiences: { some: { id: experienceId } } },
-    },
-    select: { id: true, weeklySchedule: true, validFrom: true, validUntil: true, blockedDates: true },
-  });
-  if (porSede.length > 0) return porSede;
+  if (sede) {
+    const propiosDeLaSede = await prisma.availability.findMany({
+      where: { ...vivos, ...suyos, locationId: sede },
+      select: seleccion,
+    });
+    if (propiosDeLaSede.length > 0) return propiosDeLaSede;
+
+    const propiosSinSede = await prisma.availability.findMany({
+      where: { ...vivos, ...suyos, locationId: null },
+      select: seleccion,
+    });
+    if (propiosSinSede.length > 0) return propiosSinSede;
+
+    // El horario DE LA SEDE es el que no es de ninguna experiencia en
+    // particular. Uno atado a otra experiencia no vale aqui: cuando valia, el
+    // taller de panaderia heredaba los cupos del horario de la cata solo por
+    // estar en el mismo local, y se quedaba sin sitio sin que nadie entendiera
+    // por que.
+    const deLaSede = await prisma.availability.findMany({
+      where: { ...vivos, locationId: sede, experiences: { none: {} } },
+      select: seleccion,
+    });
+    if (deLaSede.length > 0) return deLaSede;
+  } else {
+    const propios = await prisma.availability.findMany({
+      where: { ...vivos, ...suyos },
+      select: seleccion,
+    });
+    if (propios.length > 0) return propios;
+
+    const porSede = await prisma.availability.findMany({
+      where: {
+        ...vivos,
+        location: { experiences: { some: { id: experienceId } } },
+        // Igual que arriba: el de la sede, no el de otra experiencia suya.
+        experiences: { none: {} },
+      },
+      select: seleccion,
+    });
+    if (porSede.length > 0) return porSede;
+  }
 
   const exp = await prisma.experience.findUnique({
     where: { id: experienceId },
@@ -76,14 +123,28 @@ export async function horariosQueAplican(experienceId: string) {
 
   return prisma.availability.findMany({
     where: {
-      deletedAt: null,
-      isActive: true,
+      ...vivos,
       companyId: exp.companyId,
       locationId: null,
       experiences: { none: {} },
     },
-    select: { id: true, weeklySchedule: true, validFrom: true, validUntil: true, blockedDates: true },
+    select: seleccion,
   });
+}
+
+/**
+ * La sede que se da por supuesta cuando nadie la nombra: la unica que hay.
+ *
+ * Duplica a proposito la de `sede-de-la-experiencia.ts`: importarla crearia un
+ * ciclo entre los dos modulos y son cuatro lineas.
+ */
+async function sedeUnica(experienceId: string): Promise<string | null> {
+  const sedes = await prisma.location.findMany({
+    where: { deletedAt: null, experiences: { some: { id: experienceId } } },
+    select: { id: true },
+    take: 2,
+  });
+  return sedes.length === 1 ? sedes[0]!.id : null;
 }
 
 const enMinutos = (hhmm: string): number => {
@@ -110,8 +171,9 @@ export interface FranjaConCupos {
 export async function franjaDeLaReserva(
   experienceId: string,
   fecha: Date,
+  locationId?: string | null,
 ): Promise<FranjaConCupos | null> {
-  const horarios = await horariosQueAplican(experienceId);
+  const horarios = await horariosQueAplican(experienceId, locationId);
   if (horarios.length === 0) return null;
 
   const minutoDeLaReserva = fecha.getHours() * 60 + fecha.getMinutes();

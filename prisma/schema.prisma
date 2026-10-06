@@ -438,6 +438,7 @@ model Location {
   experiences    Experience[]   @relation("ExperienceLocations")
   availabilities Availability[]
   reservations   Reservation[]
+  listings       LocationListing[]
 
   isActive  Boolean   @default(true)
   createdAt DateTime  @default(now())
@@ -697,6 +698,7 @@ model Experience {
   quotes           Quote[]                 @relation("QuoteExperiences")
   opportunityItems OpportunityExperience[]
   channelListings  ChannelListing[]
+  locationListings LocationListing[]
 
   // Comisiones. Null = hereda el valor por defecto de PlatformSettings.
   // Solo un ADMIN puede fijarlas: un anfitrion no se pone su propia comision.
@@ -770,6 +772,9 @@ model Availability {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
+
+  @@index([companyId])
+  @@index([locationId])
 }
 
 enum ContactStatus {
@@ -1401,6 +1406,7 @@ model Reservation {
   @@index([reservationDate])
   @@index([opportunityId])
   @@index([collectedBy])
+  @@index([contactId])
 }
 
 enum IntegrationType {
@@ -1642,6 +1648,71 @@ model ChannelListing {
   // Una experiencia no puede estar dos veces en el mismo canal.
   @@unique([experienceId, channel])
   @@index([companyId, channel])
+}
+
+// ─── La experiencia en cada sede ───────────────────────────────────────────
+
+// Las condiciones con que una experiencia se ofrece en UNA sede concreta.
+//
+// Una experiencia es una pieza con la que se arma el catalogo, no una ficha
+// unica: el mismo taller puede estar en el local del centro como abierta
+// —cupos que cualquiera compra sueltos— y en la finca como privada, con otro
+// aforo, otro precio y otra anticipacion. Hasta ahora todas esas condiciones
+// eran columnas de una sola fila de `Experience`, asi que la segunda sede no
+// tenia donde vivir y heredaba a la fuerza las condiciones de la primera.
+//
+// Es hermana de `ChannelListing`: alli la experiencia se publica en un canal,
+// aqui en una sede. Misma idea y mismo nombre a proposito.
+//
+// IMPORTANTE: la fila es OPCIONAL. Que una experiencia este en una sede lo
+// sigue diciendo la relacion `Experience.locations`; esta tabla solo aparece
+// cuando esa sede tiene condiciones PROPIAS. Sin fila —y en cada campo nulo—
+// manda lo que diga la experiencia, que es como venia funcionando. Asi las
+// experiencias de una sola sede no cambian en nada.
+model LocationListing {
+  id String @id @default(cuid())
+
+  experienceId String
+  experience   Experience @relation(fields: [experienceId], references: [id], onDelete: Cascade)
+  locationId   String
+  location     Location   @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  // Si aqui se venden cupos sueltos o se reserva el sitio completo.
+  //
+  // ABIERTA: varias reservas comparten la franja hasta llenar los cupos.
+  // PRIVADA: la primera reserva se queda la franja entera, aunque sobre aforo
+  // —no se puede meter a otro grupo en una celebracion ajena—.
+  //
+  // null = lo que venia haciendo el sistema, que es contar cupos.
+  kind ExperienceKind?
+
+  // Aforo y precio de ESTA sede. null = los de la experiencia.
+  capacity    Int?
+  minCapacity Int?
+  basePrice   Decimal? @db.Decimal(12, 2)
+
+  // Tiempos y anticipacion de ESTA sede, en las mismas unidades que en la
+  // experiencia: minutos los dos primeros, horas el aviso. null = los de la
+  // experiencia.
+  prepTime      Int?
+  cleanupTime   Int?
+  minimumNotice Int?
+
+  // Si la experiencia se esta ofreciendo en esta sede ahora mismo. Sirve para
+  // retirarla de una sede sin borrar sus condiciones ni tocar las otras.
+  isPublished Boolean @default(true)
+
+  // Para que el anfitrion anote lo que solo pasa aqui: "la cocina de esta
+  // sede no tiene horno", "se monta en la terraza si no llueve".
+  notes String? @db.Text
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  // Una experiencia tiene unas condiciones por sede, no dos.
+  @@unique([experienceId, locationId])
+  @@index([locationId])
 }
 
 // ─── Notificaciones ────────────────────────────────────────────────────────

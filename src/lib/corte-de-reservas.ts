@@ -9,8 +9,8 @@
 // tambien cuando se liberan cupos. Si alguien cancela dos horas antes, ese
 // lugar NO vuelve al catalogo: el anfitrion ya compro para esa noche contando
 // con la gente que tenia, y vender uno mas a esa hora le obliga a improvisar.
-import { prisma } from '../config/prisma.js';
 import { BadRequest } from './errors.js';
+import { condicionesDe } from './sede-de-la-experiencia.js';
 
 /**
  * El aviso minimo de una experiencia, en horas.
@@ -19,13 +19,17 @@ import { BadRequest } from './errors.js';
  * cena de quince personas es de la cena, no del sabado. Un mismo horario sirve
  * a experiencias que necesitan avisos muy distintos, y cuando el dato estaba
  * ahi habia que elegir entre ellas.
+ *
+ * La sede puede pedir mas: en la finca a dos horas de la ciudad no se monta
+ * nada con el aviso que basta para el local del centro. Si esa sede no dice
+ * nada, manda la experiencia.
  */
-export async function horasDeAviso(experienceId: string): Promise<number> {
-  const exp = await prisma.experience.findUnique({
-    where: { id: experienceId },
-    select: { minimumNotice: true },
-  });
-  return exp?.minimumNotice ?? 0;
+export async function horasDeAviso(
+  experienceId: string,
+  locationId?: string | null,
+): Promise<number> {
+  const { minimumNotice } = await condicionesDe(experienceId, locationId);
+  return minimumNotice ?? 0;
 }
 
 /**
@@ -35,8 +39,12 @@ export async function horasDeAviso(experienceId: string): Promise<number> {
  * anfitrion carga a mano no pasa por aqui a proposito: si le llaman a las seis
  * y decide aceptar, es su negocio y ya sabe lo que hay en su cocina.
  */
-export async function comprobarCorte(experienceId: string, fecha: Date): Promise<void> {
-  const horas = await horasDeAviso(experienceId);
+export async function comprobarCorte(
+  experienceId: string,
+  fecha: Date,
+  locationId?: string | null,
+): Promise<void> {
+  const horas = await horasDeAviso(experienceId, locationId);
   if (horas <= 0) return;
 
   const limite = new Date(Date.now() + horas * 3_600_000);

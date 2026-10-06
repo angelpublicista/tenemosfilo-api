@@ -119,6 +119,30 @@ export const featuredQuerySchema = z.object({
 
 export const experienceIdParamsSchema = z.object({ id: z.string().min(1) });
 
+// Las condiciones de una experiencia en una sede.
+//
+// Todo nullish a proposito: null es "aqui vale lo que diga la experiencia", y
+// es la respuesta mas comun. Una sede que solo cambia el aforo manda el aforo
+// y nada mas; si tuviera que repetir precio, tiempos y aviso, esos tres se
+// quedarian viejos el dia que la experiencia los cambie.
+export const condicionesDeSedeSchema = z.object({
+  kind: z.enum(['ABIERTA', 'PRIVADA']).nullish(),
+  capacity: z.number().int().positive().nullish(),
+  minCapacity: z.number().int().nonnegative().nullish(),
+  basePrice: z.number().nonnegative().nullish(),
+  prepTime: z.number().int().nonnegative().max(1440).nullish(),
+  cleanupTime: z.number().int().nonnegative().max(1440).nullish(),
+  minimumNotice: z.number().int().nonnegative().max(8760).nullish(),
+  isPublished: z.boolean().optional(),
+  notes: z.string().nullish(),
+});
+
+export const sedeParamsSchema = z.object({
+  id: z.string().min(1),
+  locationId: z.string().min(1),
+});
+
 export type CreateExperienceInput = z.infer<typeof createExperienceSchema>;
 export type UpdateExperienceInput = z.infer<typeof updateExperienceSchema>;
 export type ListExperiencesQuery = z.infer<typeof listExperiencesQuerySchema>;
+export type CondicionesDeSedeInput = z.infer<typeof condicionesDeSedeSchema>;

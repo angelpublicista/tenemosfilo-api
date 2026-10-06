@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { experiencesService } from './experiences.service.js';
 import type {
+  CondicionesDeSedeInput,
   CreateExperienceInput,
   ListExperiencesQuery,
   UpdateExperienceInput,
@@ -81,6 +82,35 @@ export const experiencesController = {
       isAdmin: esAdmin,
     });
     res.json({ data: exp });
+  },
+
+  /** Las sedes donde se ofrece, con las condiciones de cada una. */
+  async sedes(req: Request, res: Response) {
+    const { id } = p<{ id: string }>(req);
+    const data = await experiencesService.sedes(id, req.user!.companyId, {
+      isAdmin: req.user!.role === 'ADMIN',
+    });
+    res.json({ data });
+  },
+
+  async fijarSede(req: Request, res: Response) {
+    const { id, locationId } = p<{ id: string; locationId: string }>(req);
+    const data = await experiencesService.fijarSede(
+      id,
+      locationId,
+      req.body as CondicionesDeSedeInput,
+      req.user!.companyId,
+      { isAdmin: req.user!.role === 'ADMIN' },
+    );
+    res.json({ data });
+  },
+
+  async soltarSede(req: Request, res: Response) {
+    const { id, locationId } = p<{ id: string; locationId: string }>(req);
+    const data = await experiencesService.soltarSede(id, locationId, req.user!.companyId, {
+      isAdmin: req.user!.role === 'ADMIN',
+    });
+    res.json({ data });
   },
 
   async updateStatus(req: Request, res: Response) {
