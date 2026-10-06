@@ -360,13 +360,16 @@ export const quotesService = {
       throw Forbidden('No tienes acceso a las experiencias de otra company');
     }
 
-    // Filtros base: experiencia ACTIVE, de la company, con capacidad suficiente.
+    // Filtros base: experiencia ACTIVE, de la company, que admita ese grupo.
+    //
+    // El aforo NO se filtra en la consulta: los cupos son de la franja, no de
+    // la experiencia, asi que no hay una columna contra la que comparar. Se
+    // mira despues, franja a franja.
     const exps = await prisma.experience.findMany({
       where: {
         companyId: query.companyId,
         deletedAt: null,
         status: 'ACTIVE',
-        capacity: { gte: query.guests },
         OR: [{ minCapacity: null }, { minCapacity: { lte: query.guests } }],
         ...(query.location
           ? {
@@ -399,18 +402,38 @@ export const quotesService = {
       },
     });
 
-    // Filtro de dia de la semana en JS (weeklySchedule es Json).
-    if (!query.date) return exps;
+    /** El grupo mas grande que cabe en alguna franja de este horario. */
+    const cabenEnAlgunaFranja = (
+      disponibilidades: Array<{ weeklySchedule: unknown }>,
+      dia?: string,
+    ): boolean =>
+      disponibilidades.some((a) => {
+        const ws = a.weeklySchedule as Record<
+          string,
+          { isActive?: boolean; franjas?: Array<{ cupos?: number | null }>; timeSlots?: Array<{ cupos?: number | null }> }
+        > | null;
+        if (!ws) return false;
+        const dias = dia ? [dia] : DAYS.filter(Boolean);
+        return dias.some((d) => {
+          const jornada = ws[d!];
+          if (!jornada?.isActive) return false;
+          const franjas = jornada.franjas ?? jornada.timeSlots ?? [];
+          // Una franja sin cupos no pone limite: entra cualquier grupo.
+          return franjas.some((f) => f.cupos == null || f.cupos >= query.guests);
+        });
+      });
+
+    // Sin fecha, basta con que quepan en alguna franja de cualquier dia.
+    if (!query.date) {
+      return exps.filter((e) => e.availabilities.length === 0 || cabenEnAlgunaFranja(e.availabilities));
+    }
 
     const selected = new Date(query.date + 'T12:00:00');
     const dow = DAYS[selected.getDay()];
 
     return exps.filter((e) => {
       if (e.availabilities.length === 0) return false;
-      return e.availabilities.some((a) => {
-        const ws = a.weeklySchedule as Record<string, { isActive?: boolean }> | null;
-        return ws?.[dow!]?.isActive === true;
-      });
+      return cabenEnAlgunaFranja(e.availabilities, dow);
     });
   },
 };

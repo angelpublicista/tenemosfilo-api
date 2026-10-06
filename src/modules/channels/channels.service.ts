@@ -12,8 +12,12 @@ const seleccionExperiencia = {
   description: true,
   categories: true,
   duration: true,
-  capacity: true,
   minCapacity: true,
+  // Los cupos son de la franja: el maximo que la ficha promete sale de aqui.
+  availabilities: {
+    where: { deletedAt: null, isActive: true },
+    select: { weeklySchedule: true },
+  },
   basePrice: true,
   currency: true,
   featuredImage: true,

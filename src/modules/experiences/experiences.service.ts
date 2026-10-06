@@ -8,7 +8,6 @@ import {
   porQueNoSePuedeVender,
 } from '../../lib/completitud-de-experiencia.js';
 import { reservationsService } from '../reservations/reservations.service.js';
-import { noDejarAforoCorto } from '../../lib/aforo-vendido.js';
 import type {
   CreateExperienceInput,
   ListExperiencesQuery,
@@ -103,7 +102,6 @@ function buildBaseData(input: CreateExperienceInput) {
     prepTime: input.prepTime ?? null,
     cleanupTime: input.cleanupTime ?? null,
     minimumNotice: input.minimumNotice ?? null,
-    capacity: input.capacity ?? null,
     minCapacity: input.minCapacity ?? null,
     basePrice: input.basePrice ?? null,
     currency: input.currency ?? 'COP',
@@ -280,10 +278,6 @@ export const experiencesService = {
     if (input.prepTime !== undefined) data.prepTime = input.prepTime ?? null;
     if (input.cleanupTime !== undefined) data.cleanupTime = input.cleanupTime ?? null;
     if (input.minimumNotice !== undefined) data.minimumNotice = input.minimumNotice ?? null;
-    if (input.capacity !== undefined) {
-      await noDejarAforoCorto(id, input.capacity);
-      data.capacity = input.capacity;
-    }
     if (input.minCapacity !== undefined) data.minCapacity = input.minCapacity;
     if (input.basePrice !== undefined) data.basePrice = input.basePrice;
 

@@ -114,17 +114,17 @@ async function filtroDeSede(
 }
 
 /**
- * Cuantos lugares quedan, y contra que se cuentan.
+ * Cuantos lugares quedan en la franja donde cae la reserva.
  *
- * Dos modos, y cual aplica lo decide el horario:
+ * El aforo es de la FRANJA, no de la experiencia: el almuerzo y la cena de un
+ * sabado son dos inventarios distintos, y la misma experiencia puede admitir
+ * ocho en el local y veinte en la terraza. Cuando el numero vivia en la
+ * experiencia, decir "los sabados por la noche caben menos" no se podia
+ * expresar.
  *
- *  - Si la franja en la que cae la reserva tiene cupos propios, el inventario
- *    es de ESA franja y se cuenta solo lo que esta dentro de su rango. El
- *    almuerzo y la cena de un sabado se llenan por separado.
- *  - Si no, el aforo es el de la experiencia y se cuenta por dia, como venia
- *    funcionando. A quien no use cupos por franja no le cambia nada.
- *
- * `null` cuando no hay nada contra que comparar.
+ * `null` cuando no hay franja declarada para esa hora: no hay inventario
+ * contra que comparar y no se limita. Es lo que pasaba antes con una
+ * experiencia sin aforo.
  */
 export async function cuposLibres(
   cliente: Cliente,
@@ -135,38 +135,29 @@ export async function cuposLibres(
   locationId?: string | null,
 ): Promise<number | null> {
   const condiciones = await condicionesDe(experienceId, locationId, cliente);
-  const sede = await filtroDeSede(cliente, experienceId, condiciones.locationId);
-  const ocupan = ocupanElDia(experienceId, fecha, exigePago, excluirReservaId, sede);
   const franja = await franjaDeLaReserva(experienceId, fecha, condiciones.locationId);
-  // Dentro de la franja, no de todo el dia.
-  const rango = franja ? { reservationDate: { gte: franja.inicio, lt: franja.fin } } : {};
+  if (!franja) return null;
+
+  const sede = await filtroDeSede(cliente, experienceId, condiciones.locationId);
+  const ocupan = {
+    ...ocupanElDia(experienceId, fecha, exigePago, excluirReservaId, sede),
+    // Dentro de la franja, no de todo el dia.
+    reservationDate: { gte: franja.inicio, lt: franja.fin },
+  };
 
   // En una sede privada no se venden cupos sueltos: la primera reserva se
   // queda el sitio entero. Caben los que caben, pero una vez hay una
   // celebracion no se mete a otro grupo dentro, sobre aforo o no.
   if (condiciones.kind === 'PRIVADA') {
-    const ya = await cliente.reservation.count({ where: { ...ocupan, ...rango } });
-    if (ya > 0) return 0;
-    const tope = franja?.cupos ?? condiciones.capacity ?? 0;
-    return tope > 0 ? tope : null;
+    const ya = await cliente.reservation.count({ where: ocupan });
+    return ya > 0 ? 0 : franja.cupos;
   }
-
-  if (franja) {
-    const agregado = await cliente.reservation.aggregate({
-      where: { ...ocupan, ...rango },
-      _sum: { participants: true },
-    });
-    return franja.cupos - (agregado._sum?.participants ?? 0);
-  }
-
-  const aforo = condiciones.capacity ?? 0;
-  if (aforo <= 0) return null;
 
   const agregado = await cliente.reservation.aggregate({
     where: ocupan,
     _sum: { participants: true },
   });
-  return aforo - (agregado._sum?.participants ?? 0);
+  return franja.cupos - (agregado._sum?.participants ?? 0);
 }
 
 /** Rechaza la reserva si pasa del aforo, cuando la empresa lo pide. */

@@ -34,7 +34,6 @@ export const createExperienceSchema = z.object({
   // horario y ahi no era: un mismo horario sirve a experiencias que necesitan
   // avisos muy distintos.
   minimumNotice: z.number().int().nonnegative().max(8760).nullish(),
-  capacity: z.number().int().positive().optional(),
   minCapacity: z.number().int().nonnegative().optional(),
   basePrice: z.number().nonnegative().optional(),
   currency: z.string().optional().default('COP'),
@@ -127,7 +126,6 @@ export const experienceIdParamsSchema = z.object({ id: z.string().min(1) });
 // quedarian viejos el dia que la experiencia los cambie.
 export const condicionesDeSedeSchema = z.object({
   kind: z.enum(['ABIERTA', 'PRIVADA']).nullish(),
-  capacity: z.number().int().positive().nullish(),
   minCapacity: z.number().int().nonnegative().nullish(),
   basePrice: z.number().nonnegative().nullish(),
   prepTime: z.number().int().nonnegative().max(1440).nullish(),

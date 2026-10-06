@@ -3,14 +3,18 @@ import { z } from 'zod';
 /**
  * Una franja horaria de un dia.
  *
- * `cupos` es el inventario de ESA franja: el almuerzo y la cena de un sabado
- * son dos cosas distintas y se llenan por separado. Sin `cupos`, manda el
- * aforo de la experiencia, que es como venia funcionando.
+ * `cupos` es el inventario de ESA franja y es OBLIGATORIO: los cupos son del
+ * horario, no de la experiencia. El almuerzo y la cena de un sabado son dos
+ * cosas distintas y se llenan por separado, y la misma experiencia puede
+ * admitir ocho en el local y veinte en la terraza.
+ *
+ * Antes vivian en la experiencia como un numero unico, asi que decir "los
+ * sabados por la noche caben menos" no se podia expresar.
  */
 const franjaSchema = z.object({
   startTime: z.string(),
   endTime: z.string(),
-  cupos: z.number().int().positive().nullish(),
+  cupos: z.number().int().positive(),
 });
 
 const dayScheduleSchema = z.object({

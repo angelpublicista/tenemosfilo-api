@@ -20,7 +20,11 @@ export interface Condiciones {
   locationId: string | null;
   /** Cupos sueltos o sitio completo. null = contar cupos, como siempre. */
   kind: ExperienceKind | null;
-  capacity: number | null;
+  /**
+   * El minimo para que la experiencia se haga. NO es inventario: los cupos
+   * que se venden son de la franja, y este es el tamaño de grupo por debajo
+   * del cual la cena no sale, que no cambia por ser sabado o martes.
+   */
   minCapacity: number | null;
   basePrice: Prisma.Decimal | null;
   /** Minutos. */
@@ -65,7 +69,6 @@ export async function condicionesDe(
   const exp = await cliente.experience.findUnique({
     where: { id: experienceId },
     select: {
-      capacity: true,
       minCapacity: true,
       basePrice: true,
       prepTime: true,
@@ -85,7 +88,6 @@ export async function condicionesDe(
   return {
     locationId: sede,
     kind: ficha?.kind ?? null,
-    capacity: ficha?.capacity ?? exp?.capacity ?? null,
     minCapacity: ficha?.minCapacity ?? exp?.minCapacity ?? null,
     basePrice: ficha?.basePrice ?? exp?.basePrice ?? null,
     prepTime: ficha?.prepTime ?? exp?.prepTime ?? null,

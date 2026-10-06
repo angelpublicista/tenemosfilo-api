@@ -58,7 +58,6 @@ const experienciaPublica = {
     select: {
       locationId: true,
       kind: true,
-      capacity: true,
       minCapacity: true,
       basePrice: true,
       prepTime: true,

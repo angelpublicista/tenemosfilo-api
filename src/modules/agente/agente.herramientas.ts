@@ -11,6 +11,7 @@
 import { prisma } from '../../config/prisma.js';
 import { enlaceService } from '../opportunities/opportunities.enlace.js';
 import { opportunitiesService } from '../opportunities/opportunities.service.js';
+import { aforoMaximo } from '../../lib/franjas.js';
 
 export interface ContextoDelAgente {
   companyId: string;
@@ -114,7 +115,9 @@ async function listarExperiencias(ctx: ContextoDelAgente): Promise<Resultado> {
   const items = await prisma.experience.findMany({
     where: { companyId: ctx.companyId, deletedAt: null, status: 'ACTIVE' },
     select: {
-      id: true, title: true, basePrice: true, duration: true, capacity: true,
+      id: true, title: true, basePrice: true, duration: true,
+      // Los cupos son de la franja: el maximo sale del horario.
+      availabilities: { where: { deletedAt: null, isActive: true }, select: { weeklySchedule: true } },
       presentialCity: true, atHome: true,
     },
     take: 25,
@@ -126,7 +129,7 @@ async function listarExperiencias(ctx: ContextoDelAgente): Promise<Resultado> {
     (e) =>
       `- ${e.title} (id: ${e.id}) · ${e.basePrice ? pesos(Number(e.basePrice)) + ' por persona' : 'precio a consultar'}` +
       `${e.duration ? ` · ${e.duration} min` : ''}` +
-      `${e.capacity ? ` · hasta ${e.capacity} personas` : ''}` +
+      `${aforoMaximo(e.availabilities) ? ` · hasta ${aforoMaximo(e.availabilities)} personas` : ''}` +
       `${e.presentialCity ? ` · ${e.presentialCity}` : ''}` +
       // Que va a casa del cliente es de lo primero que pregunta quien escribe.
       `${e.atHome ? ' · a domicilio' : ''}`,
@@ -141,7 +144,7 @@ async function verExperiencia(id: string, ctx: ContextoDelAgente): Promise<Resul
     where: { id, companyId: ctx.companyId, deletedAt: null, status: 'ACTIVE' },
     select: {
       title: true, description: true, includes: true, basePrice: true, duration: true,
-      capacity: true, presentialCity: true, atHome: true,
+      presentialCity: true, atHome: true,
       locations: {
         where: { deletedAt: null },
         select: { id: true, name: true, address: true, isMain: true },
@@ -154,7 +157,6 @@ async function verExperiencia(id: string, ctx: ContextoDelAgente): Promise<Resul
         select: {
           locationId: true,
           kind: true,
-          capacity: true,
           basePrice: true,
           minimumNotice: true,
         },
@@ -177,7 +179,8 @@ async function verExperiencia(id: string, ctx: ContextoDelAgente): Promise<Resul
       : '',
     e.basePrice ? `Precio: ${pesos(Number(e.basePrice))} por persona` : '',
     e.duration ? `Duración: ${e.duration} minutos` : '',
-    e.capacity ? `Hasta ${e.capacity} personas` : '',
+    // Cuanta gente cabe lo dice el horario, no la experiencia.
+    aforoMaximo(e.availabilities) ? `Hasta ${aforoMaximo(e.availabilities)} personas` : '',
     // A domicilio no hay sede que nombrar: se va donde diga el cliente.
     e.atHome
       ? `Se hace a domicilio${e.presentialCity ? `, en ${e.presentialCity} y alrededores` : ''}`
@@ -194,7 +197,6 @@ async function verExperiencia(id: string, ctx: ContextoDelAgente): Promise<Resul
               f?.kind === 'PRIVADA' ? 'solo por encargo, para grupo completo' : '',
               f?.kind === 'ABIERTA' ? 'con cupos sueltos' : '',
               f?.basePrice ? `${pesos(Number(f.basePrice))} por persona` : '',
-              f?.capacity ? `hasta ${f.capacity} personas` : '',
               f?.minimumNotice ? `con ${f.minimumNotice} h de anticipación` : '',
             ].filter(Boolean);
             return propio.length ? `${donde} — ${propio.join(', ')}` : donde;

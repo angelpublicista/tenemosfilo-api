@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../config/prisma.js';
 import { BadRequest, Forbidden, NotFound } from '../../lib/errors.js';
+import { noBajarCuposVendidos } from '../../lib/aforo-vendido.js';
 import type {
   CreateAvailabilityInput,
   ListAvailabilitiesQuery,
@@ -243,8 +244,14 @@ export const availabilitiesService = {
     if (input.description !== undefined) data.description = input.description;
     if (input.isMain !== undefined) data.isMain = input.isMain;
     if (input.isActive !== undefined) data.isActive = input.isActive;
-    if (input.weeklySchedule !== undefined)
-      data.weeklySchedule = aFranjas(input.weeklySchedule) as Prisma.InputJsonValue;
+    if (input.weeklySchedule !== undefined) {
+      const semana = aFranjas(input.weeklySchedule);
+      // TR-10. Los cupos no pueden quedar por debajo de lo ya vendido en esa
+      // franja: la gente ya pagó y las plazas dejarían de existir. Se mira
+      // antes de escribir, para no dejar el horario a medias.
+      await noBajarCuposVendidos(id, semana);
+      data.weeklySchedule = semana as Prisma.InputJsonValue;
+    }
     if (input.notes !== undefined) data.notes = input.notes;
     if (input.blockedDates !== undefined)
       data.blockedDates = await blockedDatesToStrings(input.blockedDates);

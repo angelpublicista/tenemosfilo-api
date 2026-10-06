@@ -51,7 +51,7 @@ function generateReservationNumber(): string {
 }
 
 const fullInclude = {
-  experience: { select: { id: true, title: true, duration: true, capacity: true } },
+  experience: { select: { id: true, title: true, duration: true } },
   company: { select: { id: true, companyName: true, companyEmail: true, companyPhone: true, logo: true } },
   user: { select: { id: true, name: true, email: true, phone: true } },
   location: { select: { id: true, name: true, address: true } },

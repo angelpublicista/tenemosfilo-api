@@ -24,7 +24,13 @@ const DIAS = [
 export interface Franja {
   startTime: string;
   endTime: string;
-  /** El inventario de esta franja. Null = el aforo de la experiencia. */
+  /**
+   * El inventario de esta franja. Los cupos son del horario, no de la
+   * experiencia: el almuerzo y la cena de un sabado se llenan por separado.
+   *
+   * Nulo solo en horarios anteriores a la regla; entonces esa franja no pone
+   * limite, que es lo que hacia una experiencia sin aforo.
+   */
   cupos?: number | null;
 }
 
@@ -42,6 +48,33 @@ export function franjasDelDia(semana: unknown, fecha: Date): Franja[] {
   const dia = (semana as Record<string, DiaDeLaSemana | undefined>)[clave!];
   if (!dia?.isActive) return [];
   return dia.franjas ?? dia.timeSlots ?? [];
+}
+
+/**
+ * El grupo mas grande que cabe en alguna franja de estos horarios.
+ *
+ * Los cupos son de la franja, asi que "cuanta gente cabe" ya no es un numero
+ * de la experiencia: es el mayor de sus franjas. Sirve para las fichas que
+ * tienen que decir un maximo —los canales de venta— sin volver a inventarse
+ * un aforo en la experiencia.
+ *
+ * `null` cuando ninguna franja declara cupos: entonces no hay maximo que
+ * prometer.
+ */
+export function aforoMaximo(horarios: Array<{ weeklySchedule: unknown }>): number | null {
+  let mayor: number | null = null;
+  const lunes = new Date();
+  for (const h of horarios) {
+    for (let i = 0; i < 7; i += 1) {
+      const d = new Date(lunes);
+      d.setDate(d.getDate() + i);
+      for (const f of franjasDelDia(h.weeklySchedule, d)) {
+        if (f.cupos === null || f.cupos === undefined) continue;
+        if (mayor === null || f.cupos > mayor) mayor = f.cupos;
+      }
+    }
+  }
+  return mayor;
 }
 
 /**
@@ -159,11 +192,11 @@ export interface FranjaConCupos {
 }
 
 /**
- * La franja con cupos propios en la que cae una reserva, si la hay.
+ * La franja en la que cae una reserva, con sus cupos.
  *
- * Devuelve null cuando no hay ninguna o cuando la que aplica no define cupos:
- * en ese caso el aforo es el de la experiencia y se cuenta por dia, como
- * siempre. Asi, a quien no use cupos por franja no le cambia nada.
+ * Devuelve null cuando no hay ninguna que cubra esa hora, o cuando la que
+ * aplica no declara cupos —horarios anteriores a la regla—: entonces no hay
+ * inventario contra que comparar y no se limita.
  *
  * Si dos horarios cubren la misma hora con cupos distintos, manda el menor:
  * es el unico que no promete sitio que el otro no tiene.

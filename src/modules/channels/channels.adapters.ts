@@ -10,6 +10,7 @@
 // back-office. El dia que exista el acuerdo, este adaptador gana un
 // `publicar()` y la pantalla no cambia.
 import type { ChannelType } from '@prisma/client';
+import { aforoMaximo } from '../../lib/franjas.js';
 
 /** Lo que hace falta antes de poder cargar la experiencia en el canal. */
 export type Faltante = {
@@ -36,8 +37,8 @@ export type ExperienciaParaCanal = {
   description: string | null;
   categories: string[];
   duration: number | null;
-  capacity: number | null;
   minCapacity: number | null;
+  availabilities: Array<{ weeklySchedule: unknown }>;
   basePrice: unknown;
   currency: string;
   featuredImage: string | null;
@@ -123,8 +124,13 @@ const openTable: Adaptador = {
     if (!exp.duration) {
       faltantes.push({ campo: 'duration', mensaje: 'Indica cuánto dura la experiencia.' });
     }
-    if (!exp.capacity) {
-      faltantes.push({ campo: 'capacity', mensaje: 'Indica el máximo de personas.' });
+    // El maximo ya no es un campo de la experiencia: sale de las franjas del
+    // horario. Sin franjas con cupos no hay maximo que publicar.
+    if (!aforoMaximo(exp.availabilities)) {
+      faltantes.push({
+        campo: 'cupos',
+        mensaje: 'Ponle cupos a las franjas del horario: de ahí sale el máximo de personas.',
+      });
     }
     if (!exp.featuredImage) {
       faltantes.push({
@@ -156,10 +162,11 @@ const openTable: Adaptador = {
       { etiqueta: 'Duración', valor: exp.duration ? `${exp.duration} minutos` : '' },
       {
         etiqueta: 'Personas',
-        valor:
-          exp.capacity
-            ? `De ${exp.minCapacity ?? 1} a ${exp.capacity}`
-            : '',
+        valor: (() => {
+          // El maximo sale de las franjas: los cupos son del horario.
+          const tope = aforoMaximo(exp.availabilities);
+          return tope ? `De ${exp.minCapacity ?? 1} a ${tope}` : '';
+        })(),
       },
       { etiqueta: 'Categorías', valor: exp.categories.join(', ') },
       {

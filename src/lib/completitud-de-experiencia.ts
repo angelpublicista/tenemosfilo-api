@@ -18,7 +18,6 @@ export const PARA_COMPLETITUD = {
   description: true,
   categories: true,
   duration: true,
-  capacity: true,
   basePrice: true,
   atHome: true,
   presentialCity: true,
@@ -40,7 +39,6 @@ type Ficha = {
   description?: string | null;
   categories?: string[] | null;
   duration?: number | null;
-  capacity?: number | null;
   basePrice?: Prisma.Decimal | number | null;
   atHome?: boolean | null;
   presentialCity?: string | null;
@@ -57,8 +55,9 @@ export function completitudDeExperiencia(e: Ficha): Completitud {
   if (!e.description?.trim()) falta.push('la descripción');
   if (!e.categories || e.categories.length === 0) falta.push('al menos una categoría');
   if (!e.duration || e.duration <= 0) falta.push('la duración');
-  // Sin cupos no hay inventario que vender: no se sabe cuanta gente cabe.
-  if (!e.capacity || e.capacity <= 0) falta.push('los cupos por sesión');
+  // Los cupos NO se piden aqui: son del horario, no de la experiencia. Una
+  // pieza sin cupos no esta incompleta —esta sin programar—, y eso se ve en
+  // Publicaciones, que dice cuando una publicacion no tiene franjas.
   if (e.basePrice === null || e.basePrice === undefined || Number(e.basePrice) <= 0) {
     falta.push('el precio');
   }

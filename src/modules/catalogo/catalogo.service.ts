@@ -19,7 +19,6 @@ import {
   completitudDeExperiencia,
 } from '../../lib/completitud-de-experiencia.js';
 import { condicionesDe } from '../../lib/sede-de-la-experiencia.js';
-import { noDejarAforoCorto } from '../../lib/aforo-vendido.js';
 import { franjasDelDia, horariosQueAplican } from '../../lib/franjas.js';
 import type { CondicionesDeSedeInput } from '../experiences/experiences.schemas.js';
 
@@ -159,7 +158,6 @@ export const catalogoService = {
           propias: suyas
             ? {
                 kind: suyas.kind,
-                capacity: suyas.capacity,
                 minCapacity: suyas.minCapacity,
                 basePrice: suyas.basePrice,
                 prepTime: suyas.prepTime,
@@ -226,7 +224,6 @@ export const catalogoService = {
 
     const datos = {
       kind: condiciones.kind ?? null,
-      capacity: condiciones.capacity ?? null,
       minCapacity: condiciones.minCapacity ?? null,
       basePrice: condiciones.basePrice ?? null,
       prepTime: condiciones.prepTime ?? null,
@@ -236,12 +233,6 @@ export const catalogoService = {
       ...(condiciones.isPublished === undefined ? {} : { isPublished: condiciones.isPublished }),
       deletedAt: null,
     };
-
-    // TR-10. El aforo de esta sede tiene que caber en lo que ya esta vendido
-    // aqui: bajarlo por debajo dejaria reservas que no entran en su propio
-    // escenario. Se comprueba antes de tocar nada, para que una publicacion
-    // rechazada no deje la sede atada a medias.
-    await noDejarAforoCorto(experienceId, condiciones.capacity ?? undefined, locationId);
 
     await prisma.experience.update({
       where: { id: experienceId },
