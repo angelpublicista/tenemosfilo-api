@@ -20,9 +20,8 @@ export const PARA_COMPLETITUD = {
   duration: true,
   capacity: true,
   basePrice: true,
-  experienceType: true,
-  isVirtual: true,
-  virtualPlatform: true,
+  atHome: true,
+  presentialCity: true,
   presentialLocation: true,
   featuredImage: true,
   locations: { select: { id: true } },
@@ -43,9 +42,8 @@ type Ficha = {
   duration?: number | null;
   capacity?: number | null;
   basePrice?: Prisma.Decimal | number | null;
-  experienceType?: string | null;
-  isVirtual?: boolean | null;
-  virtualPlatform?: string | null;
+  atHome?: boolean | null;
+  presentialCity?: string | null;
   presentialLocation?: string | null;
   featuredImage?: string | null;
   locations?: { id: string }[] | null;
@@ -65,10 +63,14 @@ export function completitudDeExperiencia(e: Ficha): Completitud {
     falta.push('el precio');
   }
 
-  // Donde ocurre. Una virtual necesita plataforma; una presencial, un sitio.
-  const virtual = e.isVirtual === true || e.experienceType === 'VIRTUAL';
-  if (virtual) {
-    if (!e.virtualPlatform?.trim()) falta.push('la plataforma donde se hace');
+  // Donde ocurre.
+  //
+  // A domicilio no hace falta sede —la direccion la pone quien reserva— pero
+  // si hace falta saber DONDE se presta: un chef que va a casa del cliente no
+  // cruza el pais, y sin la ciudad el catalogo se le ofrece a gente a la que
+  // no puede atender.
+  if (e.atHome) {
+    if (!e.presentialCity?.trim()) falta.push('la ciudad donde lo prestas');
   } else if ((e.locations?.length ?? 0) === 0 && !e.presentialLocation?.trim()) {
     falta.push('el lugar o la sede');
   }

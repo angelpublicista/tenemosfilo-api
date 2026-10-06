@@ -112,17 +112,17 @@ export const catalogoService = {
         title: p.title,
         slug: p.slug,
         status: p.status,
-        experienceType: p.experienceType,
-        isVirtual: p.isVirtual,
+        atHome: p.atHome,
         featuredImage: p.featuredImage,
         duration: p.duration,
         completa: completitud.completa,
         falta: completitud.falta,
       };
 
-      // Una virtual no se publica en sedes: se da donde sea. Sale como una
-      // sola fila para que el catalogo la liste igual que las demas.
-      const sedes = p.isVirtual || p.experienceType === 'VIRTUAL' ? [] : p.locations;
+      // A domicilio no se publica en sedes: la direccion la pone quien reserva.
+      // Sale como una sola fila para que el catalogo la liste igual que las
+      // demas, y para que su horario se pueda gestionar desde aqui.
+      const sedes = p.atHome ? [] : p.locations;
 
       if (sedes.length === 0) {
         const horarios = await horariosQueAplican(p.id, null);
@@ -200,16 +200,17 @@ export const catalogoService = {
   ) {
     const exp = await prisma.experience.findFirst({
       where: { id: experienceId, deletedAt: null },
-      select: { id: true, companyId: true, isVirtual: true, experienceType: true },
+      select: { id: true, companyId: true, atHome: true },
     });
     if (!exp) throw NotFound('Experiencia no encontrada');
     if (!opts?.isAdmin && (!companyId || exp.companyId !== companyId)) {
       throw Forbidden('No puedes publicar una experiencia de otra empresa');
     }
-    if (exp.isVirtual || exp.experienceType === 'VIRTUAL') {
-      throw BadRequest('Una experiencia virtual no se publica en una sede.', {
-        motivo: 'VIRTUAL_SIN_SEDE',
-      });
+    if (exp.atHome) {
+      throw BadRequest(
+        'Una experiencia a domicilio no se publica en una sede: la dirección la pone quien reserva.',
+        { motivo: 'DOMICILIO_SIN_SEDE' },
+      );
     }
 
     // La sede tiene que ser de la MISMA empresa. Publicar en el local de otro

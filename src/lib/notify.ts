@@ -234,7 +234,7 @@ type ReservaCruda = {
   location?: { name?: string | null; address?: unknown } | null;
   user?: { email?: string | null } | null;
   specialRequirements?: string | null;
-  isVirtual?: boolean;
+  serviceAddress?: string | null;
 };
 
 /**
@@ -261,9 +261,12 @@ export function datosDeReserva(r: ReservaCruda): DatosReserva {
   const cliente = (r.client ?? {}) as { name?: string; email?: string; phone?: string };
   const precio = (r.pricing ?? {}) as { total?: number };
 
-  const lugar = r.isVirtual
-    ? 'En línea'
-    : [r.location?.name, direccionLegible(r.location?.address)].filter(Boolean).join(' · ') || null;
+  // A domicilio, el lugar es la direccion que dio quien reserva: mandarle el
+  // nombre de una sede a la que no va a ir seria peor que no decir nada.
+  const lugar =
+    r.serviceAddress?.trim() ||
+    [r.location?.name, direccionLegible(r.location?.address)].filter(Boolean).join(' · ') ||
+    null;
 
   return {
     id: r.id,

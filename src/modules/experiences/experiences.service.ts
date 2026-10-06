@@ -109,9 +109,7 @@ function buildBaseData(input: CreateExperienceInput) {
     currency: input.currency ?? 'COP',
     featuredImage: input.featuredImage ?? null,
     gallery: (input.gallery as Prisma.InputJsonValue | undefined) ?? Prisma.JsonNull,
-    experienceType: input.experienceType ?? 'PRESENTIAL',
-    isVirtual: input.isVirtual ?? false,
-    virtualPlatform: input.virtualPlatform ?? null,
+    atHome: input.atHome ?? false,
     presentialLocation: input.presentialLocation ?? null,
     presentialAddress: input.presentialAddress ?? null,
     presentialCity: input.presentialCity ?? null,
@@ -215,7 +213,7 @@ export const experiencesService = {
           ? { status: query.status }
           : {}),
       ...(query.category ? { categories: { has: query.category } } : {}),
-      ...(query.experienceType ? { experienceType: query.experienceType } : {}),
+      ...(query.atHome !== undefined ? { atHome: query.atHome } : {}),
       ...(query.isFeatured !== undefined ? { isFeatured: query.isFeatured } : {}),
       ...(query.minPrice !== undefined || query.maxPrice !== undefined
         ? {
@@ -303,9 +301,7 @@ export const experiencesService = {
     if (input.featuredImage !== undefined) data.featuredImage = input.featuredImage ?? null;
     if (input.gallery !== undefined)
       data.gallery = (input.gallery as Prisma.InputJsonValue) ?? Prisma.JsonNull;
-    if (input.experienceType !== undefined) data.experienceType = input.experienceType;
-    if (input.isVirtual !== undefined) data.isVirtual = input.isVirtual;
-    if (input.virtualPlatform !== undefined) data.virtualPlatform = input.virtualPlatform ?? null;
+    if (input.atHome !== undefined) data.atHome = input.atHome;
     if (input.presentialLocation !== undefined)
       data.presentialLocation = input.presentialLocation ?? null;
     if (input.presentialAddress !== undefined)

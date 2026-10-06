@@ -662,6 +662,20 @@ model Experience {
   currency           String           @default("COP")
   featuredImage      String?
   gallery            Json? // string[] de URLs
+  // Donde ocurre: en un sitio del anfitrion o en casa del cliente.
+  //
+  // Un chef que va a casa del cliente no tiene sede donde publicarse: la
+  // direccion la pone quien reserva, y cambia en cada reserva. Por eso no es
+  // una sede mas sino otra forma de ofrecerla.
+  //
+  // Todo es presencial. El tipo VIRTUAL/HYBRID se fue: no se usaba —cero
+  // experiencias y cero reservas en produccion— y obligaba a ramificar cada
+  // pantalla por un caso que no existe.
+  atHome Boolean @default(false)
+
+  // OBSOLETOS. Se dejan de leer y escribir en este despliegue y se borran en
+  // el siguiente: la migracion corre con el codigo viejo todavia sirviendo,
+  // asi que quitarlos de golpe tumbaria lo que esta en el aire.
   experienceType     ExperienceType   @default(PRESENTIAL)
   isVirtual          Boolean          @default(false)
   virtualPlatform    String?
@@ -1293,6 +1307,13 @@ model Reservation {
   paymentDetails      Json?
   locationId          String?
   location            Location?    @relation(fields: [locationId], references: [id])
+  // Donde se presta, cuando la experiencia es a domicilio: la direccion la da
+  // quien reserva y cambia en cada reserva, asi que no puede vivir en la
+  // experiencia ni en una sede.
+  //
+  // Sustituye a `virtualDetails`, que guardaba el enlace de la videollamada.
+  serviceAddress      String?
+  // OBSOLETOS, se borran en el siguiente despliegue.
   isVirtual           Boolean      @default(false)
   virtualDetails      String?
   specialRequirements String?      @db.Text

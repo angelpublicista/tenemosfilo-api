@@ -322,7 +322,7 @@ export const payoutsService = {
         pricing: true,
         channel: true,
         participants: true,
-        experience: { select: { id: true, title: true, experienceType: true } },
+        experience: { select: { id: true, title: true, atHome: true } },
         resellerCompany: { select: { id: true, companyName: true } },
       },
     });
@@ -370,10 +370,12 @@ export const payoutsService = {
     const porModalidad = new Map<string, Fila>();
     const porCanal = new Map<string, Fila>();
 
+    // TR-28. La modalidad ya no es presencial/virtual —todo es presencial—
+    // sino donde ocurre: en un sitio del anfitrion o en casa del cliente. Son
+    // negocios distintos y conviene verlos por separado.
     const MODALIDAD: Record<string, string> = {
-      PRESENTIAL: 'Presencial',
-      VIRTUAL: 'Virtual',
-      HYBRID: 'Híbrida',
+      true: 'A domicilio',
+      false: 'En sede',
     };
     const CANAL: Record<string, string> = {
       MANUAL: 'Cargada a mano',
@@ -397,8 +399,8 @@ export const payoutsService = {
         r,
       );
 
-      const tipo = r.experience?.experienceType ?? 'PRESENTIAL';
-      acumular(porModalidad, tipo, MODALIDAD[tipo] ?? tipo, r);
+      const aDomicilio = String(r.experience?.atHome ?? false);
+      acumular(porModalidad, aDomicilio, MODALIDAD[aDomicilio] ?? aDomicilio, r);
 
       // El canal, y dentro de "canal de venta" cual: a un anfitrion le
       // importa cuanto le trae cada revendedor, no solo el total de todos.

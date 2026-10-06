@@ -60,8 +60,9 @@ export const createReservationSchema = z.object({
   paymentMethod: z.string().optional(),
   paymentDetails: z.record(z.string(), z.unknown()).optional(),
   location: z.string().min(1).optional(),
-  isVirtual: z.boolean().optional().default(false),
-  virtualDetails: z.record(z.string(), z.unknown()).optional(),
+  // Donde se presta, cuando la experiencia es a domicilio. La pone quien
+  // reserva y cambia en cada reserva, asi que no vive en la experiencia.
+  serviceAddress: z.string().optional(),
   specialRequirements: z.string().optional(),
   notes: z.string().optional(),
   // TR-42. El "programar de todas formas" cuando el anfitrion ya tiene algo a
@@ -162,7 +163,6 @@ export const listReservationsQuerySchema = z.object({
   status: statusEnum.optional(),
   paymentStatus: paymentStatusEnum.optional(),
   experienceId: z.string().optional(),
-  isVirtual: z.coerce.boolean().optional(),
   dateFrom: z.string().optional(),
   dateTo: z.string().optional(),
   search: z.string().optional(),

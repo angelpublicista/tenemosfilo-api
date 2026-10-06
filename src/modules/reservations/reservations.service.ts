@@ -542,8 +542,7 @@ export const reservationsService = {
         paymentMethod: input.paymentMethod ?? null,
         paymentDetails: (input.paymentDetails as Prisma.InputJsonValue | undefined) ?? Prisma.JsonNull,
         ...(input.location ? { location: { connect: { id: input.location } } } : {}),
-        isVirtual: input.isVirtual ?? false,
-        virtualDetails: input.virtualDetails ? JSON.stringify(input.virtualDetails) : null,
+        serviceAddress: input.serviceAddress ?? null,
         specialRequirements: input.specialRequirements ?? null,
         notes: input.notes ?? null,
       },
@@ -712,7 +711,7 @@ export const reservationsService = {
         collectedBy: quienCobra,
         pricing,
         ...(input.location ? { location: { connect: { id: input.location } } } : {}),
-        isVirtual: input.isVirtual ?? false,
+        serviceAddress: input.serviceAddress ?? null,
         specialRequirements: input.specialRequirements ?? null,
         notes: input.notes ?? null,
       },
@@ -770,7 +769,7 @@ export const reservationsService = {
         status: true,
         paymentStatus: true,
         pricing: true,
-        isVirtual: true,
+        serviceAddress: true,
         specialRequirements: true,
         experience: { select: { id: true, title: true, duration: true, featuredImage: true } },
         // Con quien va a cenar y como contactarlo. Nada de finanzas del
@@ -986,7 +985,6 @@ export const reservationsService = {
       ...(query.status ? { status: query.status } : {}),
       ...(query.paymentStatus ? { paymentStatus: query.paymentStatus } : {}),
       ...(query.experienceId ? { experienceId: query.experienceId } : {}),
-      ...(query.isVirtual !== undefined ? { isVirtual: query.isVirtual } : {}),
       ...(query.dateFrom || query.dateTo
         ? {
             reservationDate: {
@@ -1071,9 +1069,7 @@ export const reservationsService = {
     if (input.paymentMethod !== undefined) data.paymentMethod = input.paymentMethod ?? null;
     if (input.paymentDetails !== undefined)
       data.paymentDetails = (input.paymentDetails as Prisma.InputJsonValue) ?? Prisma.JsonNull;
-    if (input.isVirtual !== undefined) data.isVirtual = input.isVirtual;
-    if (input.virtualDetails !== undefined)
-      data.virtualDetails = input.virtualDetails ? JSON.stringify(input.virtualDetails) : null;
+    if (input.serviceAddress !== undefined) data.serviceAddress = input.serviceAddress ?? null;
     if (input.specialRequirements !== undefined) data.specialRequirements = input.specialRequirements ?? null;
     if (input.notes !== undefined) data.notes = input.notes ?? null;
     if (input.location !== undefined && input.location !== null)

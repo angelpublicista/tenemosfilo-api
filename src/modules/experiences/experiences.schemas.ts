@@ -1,6 +1,5 @@
 import { z } from 'zod';
 
-const experienceTypeEnum = z.enum(['VIRTUAL', 'PRESENTIAL', 'HYBRID']);
 const experienceStatusEnum = z.enum(['DRAFT', 'PENDING', 'ACTIVE', 'PAUSED', 'INACTIVE']);
 
 const galleryItemSchema = z.object({
@@ -44,9 +43,9 @@ export const createExperienceSchema = z.object({
   locations: z.array(z.string().min(1)).optional().default([]),
   menus: z.array(z.string().min(1)).optional().default([]),
   availabilities: z.array(z.string().min(1)).optional().default([]),
-  experienceType: experienceTypeEnum.optional().default('PRESENTIAL'),
-  isVirtual: z.boolean().optional().default(false),
-  virtualPlatform: optStr,
+  // Donde ocurre: en un sitio del anfitrion o en casa de quien reserva. Todo
+  // es presencial; lo virtual se fue porque no se usaba.
+  atHome: z.boolean().optional().default(false),
   presentialLocation: optStr,
   presentialAddress: optStr,
   presentialCity: optStr,
@@ -104,7 +103,8 @@ export const listExperiencesQuerySchema = z.object({
   isFeatured: z.coerce.boolean().optional(),
   minPrice: z.coerce.number().optional(),
   maxPrice: z.coerce.number().optional(),
-  experienceType: experienceTypeEnum.optional(),
+  // Para separar lo que se da a domicilio de lo que se da en un sitio.
+  atHome: z.coerce.boolean().optional(),
   // Sin 'totalBookings': una experiencia no lleva contador de reservas. Para
   // ordenar por lo que mas se vende esta el desglose de Ingresos (TR-28).
   sortBy: z.enum(['title', 'basePrice', 'rating', 'createdAt']).optional().default('createdAt'),

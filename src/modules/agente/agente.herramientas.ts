@@ -115,7 +115,7 @@ async function listarExperiencias(ctx: ContextoDelAgente): Promise<Resultado> {
     where: { companyId: ctx.companyId, deletedAt: null, status: 'ACTIVE' },
     select: {
       id: true, title: true, basePrice: true, duration: true, capacity: true,
-      presentialCity: true, experienceType: true,
+      presentialCity: true, atHome: true,
     },
     take: 25,
   });
@@ -127,7 +127,9 @@ async function listarExperiencias(ctx: ContextoDelAgente): Promise<Resultado> {
       `- ${e.title} (id: ${e.id}) · ${e.basePrice ? pesos(Number(e.basePrice)) + ' por persona' : 'precio a consultar'}` +
       `${e.duration ? ` · ${e.duration} min` : ''}` +
       `${e.capacity ? ` · hasta ${e.capacity} personas` : ''}` +
-      `${e.presentialCity ? ` · ${e.presentialCity}` : ''}`,
+      `${e.presentialCity ? ` · ${e.presentialCity}` : ''}` +
+      // Que va a casa del cliente es de lo primero que pregunta quien escribe.
+      `${e.atHome ? ' · a domicilio' : ''}`,
   );
   return { ok: true, texto: lineas.join('\n') };
 }
@@ -139,7 +141,7 @@ async function verExperiencia(id: string, ctx: ContextoDelAgente): Promise<Resul
     where: { id, companyId: ctx.companyId, deletedAt: null, status: 'ACTIVE' },
     select: {
       title: true, description: true, includes: true, basePrice: true, duration: true,
-      capacity: true, presentialCity: true,
+      capacity: true, presentialCity: true, atHome: true,
       locations: {
         where: { deletedAt: null },
         select: { id: true, name: true, address: true, isMain: true },
@@ -176,7 +178,11 @@ async function verExperiencia(id: string, ctx: ContextoDelAgente): Promise<Resul
     e.basePrice ? `Precio: ${pesos(Number(e.basePrice))} por persona` : '',
     e.duration ? `Duración: ${e.duration} minutos` : '',
     e.capacity ? `Hasta ${e.capacity} personas` : '',
-    e.locations.length
+    // A domicilio no hay sede que nombrar: se va donde diga el cliente.
+    e.atHome
+      ? `Se hace a domicilio${e.presentialCity ? `, en ${e.presentialCity} y alrededores` : ''}`
+      : '',
+    !e.atHome && e.locations.length
       ? `Sedes: ${e.locations
           .map((l) => {
             const d = l.address as { street?: string; city?: string } | null;
