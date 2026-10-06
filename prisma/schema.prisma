@@ -670,9 +670,14 @@ model Experience {
   endTime            String?
   status             ExperienceStatus @default(DRAFT)
   isFeatured         Boolean          @default(false)
+
+  /// La nota general que le ponen los comensales, promediada (TR-24).
+  ///
+  /// Es lo unico de "resultado" que vive en la ficha, y vive aqui porque el
+  /// catalogo ordena por ella. Las reservas y el dinero NO: son de Reservas y
+  /// de Ingresos, y tenerlos tambien aqui seria mantener dos cifras de lo
+  /// mismo.
   rating             Float?
-  totalBookings      Int              @default(0)
-  totalRevenue       Decimal          @default(0) @db.Decimal(14, 2)
 
   locations        Location[]              @relation("ExperienceLocations")
   menus            Menu[]                  @relation("ExperienceMenus")
