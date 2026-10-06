@@ -18,6 +18,7 @@ import {
   reembolsoSchema,
   deMiCanalQuerySchema,
   cargoAdicionalSchema,
+  updateDeMiCanalSchema,
 } from './reservations.schemas.js';
 
 export const reservationsRouter = Router();
@@ -156,6 +157,32 @@ reservationsRouter.post(
     'params',
   ),
   reservationsController.marcarReembolsoPagado,
+);
+
+// ─── TR-27. Lo que un canal puede hacer con su propia venta ──────────────
+//
+// No hay sincronizacion con la plataforma del revendedor, asi que su cliente
+// le cancela o le cambia la fecha a EL. Sin esto, el anfitrion guarda una mesa
+// para gente que ya no viene.
+//
+// Rutas aparte y con esquema propio en vez de abrirle las del anfitrion: el
+// estado, el pago y el precio no son suyos, y dejarselos tocar seria dejar que
+// marque como pagada una venta que no cobro.
+
+reservationsRouter.patch(
+  '/:id/de-mi-canal',
+  requireRole('RESELLER', 'ADMIN'),
+  validate(reservationIdParamsSchema, 'params'),
+  validate(updateDeMiCanalSchema),
+  reservationsController.updateDeMiCanal,
+);
+
+reservationsRouter.post(
+  '/:id/de-mi-canal/cancelar',
+  requireRole('RESELLER', 'ADMIN'),
+  validate(reservationIdParamsSchema, 'params'),
+  validate(z.object({ reason: z.string().min(1), participants: z.number().int().positive().optional() })),
+  reservationsController.cancelarDeMiCanal,
 );
 
 // TR-12. Cargos adicionales acordados despues de vender. Suman al total y a

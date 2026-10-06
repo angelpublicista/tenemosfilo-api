@@ -166,6 +166,41 @@ export const reservationsController = {
     res.json({ data: r });
   },
 
+  /**
+   * TR-27. El canal actualiza su propia venta.
+   *
+   * Hace falta porque no hay sincronizacion con la plataforma del revendedor:
+   * su cliente le cancela o le cambia la fecha a EL, y si no puede reflejarlo
+   * aqui, el anfitrion guarda una mesa para gente que ya no viene.
+   *
+   * Queda constancia de que el cambio vino del canal, no del anfitrion: en el
+   * historial se ve quien lo hizo.
+   */
+  async updateDeMiCanal(req: Request, res: Response) {
+    const { id } = p<{ id: string }>(req);
+    const r = await reservationsService.update(
+      id,
+      req.user!.companyId,
+      req.body as UpdateReservationInput,
+      { id: req.user!.id, email: req.user!.email },
+      { comoCanal: true },
+    );
+    res.json({ data: r });
+  },
+
+  async cancelarDeMiCanal(req: Request, res: Response) {
+    const { id } = p<{ id: string }>(req);
+    const r = await reservationsService.cancel(
+      id,
+      req.user!.companyId,
+      // El canal cancela en nombre de su cliente: es el comensal quien se cae,
+      // no el anfitrion, y de eso depende el reembolso.
+      { ...(req.body as CancelInput), cancelledBy: 'client' },
+      { comoCanal: true },
+    );
+    res.json({ data: r });
+  },
+
   // TR-39. Que le fue pasando a esta reserva.
   async historial(req: Request, res: Response) {
     const { id } = p<{ id: string }>(req);

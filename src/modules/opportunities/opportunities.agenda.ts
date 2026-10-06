@@ -33,6 +33,14 @@ export interface OportunidadEnAgenda {
   contacto: string | null;
   /** La fecha que mira la propuesta. No bloquea nada. */
   fechaTentativa: string;
+  /**
+   * TR-14. Cual de las opciones de la cotizacion es esta fila.
+   *
+   * Una cotizacion puede poner tres fechas sobre la mesa, y el anfitrion
+   * necesita ver las tres en su calendario: si solo viera una, creeria libres
+   * los otros dos sabados que tambien estan en juego.
+   */
+  opcion?: { id: string; etiqueta: string | null; posicion: number } | null;
   hora: string | null;
   personas: number | null;
   valor: number;
@@ -51,11 +59,25 @@ export interface OportunidadEnAgenda {
  */
 async function fechaQueMira(opportunityId: string): Promise<Date | null> {
   const q = await prisma.quote.findFirst({
-    where: { opportunityId, eventDate: { not: null } },
+    where: {
+      opportunityId,
+      OR: [{ eventDate: { not: null } }, { options: { some: { eventDate: { not: null } } } }],
+    },
     orderBy: [{ sentAt: { sort: 'desc', nulls: 'last' } }, { version: 'desc' }],
-    select: { eventDate: true },
+    select: {
+      eventDate: true,
+      // TR-14. Con varias opciones, la que mira es la que el cliente eligio;
+      // si todavia no eligio, la primera que se le ofrecio. Avisar por las
+      // tres seria avisar tres veces de algo que aun no ha decidido.
+      options: {
+        where: { eventDate: { not: null } },
+        orderBy: [{ chosenAt: { sort: 'desc', nulls: 'last' } }, { position: 'asc' }],
+        select: { eventDate: true },
+        take: 1,
+      },
+    },
   });
-  return q?.eventDate ?? null;
+  return q?.options[0]?.eventDate ?? q?.eventDate ?? null;
 }
 
 export const agendaService = {
@@ -137,7 +159,12 @@ export const agendaService = {
     const cotizaciones = await prisma.quote.findMany({
       where: {
         companyId,
-        eventDate: { gte: desde, lte: hasta },
+        // TR-14. Vale la fecha de la cotizacion o la de cualquiera de sus
+        // opciones: una propuesta puede poner tres sabados sobre la mesa.
+        OR: [
+          { eventDate: { gte: desde, lte: hasta } },
+          { options: { some: { eventDate: { gte: desde, lte: hasta } } } },
+        ],
         opportunityId: { not: null },
         opportunity: {
           status: 'OPEN',
@@ -156,6 +183,18 @@ export const agendaService = {
         guests: true,
         version: true,
         sentAt: true,
+        options: {
+          orderBy: { position: 'asc' },
+          select: {
+            id: true,
+            position: true,
+            label: true,
+            eventDate: true,
+            eventTime: true,
+            guests: true,
+            chosenAt: true,
+          },
+        },
         opportunity: {
           select: {
             id: true,
@@ -171,31 +210,72 @@ export const agendaService = {
       },
     });
 
-    const porOportunidad = new Map<string, OportunidadEnAgenda>();
+    // Una fila por opcion, no una por oportunidad.
+    //
+    // TR-14 con TR-38: solo la cotizacion VIGENTE aporta tentativas —la
+    // primera de cada oportunidad en este orden— pero esa puede poner tres
+    // fechas sobre la mesa, y el anfitrion necesita ver las tres. Si solo
+    // viera una, creeria libres los otros dos sabados que tambien estan en
+    // juego.
+    const vistas = new Set<string>();
+    const filas: OportunidadEnAgenda[] = [];
+
     for (const q of cotizaciones) {
       const o = q.opportunity;
-      if (!o || porOportunidad.has(o.id)) continue;
-      porOportunidad.set(o.id, {
+      if (!o || vistas.has(o.id)) continue;
+      vistas.add(o.id);
+
+      const base = {
         id: o.id,
         nombre: o.name,
         etapa: o.stage,
         tipoDeExperiencia: o.experienceKind,
         tipoDeComprador: o.buyerKind,
         contacto: [o.contact?.firstName, o.contact?.lastName].filter(Boolean).join(' ') || null,
-        fechaTentativa: q.eventDate!.toISOString(),
-        hora: q.eventTime,
-        personas: q.guests,
         valor: Number(o.value),
         solicitadaEl: o.createdAt.toISOString(),
         versionDeCotizacion: q.version,
         cotizacionEnviada: Boolean(q.sentAt),
-      });
+      };
+
+      const conFecha = q.options.filter(
+        (op) => op.eventDate && op.eventDate >= desde && op.eventDate <= hasta,
+      );
+
+      // Si el cliente ya eligio alguna, solo esas: las descartadas dejan de
+      // ocupar sitio en el calendario del anfitrion.
+      const elegidas = conFecha.filter((op) => op.chosenAt !== null);
+      const aPintar = elegidas.length > 0 ? elegidas : conFecha;
+
+      if (aPintar.length > 0) {
+        for (const op of aPintar) {
+          filas.push({
+            ...base,
+            fechaTentativa: op.eventDate!.toISOString(),
+            hora: op.eventTime ?? q.eventTime,
+            personas: op.guests ?? q.guests,
+            opcion: { id: op.id, etiqueta: op.label, posicion: op.position },
+          });
+        }
+        continue;
+      }
+
+      // Sin opciones con fecha, la de la cotizacion, como siempre.
+      if (q.eventDate && q.eventDate >= desde && q.eventDate <= hasta) {
+        filas.push({
+          ...base,
+          fechaTentativa: q.eventDate.toISOString(),
+          hora: q.eventTime,
+          personas: q.guests,
+          opcion: null,
+        });
+      }
     }
 
     // Por fecha, y dentro del mismo dia por orden de solicitud: quien pidio
     // primero sale primero. Es lo unico objetivo que hay para priorizar
     // mientras no se defina otra regla.
-    return [...porOportunidad.values()].sort(
+    return filas.sort(
       (a, b) =>
         a.fechaTentativa.localeCompare(b.fechaTentativa) ||
         a.solicitadaEl.localeCompare(b.solicitadaEl),

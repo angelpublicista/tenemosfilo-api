@@ -141,6 +141,22 @@ export const deMiCanalQuerySchema = z.object({
   dateTo: z.string().optional(),
 });
 
+/**
+ * Lo que un canal puede cambiar de su propia venta (TR-27).
+ *
+ * Una lista corta a proposito. Un revendedor necesita reflejar lo que su
+ * cliente le dijo —vienen dos menos, van otro dia, alergias— y nada mas: el
+ * estado, el pago y el precio son del anfitrion y de FILO, y dejarselos
+ * tocar seria dejar que se marque como pagada una venta que no cobro.
+ */
+export const updateDeMiCanalSchema = z.object({
+  participants: z.number().int().positive().optional(),
+  reservationDate: z.string().optional(),
+  specialRequirements: z.string().max(1000).nullable().optional(),
+  client: clientSchema.optional(),
+  permitirSolape: z.boolean().optional(),
+});
+
 export const listReservationsQuerySchema = z.object({
   companyId: z.string().optional(),
   status: statusEnum.optional(),
@@ -185,5 +201,6 @@ export type ReembolsoInput = z.infer<typeof reembolsoSchema>;
 export type CargoAdicionalInput = z.infer<typeof cargoAdicionalSchema>;
 export type RescheduleInput = z.infer<typeof rescheduleSchema>;
 export type DeMiCanalQuery = z.infer<typeof deMiCanalQuerySchema>;
+export type UpdateDeMiCanalInput = z.infer<typeof updateDeMiCanalSchema>;
 export type ListReservationsQuery = z.infer<typeof listReservationsQuerySchema>;
 export type ValidarCodigoInput = z.infer<typeof validarCodigoSchema>;

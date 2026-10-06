@@ -5,6 +5,7 @@
 // habria hecho de ese archivo un cajon.
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../config/prisma.js';
+import { reservasQueAdmite } from '../../lib/opciones-de-cotizacion.js';
 import { BadRequest, Forbidden, NotFound } from '../../lib/errors.js';
 import { retirarSeguimientos } from '../../lib/seguimientos.js';
 import { enlaceService } from './opportunities.enlace.js';
@@ -106,8 +107,17 @@ export const ventaService = {
     if (o.status !== 'OPEN') {
       throw BadRequest('Esta oportunidad ya está cerrada');
     }
-    const yaHay = o.reservations.find((r) => r.status === 'PENDING');
-    if (yaHay) throw BadRequest('Esta oportunidad ya tiene una pre-reserva');
+    // TR-14. Tantas pre-reservas como opciones haya elegido el cliente: con
+    // dos fechas aceptadas hay que apartar las dos. Sin opciones, una.
+    const apartadas = o.reservations.filter((r) => r.status === 'PENDING').length;
+    const tope = await reservasQueAdmite(id);
+    if (apartadas >= tope) {
+      throw BadRequest(
+        tope === 1
+          ? 'Esta oportunidad ya tiene una pre-reserva'
+          : `Esta oportunidad ya tiene ${apartadas} espacios apartados, los mismos que opciones eligió el cliente.`,
+      );
+    }
 
     const exp = await prisma.experience.findFirst({
       where: { id: input.experienceId, companyId: companyId!, deletedAt: null },

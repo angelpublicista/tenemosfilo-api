@@ -327,6 +327,9 @@ model Company {
   deletedAt DateTime?
 
   @@index([ownerId])
+
+  /// TR-21. Su propia agenda: horarios sin sede ni experiencia.
+  ownAvailabilities Availability[] @relation("AvailabilityCompany")
 }
 
 model Location {
@@ -693,12 +696,27 @@ model Experience {
 
   @@index([companyId])
   @@index([status])
+
+  /// TR-14. Las opciones de cotizacion que la ofrecen.
+  quoteOptions QuoteOption[] @relation("QuoteOptionExperience")
 }
 
 model Availability {
   id          String  @id @default(cuid())
   name        String
   description String?
+
+  // TR-21. De quien es este horario.
+  //
+  // Hasta ahora un horario solo existia colgado de una sede o de una
+  // experiencia, asi que la agenda PROPIA del anfitrion no se podia expresar:
+  // un cocinero que va a casa del cliente no tiene sede, y su calendario no
+  // es de ninguna experiencia en particular — es el suyo.
+  //
+  // Sin sede y sin experiencias, este horario ES la agenda del anfitrion y
+  // vale para todo lo que no tenga el suyo.
+  companyId String?
+  company   Company? @relation("AvailabilityCompany", fields: [companyId], references: [id])
 
   locationId String?
   location   Location? @relation(fields: [locationId], references: [id])
@@ -1021,6 +1039,47 @@ enum QuoteStatus {
   EXPIRED
 }
 
+/// TR-14. Una de las (hasta tres) opciones de una cotizacion.
+///
+/// Cada una lleva sus propios datos porque eso es lo que las distingue: otra
+/// fecha, otra experiencia, otro precio. Guardarlas como texto en las notas
+/// —que es lo que se hacia— significaba que el calendario no sabia de ellas y
+/// que aceptar una habia que teclearla a mano.
+model QuoteOption {
+  id      String @id @default(cuid())
+  quoteId String
+  quote   Quote  @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  /// En que orden se le presentan. 1, 2, 3.
+  position Int @default(1)
+
+  /// Como se le llama al cliente: "Opcion A: terraza", "Plan economico".
+  label String?
+
+  experienceId String?
+  experience   Experience? @relation("QuoteOptionExperience", fields: [experienceId], references: [id])
+
+  eventDate DateTime?
+  eventTime String?
+  guests    Int?
+
+  /// El precio de ESTA opcion. Nulo = el de la experiencia por el numero de
+  /// personas; con valor, manda lo acordado.
+  total Decimal? @db.Decimal(12, 2)
+
+  notes String? @db.Text
+
+  /// Cuando el cliente la eligio. Varias pueden estar elegidas a la vez: un
+  /// corporativo que acepta dos opciones compra dos cenas.
+  chosenAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([quoteId, position])
+  @@index([quoteId])
+}
+
 model Quote {
   id            String    @id @default(cuid())
   customerName  String
@@ -1059,6 +1118,17 @@ model Quote {
   status QuoteStatus @default(PENDING)
 
   experiences Experience[] @relation("QuoteExperiences")
+
+  /// TR-14. Las opciones que se le ponen al cliente sobre la mesa.
+  ///
+  /// Hasta tres, y simultaneas: no son versiones de la cotizacion —eso ya
+  /// existe y es otra cosa, el historial de lo que se le fue mandando— sino
+  /// alternativas vivas a la vez entre las que elige. "El sabado 12 en la
+  /// terraza, el domingo 13 en el salon, o el sabado 19 mas barato."
+  ///
+  /// Una cotizacion puede producir VARIAS reservas: un corporativo que acepta
+  /// dos de las tres opciones compra dos cenas, no una.
+  options QuoteOption[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

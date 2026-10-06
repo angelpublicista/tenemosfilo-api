@@ -16,6 +16,7 @@ import { BadRequest, Forbidden, NotFound } from '../../lib/errors.js';
 import { crearSeguimientoDePropuesta, retirarSeguimientos } from '../../lib/seguimientos.js';
 import { ajustesDeOperacion, conComisiones } from '../reservations/reservations.service.js';
 import { conCupoApartado } from '../../lib/cupos.js';
+import { reservasQueAdmite } from '../../lib/opciones-de-cotizacion.js';
 import { pasarelaDe } from '../../lib/pasarela.js';
 import { logger } from '../../lib/logger.js';
 
@@ -77,7 +78,17 @@ export const enlaceService = {
   ) {
     const o = await oportunidadDe(id, companyId);
     if (o.status !== 'OPEN') throw BadRequest('Esta oportunidad ya está cerrada');
-    if (o.reservations.length) throw BadRequest('Esta oportunidad ya tiene una reserva');
+    // TR-14. Una oportunidad admite tantas reservas como opciones haya
+    // elegido el cliente: un corporativo que acepta dos de las tres compra dos
+    // cenas. Sin opciones elegidas, una, que es lo de siempre.
+    const tope = await reservasQueAdmite(id);
+    if (o.reservations.length >= tope) {
+      throw BadRequest(
+        tope === 1
+          ? 'Esta oportunidad ya tiene una reserva'
+          : `Esta oportunidad ya tiene ${o.reservations.length} reservas, las mismas que opciones eligió el cliente.`,
+      );
+    }
 
     const exp = await prisma.experience.findFirst({
       where: { id: input.experienceId, companyId: companyId!, deletedAt: null },

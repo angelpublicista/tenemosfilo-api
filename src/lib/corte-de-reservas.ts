@@ -29,21 +29,40 @@ export async function horasDeAviso(experienceId: string): Promise<number> {
     select: { minimumNotice: true },
   });
 
-  if (horarios.length === 0) {
-    // Tambien valen los de la sede: una experiencia puede no tener horario
-    // propio y colgar del de su sitio.
-    const porSede = await prisma.availability.findMany({
-      where: {
-        deletedAt: null,
-        isActive: true,
-        location: { experiences: { some: { id: experienceId } } },
-      },
-      select: { minimumNotice: true },
-    });
-    return porSede.reduce((max, h) => Math.max(max, h.minimumNotice), 0);
-  }
+  if (horarios.length > 0) return horarios.reduce((max, h) => Math.max(max, h.minimumNotice), 0);
 
-  return horarios.reduce((max, h) => Math.max(max, h.minimumNotice), 0);
+  // Tambien valen los de la sede: una experiencia puede no tener horario
+  // propio y colgar del de su sitio.
+  const porSede = await prisma.availability.findMany({
+    where: {
+      deletedAt: null,
+      isActive: true,
+      location: { experiences: { some: { id: experienceId } } },
+    },
+    select: { minimumNotice: true },
+  });
+  if (porSede.length > 0) return porSede.reduce((max, h) => Math.max(max, h.minimumNotice), 0);
+
+  // TR-21. Y si no hay ni lo uno ni lo otro, la agenda propia del anfitrion:
+  // un cocinero que va a casa del cliente no tiene sede, y su aviso minimo
+  // esta ahi o no esta en ningun sitio.
+  const exp = await prisma.experience.findUnique({
+    where: { id: experienceId },
+    select: { companyId: true },
+  });
+  if (!exp) return 0;
+
+  const propias = await prisma.availability.findMany({
+    where: {
+      deletedAt: null,
+      isActive: true,
+      companyId: exp.companyId,
+      locationId: null,
+      experiences: { none: {} },
+    },
+    select: { minimumNotice: true },
+  });
+  return propias.reduce((max, h) => Math.max(max, h.minimumNotice), 0);
 }
 
 /**

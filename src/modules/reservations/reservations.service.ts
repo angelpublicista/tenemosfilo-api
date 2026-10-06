@@ -60,13 +60,35 @@ const fullInclude = {
   contact: { select: { id: true, firstName: true, lastName: true } },
 } satisfies Prisma.ReservationInclude;
 
-async function assertCanManage(id: string, requesterCompanyId: string | null | undefined) {
+/**
+ * Quien puede tocar esta reserva.
+ *
+ * El anfitrion, siempre: es suya. Y desde TR-27 tambien el canal que la
+ * vendio, pero solo en modo canal y solo sobre lo que vendio el: su cliente le
+ * cancela a EL, y si no puede reflejarlo aqui, el anfitrion guarda una mesa
+ * para gente que ya no viene.
+ */
+async function assertCanManage(
+  id: string,
+  requesterCompanyId: string | null | undefined,
+  opts?: { comoCanal?: boolean },
+) {
   const r = await prisma.reservation.findUnique({
     where: { id },
-    select: { id: true, companyId: true, reservationDate: true, pricing: true },
+    select: {
+      id: true,
+      companyId: true,
+      resellerCompanyId: true,
+      reservationDate: true,
+      pricing: true,
+    },
   });
   if (!r) throw NotFound('Reserva no encontrada');
-  if (!requesterCompanyId || r.companyId !== requesterCompanyId)
+
+  const esDeSuCanal = opts?.comoCanal === true && r.resellerCompanyId === requesterCompanyId;
+  const esDelAnfitrion = r.companyId === requesterCompanyId;
+
+  if (!requesterCompanyId || !(esDelAnfitrion || esDeSuCanal))
     throw Forbidden('No tienes permiso sobre esta reserva');
   return r;
 }
@@ -999,8 +1021,9 @@ export const reservationsService = {
     requesterCompanyId: string | null | undefined,
     input: UpdateReservationInput,
     actor?: Actor,
+    opts?: { comoCanal?: boolean },
   ) {
-    await assertCanManage(id, requesterCompanyId);
+    await assertCanManage(id, requesterCompanyId, opts);
 
     // Lo de antes, para poder decir que cambio y no solo que cambio algo.
     const antes = await prisma.reservation.findUnique({
@@ -1077,7 +1100,22 @@ export const reservationsService = {
     const cambios = cambiosQueSeAvisan(antes, actualizada);
     // Sin await: el aviso no puede hacer esperar —ni tumbar— una edicion que
     // ya esta guardada.
-    if (cambios.length > 0) void avisarCambioEnLaReserva(paraAvisos(actualizada), cambios);
+    //
+    // TR-27. Si lo cambio el canal, al anfitrion tambien se le cuenta: es el
+    // quien tiene que replanear, y nadie mas se lo iba a decir.
+    if (cambios.length > 0) {
+      void (async () => {
+        const quien = opts?.comoCanal
+          ? (
+              await prisma.company.findUnique({
+                where: { id: requesterCompanyId! },
+                select: { companyName: true },
+              })
+            )?.companyName ?? 'Un canal de venta'
+          : null;
+        await avisarCambioEnLaReserva(paraAvisos(actualizada), cambios, { quienLoCambio: quien });
+      })();
+    }
 
     return actualizada;
   },
@@ -1126,12 +1164,18 @@ export const reservationsService = {
    * comisiones se recalculan sobre la nueva base: cobrarle al anfitrion el
    * fee de diez personas cuando vinieron ocho seria cobrarle de mas.
    */
-  async cancel(id: string, requesterCompanyId: string | null | undefined, input: CancelInput) {
+  async cancel(
+    id: string,
+    requesterCompanyId: string | null | undefined,
+    input: CancelInput,
+    opts?: { comoCanal?: boolean },
+  ) {
     const actual = await prisma.reservation.findUnique({
       where: { id },
       select: {
         id: true,
         companyId: true,
+        resellerCompanyId: true,
         experienceId: true,
         participants: true,
         paidAmount: true,
@@ -1139,14 +1183,17 @@ export const reservationsService = {
         status: true,
         source: true,
         channel: true,
-        resellerCompanyId: true,
         collectedBy: true,
         partialCancellations: true,
         refunds: true,
       },
     });
     if (!actual) throw NotFound('Reserva no encontrada');
-    if (!requesterCompanyId || actual.companyId !== requesterCompanyId)
+    // TR-27. El canal puede cancelar lo que vendio el: su cliente le cancela a
+    // EL, y sin esto el anfitrion guarda una mesa para gente que ya no viene.
+    const esDeSuCanal =
+      opts?.comoCanal === true && actual.resellerCompanyId === requesterCompanyId;
+    if (!requesterCompanyId || !(actual.companyId === requesterCompanyId || esDeSuCanal))
       throw Forbidden('No tienes permiso sobre esta reserva');
     if (actual.status === 'CANCELLED') throw BadRequest('Esta reserva ya está cancelada');
 
@@ -1517,8 +1564,9 @@ export const reservationsService = {
     requesterCompanyId: string | null | undefined,
     input: RescheduleInput,
     actor?: Actor,
+    opts?: { comoCanal?: boolean },
   ) {
-    const existing = await assertCanManage(id, requesterCompanyId);
+    const existing = await assertCanManage(id, requesterCompanyId, opts);
 
     const datos = await prisma.reservation.findUnique({
       where: { id },

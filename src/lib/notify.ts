@@ -565,22 +565,40 @@ export async function avisarBajaParcial(
 export async function avisarCambioEnLaReserva(
   r: DatosReserva,
   cambios: string[],
+  opts?: { quienLoCambio?: string | null },
 ): Promise<void> {
   if (cambios.length === 0) return;
 
   const resumen = cambios.join('. ');
+  const avisos: Aviso[] = [];
 
   if (r.userId) {
-    await notificar([
-      {
-        userId: r.userId,
-        type: 'RESERVATION_RESCHEDULED',
-        title: 'Cambió algo en tu reserva',
-        message: `${r.experienceTitle} · ${resumen}`,
-        data: { reservationId: r.id, reservationNumber: r.reservationNumber },
-      },
-    ]);
+    avisos.push({
+      userId: r.userId,
+      type: 'RESERVATION_RESCHEDULED',
+      title: 'Cambió algo en tu reserva',
+      message: `${r.experienceTitle} · ${resumen}`,
+      data: { reservationId: r.id, reservationNumber: r.reservationNumber },
+    });
   }
+
+  // TR-27. Si el cambio lo hizo el canal que vendio, el anfitrion tiene que
+  // enterarse: es el quien tiene que replanear la mesa, y nadie se lo iba a
+  // contar. Cuando lo cambia el propio anfitrion no se le avisa a si mismo.
+  if (opts?.quienLoCambio) {
+    const anfitriones = await personasDeLaEmpresa(r.companyId);
+    avisos.push(
+      ...anfitriones.map((userId) => ({
+        userId,
+        type: 'RESERVATION_RESCHEDULED' as const,
+        title: `${opts.quienLoCambio} cambió una reserva`,
+        message: `${r.reservationNumber} · ${r.experienceTitle} · ${resumen}`,
+        data: { reservationId: r.id, reservationNumber: r.reservationNumber },
+      })),
+    );
+  }
+
+  await notificar(avisos);
 
   if (r.clienteEmail) {
     await despachar([

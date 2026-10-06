@@ -4,6 +4,8 @@ import type {
   CreateQuoteInput,
   ListQuotesQuery,
   SearchExperiencesQuery,
+  ElegirOpcionInput,
+  GuardarOpcionesInput,
 } from './quotes.schemas.js';
 import type { QuoteStatus } from '@prisma/client';
 
@@ -16,6 +18,23 @@ export const quotesController = {
     const { via } = (req.body ?? {}) as { via?: 'FILO' | 'EXTERNO' };
     const q = await quotesService.marcarEnviada(id, req.user!.companyId, via ?? 'FILO');
     res.json({ data: q });
+  },
+
+  // TR-14. Las opciones que se le ponen al cliente: hasta tres, simultaneas.
+  async guardarOpciones(req: Request, res: Response) {
+    const { id } = p<{ id: string }>(req);
+    const { opciones } = req.body as GuardarOpcionesInput;
+    res.json({ data: await quotesService.guardarOpciones(id, req.user!.companyId, opciones) });
+  },
+
+  // El cliente elige una. Puede elegir varias: un corporativo que acepta dos
+  // de las tres compra dos cenas.
+  async elegirOpcion(req: Request, res: Response) {
+    const { id } = p<{ id: string }>(req);
+    const { optionId, elegida } = req.body as ElegirOpcionInput;
+    res.json({
+      data: await quotesService.elegirOpcion(id, req.user!.companyId, optionId, elegida),
+    });
   },
 
   async porOportunidad(req: Request, res: Response) {

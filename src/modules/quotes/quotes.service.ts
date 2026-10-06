@@ -2,6 +2,7 @@ import { Prisma, QuoteStatus } from '@prisma/client';
 import { prisma } from '../../config/prisma.js';
 import { BadRequest, Forbidden, NotFound } from '../../lib/errors.js';
 import type {
+  GuardarOpcionesInput,
   CreateQuoteInput,
   ListQuotesQuery,
   SearchExperiencesQuery,
@@ -14,7 +15,17 @@ const fullInclude = {
     where: { deletedAt: null },
     select: { id: true, title: true, basePrice: true, currency: true },
   },
+  // TR-14. Las opciones que se le pusieron al cliente, en su orden.
+  options: {
+    orderBy: { position: 'asc' },
+    include: {
+      experience: { select: { id: true, title: true, basePrice: true, duration: true } },
+    },
+  },
 } satisfies Prisma.QuoteInclude;
+
+/** TR-14. Tres y no mas: cuatro opciones no son una propuesta, son un catalogo. */
+const MAX_OPCIONES = 3;
 
 const DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const;
 
@@ -221,6 +232,98 @@ export const quotesService = {
     });
     const vigente = items.find((q) => q.sentAt) ?? null;
     return { items, vigenteId: vigente?.id ?? null };
+  },
+
+  /**
+   * TR-14. Reemplaza las opciones de una cotizacion.
+   *
+   * Se manda la lista entera y se reemplaza, en vez de ir una a una: son tres
+   * como maximo y se piensan juntas —"el sabado o el domingo"—, asi que
+   * editarlas de a una obligaria a tres llamadas para un cambio que es uno.
+   *
+   * Lo que el cliente ya eligio se conserva: si se reordenan las opciones
+   * despues de que aceptara la segunda, su eleccion no se borra.
+   */
+  async guardarOpciones(
+    id: string,
+    requesterCompanyId: string | null | undefined,
+    opciones: GuardarOpcionesInput['opciones'],
+  ) {
+    await assertCanManage(id, requesterCompanyId);
+    if (opciones.length > MAX_OPCIONES) {
+      throw BadRequest(`Una cotización admite hasta ${MAX_OPCIONES} opciones.`);
+    }
+
+    // Las experiencias tienen que ser de la misma empresa: una opcion que
+    // ofrece la cena de otro anfitrion no se puede cumplir.
+    const ids = opciones.map((o) => o.experienceId).filter((x): x is string => !!x);
+    if (ids.length > 0) {
+      const q = await prisma.quote.findUnique({ where: { id }, select: { companyId: true } });
+      const cuantas = await prisma.experience.count({
+        where: { id: { in: ids }, companyId: q!.companyId, deletedAt: null },
+      });
+      if (cuantas !== new Set(ids).size) {
+        throw BadRequest('Alguna de las experiencias no es de tu empresa.');
+      }
+    }
+
+    // Lo elegido se conserva por posicion: es lo unico estable entre la lista
+    // vieja y la nueva.
+    const antes = await prisma.quoteOption.findMany({
+      where: { quoteId: id },
+      select: { position: true, chosenAt: true },
+    });
+    const elegidas = new Map(antes.map((o) => [o.position, o.chosenAt]));
+
+    await prisma.$transaction([
+      prisma.quoteOption.deleteMany({ where: { quoteId: id } }),
+      ...opciones.map((o, i) =>
+        prisma.quoteOption.create({
+          data: {
+            quoteId: id,
+            position: i + 1,
+            label: o.label ?? null,
+            experienceId: o.experienceId ?? null,
+            eventDate: o.eventDate ? new Date(o.eventDate) : null,
+            eventTime: o.eventTime ?? null,
+            guests: o.guests ?? null,
+            total: o.total ?? null,
+            notes: o.notes ?? null,
+            chosenAt: elegidas.get(i + 1) ?? null,
+          },
+        }),
+      ),
+    ]);
+
+    return prisma.quote.findUnique({ where: { id }, include: fullInclude });
+  },
+
+  /**
+   * TR-14. El cliente elige una opcion (o varias).
+   *
+   * Varias a la vez es un caso real: un corporativo que acepta dos de las tres
+   * compra dos cenas. De ahi que elegir no sea exclusivo y que una cotizacion
+   * pueda producir varias reservas.
+   */
+  async elegirOpcion(
+    id: string,
+    requesterCompanyId: string | null | undefined,
+    optionId: string,
+    elegida: boolean,
+  ) {
+    await assertCanManage(id, requesterCompanyId);
+    const opcion = await prisma.quoteOption.findFirst({
+      where: { id: optionId, quoteId: id },
+      select: { id: true },
+    });
+    if (!opcion) throw NotFound('Esa opción no es de esta cotización');
+
+    await prisma.quoteOption.update({
+      where: { id: optionId },
+      data: { chosenAt: elegida ? new Date() : null },
+    });
+
+    return prisma.quote.findUnique({ where: { id }, include: fullInclude });
   },
 
   async list(requesterCompanyId: string | null | undefined, query: ListQuotesQuery) {

@@ -9,6 +9,8 @@ import {
   quoteIdParamsSchema,
   searchExperiencesQuerySchema,
   updateQuoteStatusSchema,
+  elegirOpcionSchema,
+  guardarOpcionesSchema,
 } from './quotes.schemas.js';
 
 export const quotesRouter = Router();
@@ -22,6 +24,29 @@ quotesRouter.post(
   requireScope('quotes:write'),
   validate(quoteIdParamsSchema, 'params'),
   quotesController.marcarEnviada,
+);
+
+// ─── TR-14. Opciones de una cotizacion ───────────────────────────────────
+//
+// Hasta tres y simultaneas: "el sabado 12 en la terraza, el domingo 13 en el
+// salon, o el sabado 19 mas barato". Antes se escribian como texto en las
+// notas, asi que el calendario no sabia de ellas y aceptar una habia que
+// teclearla a mano.
+
+quotesRouter.put(
+  '/:id/opciones',
+  requireScope('quotes:write'),
+  validate(quoteIdParamsSchema, 'params'),
+  validate(guardarOpcionesSchema),
+  quotesController.guardarOpciones,
+);
+
+quotesRouter.post(
+  '/:id/opciones/elegir',
+  requireScope('quotes:write'),
+  validate(quoteIdParamsSchema, 'params'),
+  validate(elegirOpcionSchema),
+  quotesController.elegirOpcion,
 );
 
 // El historial de cotizaciones de una oportunidad, con cual es la vigente.

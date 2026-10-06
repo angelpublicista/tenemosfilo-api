@@ -78,6 +78,7 @@ async function assertCanManage(id: string, requesterCompanyId: string | null | u
     where: { id, deletedAt: null },
     select: {
       id: true,
+      companyId: true,
       locationId: true,
       location: { select: { companyId: true } },
       experiences: { select: { companyId: true } },
@@ -85,13 +86,32 @@ async function assertCanManage(id: string, requesterCompanyId: string | null | u
   });
   if (!av) throw NotFound('Disponibilidad no encontrada');
   if (!requesterCompanyId) throw Forbidden('No tienes una company asociada');
+
+  // TR-21. El dueño explicito manda; la sede y las experiencias siguen
+  // valiendo para los horarios de antes de que existiera `companyId`.
   const allCompanyIds = new Set<string>();
+  if (av.companyId) allCompanyIds.add(av.companyId);
   if (av.location?.companyId) allCompanyIds.add(av.location.companyId);
   for (const e of av.experiences) allCompanyIds.add(e.companyId);
   if (allCompanyIds.size > 0 && !allCompanyIds.has(requesterCompanyId)) {
     throw Forbidden('No tienes permiso sobre esta disponibilidad');
   }
   return av;
+}
+
+/**
+ * Las tres formas en que un horario es de una empresa.
+ *
+ * Por dueño directo —la agenda propia, TR-21—, por su sede, o por alguna
+ * experiencia atada. Las dos ultimas siguen valiendo para los horarios
+ * creados antes de que `companyId` existiera.
+ */
+function deLaEmpresa(companyId: string): Prisma.AvailabilityWhereInput[] {
+  return [
+    { companyId },
+    { location: { companyId } },
+    { experiences: { some: { companyId } } },
+  ];
 }
 
 export const availabilitiesService = {
@@ -116,6 +136,10 @@ export const availabilitiesService = {
 
     return prisma.availability.create({
       data: {
+        // TR-21. Siempre con dueño. Sin sede y sin experiencia, este horario
+        // ES la agenda del anfitrion: el calendario de un cocinero que va a
+        // casa del cliente no es de ninguna sede ni de una experiencia suelta.
+        company: { connect: { id: requesterCompanyId } },
         name: input.name,
         description: input.description ?? null,
         weeklySchedule: input.weeklySchedule as Prisma.InputJsonValue,
@@ -169,22 +193,16 @@ export const availabilitiesService = {
       ...(query.primaryOnly ? { isMain: true, isActive: true } : {}),
       ...(query.locationId ? { locationId: query.locationId } : {}),
       ...(query.experienceId ? { experiences: { some: { id: query.experienceId } } } : {}),
+      // TR-21. La agenda propia del anfitrion: sin sede y sin experiencias.
+      ...(query.soloPropias
+        ? { locationId: null, experiences: { none: {} } }
+        : {}),
       ...(query.companyId
-        ? {
-            OR: [
-              { location: { companyId: query.companyId } },
-              { experiences: { some: { companyId: query.companyId } } },
-            ],
-          }
+        ? { OR: deLaEmpresa(query.companyId) }
         : crossCompany
           ? {}
           : requesterCompanyId
-            ? {
-                OR: [
-                  { location: { companyId: requesterCompanyId } },
-                  { experiences: { some: { companyId: requesterCompanyId } } },
-                ],
-              }
+            ? { OR: deLaEmpresa(requesterCompanyId) }
             : {}),
     };
 

@@ -66,6 +66,29 @@ const experienciaPublica = {
   },
 } as const;
 
+/**
+ * TR-21. La agenda propia del anfitrion, para el catalogo.
+ *
+ * Vale para las experiencias que no tienen horario propio ni sede: un cocinero
+ * que va a casa del cliente no tiene donde colgar su calendario, y sin esto su
+ * catalogo ofrecia las horas por defecto —de ocho a ocho, todos los dias—, que
+ * no son las suyas.
+ */
+const agendaPropia = {
+  where: { deletedAt: null, isActive: true, locationId: null, experiences: { none: {} } },
+  select: {
+    id: true,
+    name: true,
+    weeklySchedule: true,
+    bufferTime: true,
+    minimumNotice: true,
+    blockedDates: true,
+    locationId: true,
+    validFrom: true,
+    validUntil: true,
+  },
+} as const;
+
 /** Solo lo que necesita pintar el catalogo. Nada de documentos ni finanzas. */
 const companiaPublica = {
   id: true,
@@ -88,6 +111,10 @@ const companiaPublica = {
   // null significa "hereda de la plataforma", y publicarlo tal cual invita a
   // leerlo como un "no".
   requirePayment: true,
+  // TR-21. Su agenda propia, para las experiencias que no tienen horario ni
+  // sede. Sin esto el catalogo de un cocinero a domicilio ofrecia las horas
+  // por defecto, que no son las suyas.
+  ownAvailabilities: agendaPropia,
 } as const;
 
 /**

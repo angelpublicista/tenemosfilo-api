@@ -71,6 +71,11 @@ export const listAvailabilitiesQuerySchema = z.object({
   experienceId: z.string().min(1).optional(),
   companyId: z.string().min(1).optional(),
   primaryOnly: z.coerce.boolean().optional().default(false),
+  /**
+   * TR-21. Solo la agenda propia del anfitrion: los horarios que no son de
+   * ninguna sede ni de ninguna experiencia.
+   */
+  soloPropias: z.coerce.boolean().optional().default(false),
 });
 
 export const setPrimarySchema = z.object({

@@ -51,6 +51,42 @@ export const createQuoteSchema = z
     }
   });
 
+/**
+ * TR-14. Las opciones de una cotizacion: hasta tres, simultaneas.
+ *
+ * No son versiones —eso ya existe y es el historial de lo que se le fue
+ * mandando— sino alternativas vivas a la vez entre las que el cliente elige.
+ *
+ * Todo opcional dentro de cada opcion salvo que tenga algo: una opcion vacia
+ * no es una opcion, pero cual es el dato que la define cambia segun el caso
+ * (a veces es la fecha, a veces la experiencia, a veces el precio).
+ */
+export const guardarOpcionesSchema = z.object({
+  opciones: z
+    .array(
+      z
+        .object({
+          label: z.string().max(120).optional(),
+          experienceId: z.string().min(1).optional(),
+          eventDate: z.string().optional(),
+          eventTime: z.string().optional(),
+          guests: z.number().int().positive().optional(),
+          total: z.number().nonnegative().optional(),
+          notes: z.string().max(1000).optional(),
+        })
+        .refine(
+          (o) => !!(o.label || o.experienceId || o.eventDate || o.total || o.notes),
+          'Cada opción necesita al menos un dato',
+        ),
+    )
+    .max(3, 'Una cotización admite hasta 3 opciones'),
+});
+
+export const elegirOpcionSchema = z.object({
+  optionId: z.string().min(1),
+  elegida: z.boolean().default(true),
+});
+
 export const updateQuoteStatusSchema = z.object({ status: statusEnum });
 
 export const listQuotesQuerySchema = z.object({
@@ -69,5 +105,7 @@ export const searchExperiencesQuerySchema = z.object({
 export const quoteIdParamsSchema = z.object({ id: z.string().min(1) });
 
 export type CreateQuoteInput = z.infer<typeof createQuoteSchema>;
+export type GuardarOpcionesInput = z.infer<typeof guardarOpcionesSchema>;
+export type ElegirOpcionInput = z.infer<typeof elegirOpcionSchema>;
 export type ListQuotesQuery = z.infer<typeof listQuotesQuerySchema>;
 export type SearchExperiencesQuery = z.infer<typeof searchExperiencesQuerySchema>;

@@ -10,6 +10,13 @@ import type {
   UpdateOpportunityInput,
 } from './opportunities.schemas.js';
 
+/** El final del dia de una fecha "YYYY-MM-DD", o la fecha tal cual si trae hora. */
+function finDelDia(v: string): Date {
+  const d = new Date(v);
+  if (v.length <= 10) d.setHours(23, 59, 59, 999);
+  return d;
+}
+
 const p = <T,>(req: Request) => req.params as unknown as T;
 const q = <T,>(req: Request) => req.query as unknown as T;
 
@@ -65,7 +72,14 @@ export const opportunitiesController = {
   async agenda(req: Request, res: Response) {
     const { desde, hasta } = q<{ desde: string; hasta: string }>(req);
     res.json({
-      data: await agendaService.enRango(req.user!.companyId, new Date(desde), new Date(hasta)),
+      data: await agendaService.enRango(
+        req.user!.companyId,
+        new Date(desde),
+        // "hasta el 14" incluye el 14 entero. Con la fecha a secas se
+        // interpretaba como su 00:00, asi que una cotizacion de las ocho de la
+        // tarde de ese dia se quedaba fuera del calendario que la pedia.
+        finDelDia(hasta),
+      ),
     });
   },
 
