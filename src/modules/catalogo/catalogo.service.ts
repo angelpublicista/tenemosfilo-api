@@ -131,6 +131,7 @@ export const catalogoService = {
           locationId: null,
           locationName: null,
           sedeActiva: null,
+          propias: null,
           condiciones: await condicionesDe(p.id, null),
           diasQueAbre: diasQueAbre(horarios),
           franjas: cuantasFranjas(horarios),
@@ -139,13 +140,35 @@ export const catalogoService = {
         continue;
       }
 
+      // Lo que cada sede declara COMO SUYO, aparte de lo que acaba rigiendo.
+      // Sin esta distinción la pantalla enseñaba el aforo heredado como si
+      // fuera propio de la sede, y al abrir las condiciones lo convertía en
+      // propio de verdad al guardar.
+      const propias = await prisma.locationListing.findMany({
+        where: { experienceId: p.id, deletedAt: null },
+      });
+
       for (const s of sedes) {
         const horarios = await horariosQueAplican(p.id, s.id);
+        const suyas = propias.find((f) => f.locationId === s.id) ?? null;
         filas.push({
           ...comun,
           locationId: s.id,
           locationName: s.name,
           sedeActiva: s.isActive,
+          propias: suyas
+            ? {
+                kind: suyas.kind,
+                capacity: suyas.capacity,
+                minCapacity: suyas.minCapacity,
+                basePrice: suyas.basePrice,
+                prepTime: suyas.prepTime,
+                cleanupTime: suyas.cleanupTime,
+                minimumNotice: suyas.minimumNotice,
+                isPublished: suyas.isPublished,
+                notes: suyas.notes,
+              }
+            : null,
           condiciones: await condicionesDe(p.id, s.id),
           diasQueAbre: diasQueAbre(horarios),
           franjas: cuantasFranjas(horarios),

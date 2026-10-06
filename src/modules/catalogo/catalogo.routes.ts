@@ -58,12 +58,15 @@ catalogoRouter.delete(
   validate(paresSchema, 'params'),
   async (req: Request, res: Response) => {
     const { experienceId, locationId } = req.params as unknown as z.infer<typeof paresSchema>;
-    const { publicaciones, reservasPorVenir } = await catalogoService.quitar(
+    // El aviso va DENTRO de `data` y no en `meta`: el cliente del front se
+    // queda solo con `data`, y un dato que nadie puede leer es un dato que no
+    // existe.
+    const resultado = await catalogoService.quitar(
       experienceId,
       locationId,
       req.user!.companyId,
       { isAdmin: req.user!.role === 'ADMIN' },
     );
-    res.json({ data: publicaciones, meta: { reservasPorVenir } });
+    res.json({ data: resultado });
   },
 );
