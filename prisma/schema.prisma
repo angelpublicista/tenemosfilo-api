@@ -488,12 +488,6 @@ model Menu {
   @@index([companyId])
 }
 
-enum ExperienceType {
-  VIRTUAL
-  PRESENTIAL
-  HYBRID
-}
-
 // Forma en que se expresa una comision: porcentaje del total de la reserva
 // o monto fijo por reserva.
 enum CommissionType {
@@ -673,12 +667,6 @@ model Experience {
   // pantalla por un caso que no existe.
   atHome Boolean @default(false)
 
-  // OBSOLETOS. Se dejan de leer y escribir en este despliegue y se borran en
-  // el siguiente: la migracion corre con el codigo viejo todavia sirviendo,
-  // asi que quitarlos de golpe tumbaria lo que esta en el aire.
-  experienceType     ExperienceType   @default(PRESENTIAL)
-  isVirtual          Boolean          @default(false)
-  virtualPlatform    String?
   presentialLocation String?
   presentialAddress  String?
   presentialCity     String?
@@ -1313,9 +1301,6 @@ model Reservation {
   //
   // Sustituye a `virtualDetails`, que guardaba el enlace de la videollamada.
   serviceAddress      String?
-  // OBSOLETOS, se borran en el siguiente despliegue.
-  isVirtual           Boolean      @default(false)
-  virtualDetails      String?
   specialRequirements String?      @db.Text
   cancellation        Json? // { cancelledAt, cancelledBy, cancellationReason, refundAmount, refundStatus }
 
