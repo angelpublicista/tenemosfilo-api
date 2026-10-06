@@ -650,7 +650,9 @@ model Experience {
   /// sirve a experiencias que necesitan avisos muy distintos.
   minimumNotice Int? // horas
 
-  capacity           Int?
+  // Sin `capacity`: los cupos son de la franja del horario. `minCapacity` se
+  // queda porque no es inventario —es el tamaño de grupo por debajo del cual
+  // la experiencia no se hace— y no cambia por ser sabado o martes.
   minCapacity        Int?
   basePrice          Decimal?         @db.Decimal(12, 2)
   currency           String           @default("COP")
@@ -1692,8 +1694,7 @@ model LocationListing {
   // null = lo que venia haciendo el sistema, que es contar cupos.
   kind ExperienceKind?
 
-  // Aforo y precio de ESTA sede. null = los de la experiencia.
-  capacity    Int?
+  // Lo que esta sede cambia. Sin aforo: los cupos son de la franja.
   minCapacity Int?
   basePrice   Decimal? @db.Decimal(12, 2)
 
