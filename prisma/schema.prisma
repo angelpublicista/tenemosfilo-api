@@ -763,19 +763,6 @@ model Availability {
   // horarios creados antes de esta regla. Los nuevos la piden.
   validFrom  DateTime?
   validUntil DateTime?
-  /// Se van a la experiencia: el tiempo entre reservas y la anticipacion que
-  /// hace falta son propios de lo que se vende, no del dia en que se vende.
-  /// Montar un taller de cocteleria no cuesta lo mismo que montar una cata.
-  ///
-  /// Aqui quedan solo para no romper el codigo viejo durante el despliegue;
-  /// se borran en el siguiente.
-  bufferTime     Int      @default(0)
-  // TR-06. Cuanta anticipacion necesita el anfitrion, EN HORAS.
-  //
-  // En horas y no en minutos —el comentario decia otra cosa y nadie lo leia,
-  // porque hasta ahora este campo no se usaba— porque es como lo piensa quien
-  // lo rellena: "con un dia de aviso" son 24, no 1440.
-  minimumNotice  Int      @default(0)
   blockedDates   String[] // ISO dates "YYYY-MM-DD"
   notes          String?
 
