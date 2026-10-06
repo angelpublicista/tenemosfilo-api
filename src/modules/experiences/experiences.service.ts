@@ -303,7 +303,11 @@ export const experiencesService = {
     return prisma.experience.findMany({
       where: { isFeatured: true, status: 'ACTIVE', deletedAt: null },
       include: lightInclude,
-      orderBy: [{ rating: 'desc' }, { totalBookings: 'desc' }],
+      // Por nota y despues por nueva. El desempate ya no es "cuantas se han
+      // vendido": una experiencia no lleva contadores de reservas ni de
+      // ingresos —eso vive en Reservas y en Ingresos, y duplicarlo aqui
+      // significaba mantener dos cifras que acaban discrepando.
+      orderBy: [{ rating: 'desc' }, { createdAt: 'desc' }],
       take: limit,
     });
   },
@@ -510,16 +514,27 @@ export const experiencesService = {
     return { reservasCanceladas: vivas.length };
   },
 
+  /**
+   * Las cifras del catalogo: cuantas experiencias hay y en que estado.
+   *
+   * Reservas e ingresos NO salen de aqui a proposito. Son de otra cosa: las
+   * reservas viven en Reservas y el dinero en Ingresos, que ademas lo desglosa
+   * por experiencia (TR-28). Tenerlos tambien aqui significaba mantener dos
+   * cifras de lo mismo, y dos cifras de lo mismo acaban discrepando — de
+   * hecho estas dos llevaban en cero desde siempre, porque nadie las escribia,
+   * asi que la pantalla de experiencias prometia "0 reservas" y "$0" a quien
+   * si habia vendido.
+   */
   async statsByCompany(requesterCompanyId: string | null | undefined, companyId: string) {
     if (!requesterCompanyId || requesterCompanyId !== companyId) {
       throw Forbidden('No tienes acceso a las stats de otra company');
     }
     const items = await prisma.experience.findMany({
       where: { companyId, deletedAt: null },
-      select: { status: true, totalBookings: true, totalRevenue: true, rating: true },
+      select: { status: true, rating: true },
     });
-    const sumRevenue = items.reduce((acc, e) => acc + Number(e.totalRevenue), 0);
-    const sumRating = items.reduce((acc, e) => acc + (e.rating ?? 0), 0);
+    const calificadas = items.filter((e) => e.rating !== null);
+    const sumRating = calificadas.reduce((acc, e) => acc + (e.rating ?? 0), 0);
     return {
       total: items.length,
       active: items.filter((e) => e.status === 'ACTIVE').length,
@@ -527,9 +542,9 @@ export const experiencesService = {
       pending: items.filter((e) => e.status === 'PENDING').length,
       paused: items.filter((e) => e.status === 'PAUSED').length,
       inactive: items.filter((e) => e.status === 'INACTIVE').length,
-      totalBookings: items.reduce((acc, e) => acc + e.totalBookings, 0),
-      totalRevenue: sumRevenue,
-      averageRating: items.length ? sumRating / items.length : 0,
+      // Solo las que tienen nota: promediar los ceros de las que nadie
+      // califico hunde la media y no describe nada.
+      averageRating: calificadas.length ? sumRating / calificadas.length : 0,
     };
   },
 };

@@ -101,7 +101,9 @@ export const listExperiencesQuerySchema = z.object({
   minPrice: z.coerce.number().optional(),
   maxPrice: z.coerce.number().optional(),
   experienceType: experienceTypeEnum.optional(),
-  sortBy: z.enum(['title', 'basePrice', 'rating', 'createdAt', 'totalBookings']).optional().default('createdAt'),
+  // Sin 'totalBookings': una experiencia no lleva contador de reservas. Para
+  // ordenar por lo que mas se vende esta el desglose de Ingresos (TR-28).
+  sortBy: z.enum(['title', 'basePrice', 'rating', 'createdAt']).optional().default('createdAt'),
   sortOrder: z.enum(['asc', 'desc']).optional().default('desc'),
   page: z.coerce.number().int().positive().optional().default(1),
   limit: z.coerce.number().int().positive().max(100).optional().default(20),
