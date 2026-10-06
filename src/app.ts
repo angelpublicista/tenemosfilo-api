@@ -21,6 +21,7 @@ import { opportunitiesRouter } from './modules/opportunities/opportunities.route
 import { crmPanelRouter } from './modules/crm-panel/crm-panel.routes.js';
 import { agenteRouter } from './modules/agente/agente.routes.js';
 import { experiencesRouter } from './modules/experiences/experiences.routes.js';
+import { catalogoRouter } from './modules/catalogo/catalogo.routes.js';
 import { reservationsRouter } from './modules/reservations/reservations.routes.js';
 import { quotesRouter } from './modules/quotes/quotes.routes.js';
 import { availabilitiesRouter } from './modules/availabilities/availabilities.routes.js';
@@ -124,6 +125,8 @@ export function createApp() {
   // antes del requireAuth: lo llama Meta, no un usuario.
   app.use('/agente', agenteRouter);
   app.use('/experiences', limiteGeneral, experiencesRouter);
+  // El catalogo: las experiencias puestas en uso, sede por sede.
+  app.use('/catalogo', limiteGeneral, catalogoRouter);
   app.use('/reservations', limiteGeneral, reservationsRouter);
   app.use('/quotes', limiteGeneral, quotesRouter);
   app.use('/availabilities', limiteGeneral, availabilitiesRouter);

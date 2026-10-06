@@ -94,24 +94,3 @@ export async function condicionesDe(
     isPublished: ficha?.isPublished ?? true,
   };
 }
-
-/**
- * Las sedes donde la experiencia esta ofreciendose, con sus condiciones.
- *
- * Una sede sin ficha sale igual, con las condiciones de la experiencia: estar
- * en el catalogo no depende de haber declarado nada aparte.
- */
-export async function sedesDe(experienceId: string, cliente: Cliente = prisma) {
-  const sedes = await cliente.location.findMany({
-    where: { deletedAt: null, experiences: { some: { id: experienceId } } },
-    select: { id: true, name: true, isMain: true, address: true },
-    orderBy: [{ isMain: 'desc' }, { name: 'asc' }],
-  });
-
-  return Promise.all(
-    sedes.map(async (s) => ({
-      ...s,
-      condiciones: await condicionesDe(experienceId, s.id, cliente),
-    })),
-  );
-}
