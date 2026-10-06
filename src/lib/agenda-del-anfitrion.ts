@@ -16,6 +16,7 @@
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { prisma } from '../config/prisma.js';
 import { BadRequest } from './errors.js';
+import { condicionesDe } from './sede-de-la-experiencia.js';
 
 type Cliente = PrismaClient | Prisma.TransactionClient;
 
@@ -71,17 +72,22 @@ export async function simultaneidad(
   // duracion que llega en la reserva manda sobre la de la ficha —puede ser
   // una cena mas larga de lo habitual— pero los montajes son de la
   // experiencia y no se mandan por reserva.
+  //
+  // Los montajes son de la SEDE cuando ella los declara: la finca pide dos
+  // horas de montaje que el local del centro no necesita, y con el dato de la
+  // experiencia la agenda dejaba meter otra cosa en ese rato.
   const ficha = await cliente.experience.findUnique({
     where: { id: datos.experienceId },
-    select: { duration: true, prepTime: true, cleanupTime: true },
+    select: { duration: true },
   });
+  const condiciones = await condicionesDe(datos.experienceId, datos.locationId, cliente);
   const duracion = ocupacionEnMinutos({
     duration: datos.duracionMin ?? ficha?.duration ?? DURACION_POR_DEFECTO_MIN,
-    prepTime: ficha?.prepTime,
-    cleanupTime: ficha?.cleanupTime,
+    prepTime: condiciones.prepTime,
+    cleanupTime: condiciones.cleanupTime,
   });
   // El montaje empieza antes de la hora de la reserva: ahi ya esta ocupado.
-  const inicio = new Date(datos.fecha.getTime() - (ficha?.prepTime ?? 0) * 60_000);
+  const inicio = new Date(datos.fecha.getTime() - (condiciones.prepTime ?? 0) * 60_000);
   const fin = new Date(inicio.getTime() + duracion * 60_000);
 
   // Se trae la franja ancha del dia y el solape se calcula aqui: cruzar
@@ -102,6 +108,7 @@ export async function simultaneidad(
       reservationNumber: true,
       reservationDate: true,
       duration: true,
+      experienceId: true,
       locationId: true,
       experience: {
         select: { title: true, duration: true, prepTime: true, cleanupTime: true },
@@ -110,17 +117,31 @@ export async function simultaneidad(
     },
   });
 
+  // Los montajes propios de cada sede, de una vez y no uno por candidata:
+  // esto corre dentro del cerrojo de una venta y una consulta por reserva
+  // haria esperar al resto de la cola.
+  const pares = candidatas
+    .filter((c) => !!c.locationId)
+    .map((c) => ({ experienceId: c.experienceId, locationId: c.locationId! }));
+  const fichas = pares.length
+    ? await cliente.locationListing.findMany({
+        where: { deletedAt: null, OR: pares },
+        select: { experienceId: true, locationId: true, prepTime: true, cleanupTime: true },
+      })
+    : [];
+  const propio = new Map(fichas.map((f) => [`${f.experienceId}:${f.locationId}`, f]));
+
   const salida: Simultaneidad = { mismaSede: [], otraSede: [] };
 
   for (const c of candidatas) {
+    const f = c.locationId ? propio.get(`${c.experienceId}:${c.locationId}`) : undefined;
+    const montaje = f?.prepTime ?? c.experience?.prepTime ?? 0;
     const dur = ocupacionEnMinutos({
       duration: c.duration ?? c.experience?.duration ?? DURACION_POR_DEFECTO_MIN,
-      prepTime: c.experience?.prepTime,
-      cleanupTime: c.experience?.cleanupTime,
+      prepTime: montaje,
+      cleanupTime: f?.cleanupTime ?? c.experience?.cleanupTime,
     });
-    const cInicio = new Date(
-      c.reservationDate.getTime() - (c.experience?.prepTime ?? 0) * 60_000,
-    );
+    const cInicio = new Date(c.reservationDate.getTime() - montaje * 60_000);
     const cFin = new Date(cInicio.getTime() + dur * 60_000);
     // Se tocan si una empieza antes de que la otra acabe, por los dos lados.
     if (cInicio >= fin || cFin <= inicio) continue;
