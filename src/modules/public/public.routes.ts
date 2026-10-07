@@ -85,23 +85,27 @@ const experienciaPublica = {
 } as const;
 
 /**
- * Quita del catalogo las sedes donde la experiencia no se esta ofreciendo.
+ * Deja fuera del catalogo lo que esta en pausa.
  *
- * Retirar una experiencia de una sede sin borrar sus condiciones ni tocar las
- * otras es justo para lo que esta `isPublished`, y si la sede siguiera
- * saliendo en el catalogo no habria servido de nada: el comensal la elegiria y
- * la reserva se crearia igual.
+ * Pausar es de la PUBLICACION: la misma pieza puede seguir vendiendose en el
+ * local mientras la finca descansa. Asi que primero se quitan las sedes
+ * pausadas, y despues la experiencia entera si no le queda ninguna viva —o si
+ * es a domicilio y su publicacion, la que no tiene sede, esta pausada—.
+ *
+ * Sin lo segundo, una experiencia con todas sus sedes en pausa seguia saliendo
+ * en el catalogo sin sedes que elegir, y el motor de reservas la dejaba
+ * comprar igual porque no habia sede que exigir.
  *
  * Se filtra aqui y no en la consulta porque la condicion mira la ficha del par
  * experiencia-sede, y el `include` de las sedes no sabe de que experiencia
  * cuelga.
  */
-async function soloSedesOfrecidas<T extends { id: string; locations: { id: string }[] }>(
-  experiences: T[],
-): Promise<T[]> {
+async function soloLoQueSeOfrece<
+  T extends { id: string; atHome: boolean; locations: { id: string }[] },
+>(experiences: T[]): Promise<T[]> {
   if (experiences.length === 0) return experiences;
 
-  const retiradas = await prisma.locationListing.findMany({
+  const pausadas = await prisma.locationListing.findMany({
     where: {
       deletedAt: null,
       isPublished: false,
@@ -109,13 +113,26 @@ async function soloSedesOfrecidas<T extends { id: string; locations: { id: strin
     },
     select: { experienceId: true, locationId: true },
   });
-  if (retiradas.length === 0) return experiences;
 
-  const fuera = new Set(retiradas.map((r) => `${r.experienceId}:${r.locationId}`));
-  return experiences.map((e) => ({
-    ...e,
-    locations: e.locations.filter((l) => !fuera.has(`${e.id}:${l.id}`)),
-  }));
+  const fuera = new Set(
+    pausadas.filter((r) => r.locationId).map((r) => `${r.experienceId}:${r.locationId}`),
+  );
+  const domicilioEnPausa = new Set(
+    pausadas.filter((r) => !r.locationId).map((r) => r.experienceId),
+  );
+
+  return experiences
+    .map((e) => ({
+      ...e,
+      // Si tenia sedes antes de filtrar: una experiencia de lugar propio
+      // —`presentialLocation`, sin sede registrada— nunca tuvo ninguna, y
+      // dejarla fuera por eso la borraria del catalogo sin que nadie la
+      // hubiera pausado.
+      teniaSedes: e.locations.length > 0,
+      locations: e.locations.filter((l) => !fuera.has(`${e.id}:${l.id}`)),
+    }))
+    .filter((e) => (e.teniaSedes ? e.locations.length > 0 : !domicilioEnPausa.has(e.id)))
+    .map(({ teniaSedes: _, ...e }) => e as unknown as T);
 }
 
 /**
@@ -212,7 +229,7 @@ publicRouter.get(
       where: { deletedAt: null, status: 'ACTIVE', company: { deletedAt: null, isActive: true } },
       include: experienciaPublica,
       orderBy: [{ isFeatured: 'desc' }, { createdAt: 'desc' }],
-    }).then(soloSedesOfrecidas);
+    }).then(soloLoQueSeOfrece);
 
     // Aqui salen experiencias de varias empresas, y desde que cada anfitrion
     // puede cobrar con su pasarela la respuesta ya no es una sola para todas.
@@ -247,7 +264,7 @@ publicRouter.get(
       where: { companyId: company.id, deletedAt: null, status: 'ACTIVE' },
       include: experienciaPublica,
       orderBy: [{ isFeatured: 'desc' }, { createdAt: 'desc' }],
-    }).then(soloSedesOfrecidas);
+    }).then(soloLoQueSeOfrece);
 
     // Solo si se cobra en linea. El resumen previo a confirmar cambia el
     // texto segun esto: prometer "pagas ahora" con la pasarela apagada deja

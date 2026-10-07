@@ -357,7 +357,7 @@ export const experiencesService = {
    * que poder hacerse. Lo que no puede es venderse a medias: quien compra una
    * experiencia sin precio, sin duracion o sin sitio compra una incognita.
    *
-   * Pasar a INACTIVE o PAUSED no comprueba nada: dejar de vender algo nunca
+   * Pasar a INACTIVE no comprueba nada: dejar de vender algo nunca
    * puede estar bloqueado.
    */
   async updateStatus(
@@ -472,7 +472,13 @@ export const experiencesService = {
     }
     const items = await prisma.experience.findMany({
       where: { companyId, deletedAt: null },
-      select: { status: true, rating: true },
+      select: {
+        status: true,
+        rating: true,
+        // Para contar cuantas tienen alguna publicacion en pausa: pausar es de
+        // la publicacion, no de la pieza.
+        locationListings: { where: { deletedAt: null }, select: { isPublished: true } },
+      },
     });
     const calificadas = items.filter((e) => e.rating !== null);
     const sumRating = calificadas.reduce((acc, e) => acc + (e.rating ?? 0), 0);
@@ -481,7 +487,9 @@ export const experiencesService = {
       active: items.filter((e) => e.status === 'ACTIVE').length,
       draft: items.filter((e) => e.status === 'DRAFT').length,
       pending: items.filter((e) => e.status === 'PENDING').length,
-      paused: items.filter((e) => e.status === 'PAUSED').length,
+      // Las pausadas ya no son un estado de la pieza: lo que se pausa es cada
+      // publicacion, y eso se cuenta en el catalogo.
+      pausadas: items.filter((e) => e.locationListings.some((f) => !f.isPublished)).length,
       inactive: items.filter((e) => e.status === 'INACTIVE').length,
       // Solo las que tienen nota: promediar los ceros de las que nadie
       // califico hunde la media y no describe nada.

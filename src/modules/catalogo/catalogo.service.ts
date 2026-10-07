@@ -125,12 +125,28 @@ export const catalogoService = {
 
       if (sedes.length === 0) {
         const horarios = await horariosQueAplican(p.id, null);
+        // Sin sede tambien hay publicacion: la de a domicilio lleva la sede
+        // nula y es la que se pausa y la que guarda sus condiciones.
+        const suya = await prisma.locationListing.findFirst({
+          where: { experienceId: p.id, locationId: null, deletedAt: null },
+        });
         filas.push({
           ...comun,
           locationId: null,
           locationName: null,
           sedeActiva: null,
-          propias: null,
+          propias: suya
+            ? {
+                kind: suya.kind,
+                minCapacity: suya.minCapacity,
+                basePrice: suya.basePrice,
+                prepTime: suya.prepTime,
+                cleanupTime: suya.cleanupTime,
+                minimumNotice: suya.minimumNotice,
+                isPublished: suya.isPublished,
+                notes: suya.notes,
+              }
+            : null,
           condiciones: await condicionesDe(p.id, null),
           diasQueAbre: diasQueAbre(horarios),
           franjas: cuantasFranjas(horarios),
@@ -191,7 +207,7 @@ export const catalogoService = {
    */
   async publicar(
     experienceId: string,
-    locationId: string,
+    locationId: string | null,
     condiciones: CondicionesDeSedeInput,
     companyId: string | null | undefined,
     opts?: { isAdmin?: boolean },
@@ -204,21 +220,31 @@ export const catalogoService = {
     if (!opts?.isAdmin && (!companyId || exp.companyId !== companyId)) {
       throw Forbidden('No puedes publicar una experiencia de otra empresa');
     }
-    if (exp.atHome) {
+    // A domicilio no hay sede: la direccion la pone quien reserva. Pero si hay
+    // publicacion —lo que esta a la venta— con sus condiciones y su pausa, y
+    // su fila lleva la sede nula.
+    if (exp.atHome && locationId) {
       throw BadRequest(
         'Una experiencia a domicilio no se publica en una sede: la dirección la pone quien reserva.',
         { motivo: 'DOMICILIO_SIN_SEDE' },
       );
     }
+    if (!exp.atHome && !locationId) {
+      throw BadRequest('Esta experiencia se da en un sitio: dinos en cuál.', {
+        motivo: 'FALTA_LA_SEDE',
+      });
+    }
 
-    // La sede tiene que ser de la MISMA empresa. Publicar en el local de otro
-    // anfitrion mandaria gente a un sitio que no es suyo.
-    const sede = await prisma.location.findFirst({
-      where: { id: locationId, deletedAt: null, companyId: exp.companyId },
-      select: { id: true },
-    });
-    if (!sede) {
-      throw BadRequest('Esa sede no es de esta empresa.', { motivo: 'SEDE_AJENA' });
+    if (locationId) {
+      // La sede tiene que ser de la MISMA empresa. Publicar en el local de otro
+      // anfitrion mandaria gente a un sitio que no es suyo.
+      const sede = await prisma.location.findFirst({
+        where: { id: locationId, deletedAt: null, companyId: exp.companyId },
+        select: { id: true },
+      });
+      if (!sede) {
+        throw BadRequest('Esa sede no es de esta empresa.', { motivo: 'SEDE_AJENA' });
+      }
     }
 
 
@@ -234,16 +260,27 @@ export const catalogoService = {
       deletedAt: null,
     };
 
-    await prisma.experience.update({
-      where: { id: experienceId },
-      data: { locations: { connect: { id: locationId } } },
-    });
+    if (locationId) {
+      await prisma.experience.update({
+        where: { id: experienceId },
+        data: { locations: { connect: { id: locationId } } },
+      });
+    }
 
-    await prisma.locationListing.upsert({
-      where: { experienceId_locationId: { experienceId, locationId } },
-      create: { experienceId, locationId, ...datos },
-      update: datos,
+    // Se busca antes de crear en vez de un upsert: con la sede nula el unico
+    // de la base no sirve —Postgres trata los NULL como distintos— y dos
+    // publicaciones de la misma experiencia a domicilio no tendrian sentido.
+    const yaExiste = await prisma.locationListing.findFirst({
+      where: { experienceId, locationId: locationId ?? null },
+      select: { id: true },
     });
+    if (yaExiste) {
+      await prisma.locationListing.update({ where: { id: yaExiste.id }, data: datos });
+    } else {
+      await prisma.locationListing.create({
+        data: { experienceId, locationId: locationId ?? null, ...datos },
+      });
+    }
 
     return this.publicaciones(exp.companyId);
   },
@@ -258,7 +295,7 @@ export const catalogoService = {
    */
   async quitar(
     experienceId: string,
-    locationId: string,
+    locationId: string | null,
     companyId: string | null | undefined,
     opts?: { isAdmin?: boolean },
   ) {
@@ -276,17 +313,20 @@ export const catalogoService = {
     const porVenir = await prisma.reservation.count({
       where: {
         experienceId,
-        locationId,
+        ...(locationId ? { locationId } : {}),
         status: { notIn: ['CANCELLED', 'NO_SHOW'] },
         reservationDate: { gte: new Date() },
       },
     });
 
-    await prisma.locationListing.deleteMany({ where: { experienceId, locationId } });
-    await prisma.experience.update({
-      where: { id: experienceId },
-      data: { locations: { disconnect: { id: locationId } } },
-    });
+    await prisma.locationListing.deleteMany({ where: { experienceId, locationId: locationId ?? null } });
+    // A domicilio no hay sede que desatar: solo se borra la publicacion.
+    if (locationId) {
+      await prisma.experience.update({
+        where: { id: experienceId },
+        data: { locations: { disconnect: { id: locationId } } },
+      });
+    }
 
     return { publicaciones: await this.publicaciones(exp.companyId), reservasPorVenir: porVenir };
   },

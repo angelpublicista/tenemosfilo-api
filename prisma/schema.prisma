@@ -607,11 +607,15 @@ enum WompiEnvironment {
   PRODUCTION
 }
 
+// En que punto esta la ficha de la experiencia.
+//
+// Sin PAUSED: pausar es de la PUBLICACION, no de la pieza. La misma
+// experiencia puede estar vendiendose en una sede y en pausa en otra, y un
+// estado unico en la ficha no podia decir eso.
 enum ExperienceStatus {
   DRAFT
   PENDING
   ACTIVE
-  PAUSED
   INACTIVE
 }
 
@@ -1682,8 +1686,17 @@ model LocationListing {
 
   experienceId String
   experience   Experience @relation(fields: [experienceId], references: [id], onDelete: Cascade)
-  locationId   String
-  location     Location   @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  // La sede donde se ofrece. NULA cuando la experiencia es a domicilio: ahi no
+  // hay sede, pero si hay una publicacion —la experiencia puesta a la venta—
+  // que tiene sus condiciones y se puede pausar como cualquier otra.
+  //
+  // El unico de abajo no impide dos filas con sede nula, porque Postgres trata
+  // los NULL como distintos; de que no haya mas de una se encarga el servicio,
+  // que busca antes de crear. Un indice parcial lo haria la base, pero Prisma
+  // no sabe expresarlos y acabaria proponiendo borrarlo en cada migracion.
+  locationId   String?
+  location     Location?  @relation(fields: [locationId], references: [id], onDelete: Cascade)
 
   // Si aqui se venden cupos sueltos o se reserva el sitio completo.
   //
@@ -1705,8 +1718,14 @@ model LocationListing {
   cleanupTime   Int?
   minimumNotice Int?
 
-  // Si la experiencia se esta ofreciendo en esta sede ahora mismo. Sirve para
-  // retirarla de una sede sin borrar sus condiciones ni tocar las otras.
+  // Si esta publicacion esta a la venta ahora mismo.
+  //
+  // Pausar es de la PUBLICACION y no de la experiencia: la misma pieza puede
+  // seguir vendiendose en el local mientras la finca descansa en temporada
+  // baja. Pausar la experiencia entera obligaba a elegir todo o nada.
+  //
+  // Pausada conserva sus condiciones y su horario: se reanuda y sigue donde
+  // estaba. Para dejar de ofrecerla ahi del todo se quita la publicacion.
   isPublished Boolean @default(true)
 
   // Para que el anfitrion anote lo que solo pasa aqui: "la cocina de esta

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
-const experienceStatusEnum = z.enum(['DRAFT', 'PENDING', 'ACTIVE', 'PAUSED', 'INACTIVE']);
+// Sin PAUSED: pausar es de la publicacion, no de la pieza.
+const experienceStatusEnum = z.enum(['DRAFT', 'PENDING', 'ACTIVE', 'INACTIVE']);
 
 const galleryItemSchema = z.object({
   assetId: z.string().min(1), // ahora es URL S3/CloudFront

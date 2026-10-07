@@ -31,6 +31,40 @@ catalogoRouter.get(
   },
 );
 
+// La publicacion de una experiencia a domicilio: no hay sede que nombrar,
+// porque la direccion la pone quien reserva. Tiene sus condiciones y se pausa
+// igual que las demas.
+catalogoRouter.put(
+  '/publicaciones/:experienceId',
+  requireRole('HOST', 'ADMIN'),
+  validate(z.object({ experienceId: z.string().min(1) }), 'params'),
+  validate(condicionesDeSedeSchema),
+  async (req: Request, res: Response) => {
+    const { experienceId } = req.params as unknown as { experienceId: string };
+    const data = await catalogoService.publicar(
+      experienceId,
+      null,
+      req.body as CondicionesDeSedeInput,
+      req.user!.companyId,
+      { isAdmin: req.user!.role === 'ADMIN' },
+    );
+    res.json({ data });
+  },
+);
+
+catalogoRouter.delete(
+  '/publicaciones/:experienceId',
+  requireRole('HOST', 'ADMIN'),
+  validate(z.object({ experienceId: z.string().min(1) }), 'params'),
+  async (req: Request, res: Response) => {
+    const { experienceId } = req.params as unknown as { experienceId: string };
+    const resultado = await catalogoService.quitar(experienceId, null, req.user!.companyId, {
+      isAdmin: req.user!.role === 'ADMIN',
+    });
+    res.json({ data: resultado });
+  },
+);
+
 catalogoRouter.put(
   '/publicaciones/:experienceId/:locationId',
   requireRole('HOST', 'ADMIN'),

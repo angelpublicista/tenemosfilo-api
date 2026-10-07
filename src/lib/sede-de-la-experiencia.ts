@@ -11,6 +11,7 @@
 // cascada de horarios, donde el corte de anticipacion y el conteo de cupos
 // miraban calendarios diferentes sin que nadie se diera cuenta.
 import { prisma } from '../config/prisma.js';
+import { BadRequest } from './errors.js';
 import type { ExperienceKind, Prisma } from '@prisma/client';
 
 type Cliente = Prisma.TransactionClient | typeof prisma;
@@ -79,11 +80,11 @@ export async function condicionesDe(
 
   const sede = locationId ?? (await sedeUnica(experienceId, cliente));
 
-  const ficha = sede
-    ? await cliente.locationListing.findFirst({
-        where: { experienceId, locationId: sede, deletedAt: null },
-      })
-    : null;
+  // Sin sede tambien hay publicacion: es el caso de a domicilio, donde la
+  // direccion la pone quien reserva. Su fila lleva `locationId` nulo.
+  const ficha = await cliente.locationListing.findFirst({
+    where: { experienceId, locationId: sede ?? null, deletedAt: null },
+  });
 
   return {
     locationId: sede,
@@ -95,4 +96,26 @@ export async function condicionesDe(
     minimumNotice: ficha?.minimumNotice ?? exp?.minimumNotice ?? null,
     isPublished: ficha?.isPublished ?? true,
   };
+}
+
+/**
+ * Rechaza una compra de una publicacion en pausa.
+ *
+ * Pausar es dejar de vender ahi. Sin esta comprobacion, quien tuviera el
+ * enlace podia seguir comprando lo que el anfitrion acababa de pausar: el
+ * catalogo ya no lo ofrece, pero el checkout no mira el catalogo.
+ *
+ * Solo para lo que entra por el catalogo. Lo que el anfitrion carga a mano no
+ * pasa por aqui: pausar es para dejar de recibir ventas de fuera, no para
+ * atarse las manos.
+ */
+export async function comprobarEnPausa(
+  experienceId: string,
+  locationId?: string | null,
+): Promise<void> {
+  const { isPublished } = await condicionesDe(experienceId, locationId);
+  if (isPublished) return;
+  throw BadRequest('Esta experiencia no se está ofreciendo ahora mismo.', {
+    motivo: 'EN_PAUSA',
+  });
 }

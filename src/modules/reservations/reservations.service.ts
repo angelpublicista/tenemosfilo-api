@@ -13,7 +13,7 @@ import { conCupoApartado } from '../../lib/cupos.js';
 import { comprobarSedeActiva, comprobarSimultaneidad } from '../../lib/agenda-del-anfitrion.js';
 import { vincularCompradorAlCrm } from '../../lib/comprador-al-crm.js';
 import { comprobarCorte } from '../../lib/corte-de-reservas.js';
-import { condicionesDe } from '../../lib/sede-de-la-experiencia.js';
+import { comprobarEnPausa, condicionesDe } from '../../lib/sede-de-la-experiencia.js';
 import { cambio, type Actor, type CambioDeReserva } from '../../lib/historial-de-reserva.js';
 import {
   estadoDePagoTrasReembolso,
@@ -649,6 +649,10 @@ export const reservationsService = {
     const duracionCongelada = await duracionAlVender(input.experience, input.duration);
 
     await comprobarSedeActiva(input.location);
+
+    // Pausada es pausada tambien para quien tenga el enlace: el catalogo deja
+    // de ofrecerla, pero el checkout no mira el catalogo.
+    await comprobarEnPausa(input.experience, input.location ?? null);
 
     // TR-06. El corte tambien vale cuando se liberan cupos: un lugar que
     // alguien cancela dos horas antes no vuelve al catalogo, porque el
