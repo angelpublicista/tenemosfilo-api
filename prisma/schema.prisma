@@ -773,6 +773,23 @@ model Availability {
   // horarios creados antes de esta regla. Los nuevos la piden.
   validFrom  DateTime?
   validUntil DateTime?
+  /// Lo que pasa en una FECHA concreta, por encima del patron semanal.
+  ///
+  /// { "2026-12-24": { isActive: false },
+  ///   "2026-12-31": { isActive: true, franjas: [{ startTime, endTime, cupos }] } }
+  ///
+  /// Un dia suelto se cierra —el 24 no se abre aunque sea jueves— o se abre
+  /// con otras franjas —el 31 solo la cena, con mas cupos—. Es la misma forma
+  /// que un dia de `weeklySchedule`, a proposito: quien lee una cosa entiende
+  /// la otra, y el codigo que saca las franjas es el mismo.
+  ///
+  /// Sustituye a `blockedDates`, que solo sabia cerrar. Tener dos sitios para
+  /// hablar de una fecha —uno para cerrarla y otro para abrirla— es como se
+  /// acaba con un dia cerrado en una lista y abierto en la otra.
+  dateOverrides Json?
+
+  // OBSOLETO. Se deja de leer y escribir en este despliegue y se borra en el
+  // siguiente: la migracion corre con el codigo viejo todavia sirviendo.
   blockedDates   String[] // ISO dates "YYYY-MM-DD"
   notes          String?
 

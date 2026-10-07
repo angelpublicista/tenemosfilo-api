@@ -41,6 +41,20 @@ const blockedDateSchema = z.union([
 ]);
 
 /**
+ * Lo que pasa en una fecha concreta, por encima del patron semanal.
+ *
+ * { "2026-12-24": { isActive: false },
+ *   "2026-12-31": { isActive: true, franjas: [{ startTime, endTime, cupos }] } }
+ *
+ * Misma forma que un dia de la semana: un dia suelto se cierra o se abre con
+ * otras franjas, y el codigo que saca las franjas es el mismo.
+ */
+const dateOverridesSchema = z.record(
+  z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'La fecha va en formato AAAA-MM-DD'),
+  dayScheduleSchema,
+);
+
+/**
  * TR-35. Desde y hasta cuando se repite el horario.
  *
  * `validUntil` se pide en los nuevos: un horario semanal sin corte genera
@@ -63,7 +77,10 @@ export const createAvailabilitySchema = z.object({
   bufferTime: z.number().int().nonnegative().optional(),
   minimumNotice: z.number().int().nonnegative().optional(),
   notes: z.string().optional(),
+  // `blockedDates` se sigue aceptando de clientes viejos y se ignora: lo que
+  // pasa en una fecha vive en `dateOverrides`, que ademas sabe abrir.
   blockedDates: z.array(blockedDateSchema).optional().default([]),
+  dateOverrides: dateOverridesSchema.optional(),
   validFrom: z.string().min(1),
   validUntil: z.string().min(1),
 });
@@ -78,6 +95,7 @@ export const updateAvailabilitySchema = z.object({
   minimumNotice: z.number().int().nonnegative().optional(),
   notes: z.string().nullable().optional(),
   blockedDates: z.array(blockedDateSchema).optional(),
+  dateOverrides: dateOverridesSchema.optional(),
   validFrom: z.string().min(1).optional(),
   // Nulo explicito = volver a "sin fecha final". Se permite porque hay
   // horarios que de verdad no tienen corte —un restaurante que abre todos los

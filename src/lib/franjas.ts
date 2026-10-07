@@ -50,6 +50,46 @@ export function franjasDelDia(semana: unknown, fecha: Date): Franja[] {
   return dia.franjas ?? dia.timeSlots ?? [];
 }
 
+/** La fecha en "YYYY-MM-DD", que es como se guardan las excepciones. */
+export function claveDeFecha(f: Date): string {
+  return `${f.getFullYear()}-${String(f.getMonth() + 1).padStart(2, '0')}-${String(
+    f.getDate(),
+  ).padStart(2, '0')}`;
+}
+
+/** Lo que se dijo de ESA fecha, si se dijo algo. */
+export function excepcionDelDia(
+  overrides: unknown,
+  fecha: Date,
+): DiaDeLaSemana | undefined {
+  if (!overrides || typeof overrides !== 'object') return undefined;
+  return (overrides as Record<string, DiaDeLaSemana | undefined>)[claveDeFecha(fecha)];
+}
+
+/**
+ * Las franjas que rigen esa fecha en ese horario.
+ *
+ * Lo que se dijo de la fecha manda sobre el patron semanal: el 24 no se abre
+ * aunque sea jueves, y el 31 abre solo la cena aunque los jueves se abra todo
+ * el dia. Sin excepcion, el patron de siempre.
+ */
+export function franjasDeLaFecha(
+  horario: { weeklySchedule: unknown; dateOverrides?: unknown },
+  fecha: Date,
+): Franja[] {
+  const suelta = excepcionDelDia(horario.dateOverrides, fecha);
+  if (suelta) return suelta.isActive ? (suelta.franjas ?? suelta.timeSlots ?? []) : [];
+  return franjasDelDia(horario.weeklySchedule, fecha);
+}
+
+/** Si esa fecha esta cerrada a proposito en ese horario. */
+export function fechaCerrada(
+  horario: { dateOverrides?: unknown },
+  fecha: Date,
+): boolean {
+  return excepcionDelDia(horario.dateOverrides, fecha)?.isActive === false;
+}
+
 /**
  * El grupo mas grande que cabe en alguna franja de estos horarios.
  *
@@ -61,14 +101,16 @@ export function franjasDelDia(semana: unknown, fecha: Date): Franja[] {
  * `null` cuando ninguna franja declara cupos: entonces no hay maximo que
  * prometer.
  */
-export function aforoMaximo(horarios: Array<{ weeklySchedule: unknown }>): number | null {
+export function aforoMaximo(
+  horarios: Array<{ weeklySchedule: unknown; dateOverrides?: unknown }>,
+): number | null {
   let mayor: number | null = null;
   const lunes = new Date();
   for (const h of horarios) {
     for (let i = 0; i < 7; i += 1) {
       const d = new Date(lunes);
       d.setDate(d.getDate() + i);
-      for (const f of franjasDelDia(h.weeklySchedule, d)) {
+      for (const f of franjasDeLaFecha(h, d)) {
         if (f.cupos === null || f.cupos === undefined) continue;
         if (mayor === null || f.cupos > mayor) mayor = f.cupos;
       }
@@ -101,7 +143,7 @@ export async function horariosQueAplican(experienceId: string, locationId?: stri
     weeklySchedule: true,
     validFrom: true,
     validUntil: true,
-    blockedDates: true,
+    dateOverrides: true,
   } as const;
   const vivos = { deletedAt: null, isActive: true } as const;
   const suyos = { experiences: { some: { id: experienceId } } } as const;
@@ -223,7 +265,7 @@ export async function franjaDeLaReserva(
     if (h.validFrom && soloElDia < h.validFrom.toISOString().slice(0, 10)) continue;
     if (h.validUntil && dia > h.validUntil) continue;
 
-    for (const f of franjasDelDia(h.weeklySchedule, fecha)) {
+    for (const f of franjasDeLaFecha(h, fecha)) {
       if (f.cupos === null || f.cupos === undefined) continue;
       const desde = enMinutos(f.startTime);
       const hasta = enMinutos(f.endTime);

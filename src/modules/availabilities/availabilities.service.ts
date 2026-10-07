@@ -93,11 +93,6 @@ function aFranjas(semana: unknown): unknown {
   return salida;
 }
 
-async function blockedDatesToStrings(input: CreateAvailabilityInput['blockedDates']): Promise<string[]> {
-  if (!input) return [];
-  return input.map((d) => (typeof d === 'string' ? d : d.date));
-}
-
 async function assertCanManage(id: string, requesterCompanyId: string | null | undefined) {
   const av = await prisma.availability.findFirst({
     where: { id, deletedAt: null },
@@ -168,7 +163,11 @@ export const availabilitiesService = {
         name: input.name,
         description: input.description ?? null,
         weeklySchedule: aFranjas(input.weeklySchedule) as Prisma.InputJsonValue,
-        blockedDates: await blockedDatesToStrings(input.blockedDates),
+        // `blockedDates` ya no se escribe: lo que pasa en una fecha vive en
+        // `dateOverrides`, que ademas sabe abrir un dia suelto.
+        ...(input.dateOverrides
+          ? { dateOverrides: input.dateOverrides as Prisma.InputJsonValue }
+          : {}),
         // TR-35. La vigencia del horario. El inicio a las 00:00 y el final al
         // acabar ese dia: una vigencia "hasta el 31 de diciembre" incluye el
         // 31 de diciembre.
@@ -253,8 +252,8 @@ export const availabilitiesService = {
       data.weeklySchedule = semana as Prisma.InputJsonValue;
     }
     if (input.notes !== undefined) data.notes = input.notes;
-    if (input.blockedDates !== undefined)
-      data.blockedDates = await blockedDatesToStrings(input.blockedDates);
+    if (input.dateOverrides !== undefined)
+      data.dateOverrides = input.dateOverrides as Prisma.InputJsonValue;
     if (input.validFrom !== undefined) data.validFrom = inicioDelDia(input.validFrom);
     if (input.validUntil !== undefined)
       data.validUntil = input.validUntil === null ? null : finDelDia(input.validUntil);

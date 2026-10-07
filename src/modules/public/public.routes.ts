@@ -74,7 +74,7 @@ const experienciaPublica = {
       name: true,
       weeklySchedule: true,
 
-      blockedDates: true,
+      dateOverrides: true,
       locationId: true,
       // TR-35. Hasta cuando se repite este horario. Sin esto el catalogo
       // ofreceria sabados de 2031 que nadie decidio abrir.
@@ -150,7 +150,7 @@ const agendaPropia = {
     name: true,
     weeklySchedule: true,
 
-    blockedDates: true,
+    dateOverrides: true,
     locationId: true,
     validFrom: true,
     validUntil: true,

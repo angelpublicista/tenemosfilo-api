@@ -55,7 +55,7 @@ const fullInclude = {
       id: true,
       name: true,
       weeklySchedule: true,
-      blockedDates: true,
+      dateOverrides: true,
       locationId: true,
     },
   },

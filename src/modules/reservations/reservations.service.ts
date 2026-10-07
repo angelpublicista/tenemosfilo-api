@@ -13,7 +13,11 @@ import { conCupoApartado } from '../../lib/cupos.js';
 import { comprobarSedeActiva, comprobarSimultaneidad } from '../../lib/agenda-del-anfitrion.js';
 import { vincularCompradorAlCrm } from '../../lib/comprador-al-crm.js';
 import { comprobarCorte } from '../../lib/corte-de-reservas.js';
-import { comprobarEnPausa, condicionesDe } from '../../lib/sede-de-la-experiencia.js';
+import {
+  comprobarEnPausa,
+  comprobarDiaAbierto,
+  condicionesDe,
+} from '../../lib/sede-de-la-experiencia.js';
 import { cambio, type Actor, type CambioDeReserva } from '../../lib/historial-de-reserva.js';
 import {
   estadoDePagoTrasReembolso,
@@ -653,6 +657,11 @@ export const reservationsService = {
     // Pausada es pausada tambien para quien tenga el enlace: el catalogo deja
     // de ofrecerla, pero el checkout no mira el catalogo.
     await comprobarEnPausa(input.experience, input.location ?? null);
+
+    // Y una hora que no esta abierta tampoco se vende, ni porque el patron no
+    // abra ese dia ni porque se cerrara a mano: esconderlo en el calendario no
+    // es cerrarlo.
+    await comprobarDiaAbierto(input.experience, fecha, input.location ?? null);
 
     // TR-06. El corte tambien vale cuando se liberan cupos: un lugar que
     // alguien cancela dos horas antes no vuelve al catalogo, porque el
