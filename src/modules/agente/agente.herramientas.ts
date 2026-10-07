@@ -23,10 +23,21 @@ export interface ContextoDelAgente {
   puedeEnviarEnlace: boolean;
   /** El usuario al que se le atribuyen las solicitudes que abra el agente. */
   usuarioId: string;
+  /**
+   * La prueba del panel, no un cliente. Las lecturas son las de verdad, pero
+   * nada se escribe en el CRM: quien prueba es el propio anfitrion, y un lead
+   * suyo con recordatorios de seguimiento le ensucia el embudo.
+   */
+  esPrueba: boolean;
+  /** Solo en prueba: si ya "guardo" la solicitud, para poder dar el enlace. */
+  solicitudDePrueba: boolean;
 }
 
 /** Lo que se le devuelve al modelo: texto plano, nada de objetos crudos. */
 type Resultado = { ok: true; texto: string } | { ok: false; texto: string };
+
+/** Lo que recibe quien prueba en vez de un enlace de reserva real. */
+const ENLACE_DE_MUESTRA = '[enlace de reserva de muestra: en WhatsApp aquí va el enlace real]';
 
 const pesos = (n: number) =>
   new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n);
@@ -229,6 +240,17 @@ async function guardarSolicitud(
     return { ok: false, texto: 'No tienes permitido guardar solicitudes. Dile que un asesor lo contactará.' };
   }
 
+  const nombre = String(argumentos.nombre ?? '').trim();
+
+  // En prueba se contesta lo mismo que si se hubiera guardado, para que el
+  // anfitrion oiga la conversacion entera, pero no se toca el CRM. Y no se
+  // contesta "ya la habias guardado": asi el flujo se puede volver a probar.
+  if (ctx.esPrueba) {
+    if (!nombre) return { ok: false, texto: 'Falta el nombre de la persona.' };
+    ctx.solicitudDePrueba = true;
+    return { ok: true, texto: 'Solicitud guardada. Un asesor del anfitrión la va a ver.' };
+  }
+
   const conversacion = await prisma.aiConversation.findUnique({
     where: { id: ctx.conversationId },
     select: { opportunityId: true },
@@ -237,7 +259,6 @@ async function guardarSolicitud(
     return { ok: true, texto: 'Ya habías guardado su solicitud; no hace falta otra.' };
   }
 
-  const nombre = String(argumentos.nombre ?? '').trim();
   if (!nombre) return { ok: false, texto: 'Falta el nombre de la persona.' };
   const tipo = argumentos.tipo === 'ABIERTA' ? 'ABIERTA' : 'PRIVADA';
 
@@ -269,6 +290,17 @@ async function guardarSolicitud(
 async function enviarEnlace(ctx: ContextoDelAgente): Promise<Resultado> {
   if (!ctx.puedeEnviarEnlace) {
     return { ok: false, texto: 'No tienes permitido enviar el enlace de reserva.' };
+  }
+  // Un enlace de verdad necesita una oportunidad de verdad. En prueba se da
+  // uno de muestra que no abre nada, y se dice que lo es.
+  if (ctx.esPrueba) {
+    if (!ctx.solicitudDePrueba) {
+      return { ok: false, texto: 'Primero guarda la solicitud con guardar_solicitud.' };
+    }
+    return {
+      ok: true,
+      texto: `Este es el enlace, pásaselo tal cual: ${ENLACE_DE_MUESTRA}`,
+    };
   }
   const conversacion = await prisma.aiConversation.findUnique({
     where: { id: ctx.conversationId },

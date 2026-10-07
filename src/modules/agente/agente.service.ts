@@ -137,6 +137,9 @@ async function llamarAlModelo(mensajes: MensajeOpenAI[]): Promise<{
   };
 }
 
+/** El canal de la prueba del panel: conversa de verdad, pero no escribe en el CRM. */
+export const CANAL_DE_PRUEBA = 'PRUEBA';
+
 export const agenteService = {
   /**
    * Responder a un mensaje. Devuelve lo que hay que enviarle a la persona, o
@@ -225,6 +228,19 @@ export const agenteService = {
         })),
     ];
 
+    // Entre turnos la prueba no deja oportunidad de la que tirar, asi que el
+    // "ya guarde la solicitud" se lee de las herramientas que uso antes.
+    const esPrueba = canal === CANAL_DE_PRUEBA;
+    const solicitudDePrueba = esPrueba
+      ? (await prisma.aiMessage.count({
+          where: {
+            conversationId: conversacion.id,
+            rol: 'AGENTE',
+            herramienta: { contains: 'guardar_solicitud' },
+          },
+        })) > 0
+      : false;
+
     const ctx: ContextoDelAgente = {
       companyId: params.companyId,
       conversationId: conversacion.id,
@@ -233,6 +249,8 @@ export const agenteService = {
       puedeCrearSolicitud: agente.puedeCrearSolicitud,
       puedeEnviarEnlace: agente.puedeEnviarEnlace,
       usuarioId: agente.company.ownerId,
+      esPrueba,
+      solicitudDePrueba,
     };
 
     const herramientasUsadas: string[] = [];

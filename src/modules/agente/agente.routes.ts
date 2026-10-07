@@ -7,7 +7,7 @@ import { logger } from '../../lib/logger.js';
 import { prisma } from '../../config/prisma.js';
 import { descifrar } from '../../lib/cripto.js';
 import { enviarTexto, firmaValida, mensajesDeTexto } from '../../lib/whatsapp.js';
-import { agenteService } from './agente.service.js';
+import { agenteService, CANAL_DE_PRUEBA } from './agente.service.js';
 import { agenteConfigService } from './agente.config.js';
 
 export const agenteRouter = Router();
@@ -155,7 +155,7 @@ agenteRouter.post(
       telefono: `prueba:${req.user!.id}`,
       nombrePerfil: 'Prueba',
       texto,
-      canal: 'PRUEBA',
+      canal: CANAL_DE_PRUEBA,
     });
     res.json({ data: r });
   },
