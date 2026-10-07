@@ -628,6 +628,20 @@ model Experience {
   slug               String           @unique
   description        String?          @db.Text
   categories         String[]
+
+  /// En que idiomas puede darse, en codigo ISO 639-1: ["es", "en"].
+  ///
+  /// Es de la experiencia y no del anfitrion: el mismo cocinero puede dar su
+  /// taller en español y en ingles, y la cata solo en español porque el
+  /// vocabulario tecnico no lo tiene en otro idioma.
+  ///
+  /// Codigos y no texto libre: "Ingles", "ingles" e "ING" son el mismo idioma
+  /// escrito de tres formas, y con texto libre el catalogo no se puede filtrar
+  /// ni la reserva comprobar contra nada.
+  ///
+  /// Vacio = no se declaro. Entonces no se le pregunta nada al comensal, que
+  /// es como venia funcionando.
+  languages          String[] @default([])
   duration           Int? // minutos
 
   // TR-19. Lo que ocupa la experiencia ademas de si misma.
@@ -1324,6 +1338,12 @@ model Reservation {
   //
   // Sustituye a `virtualDetails`, que guardaba el enlace de la videollamada.
   serviceAddress      String?
+  // En que idioma pidio que se diera, de los que la experiencia ofrece.
+  //
+  // Lo elige quien reserva y lo necesita quien atiende: saber que esa mesa es
+  // en ingles es la diferencia entre mandar al guia que habla ingles y pedir
+  // disculpas en la puerta.
+  language            String?
   specialRequirements String?      @db.Text
   cancellation        Json? // { cancelledAt, cancelledBy, cancellationReason, refundAmount, refundStatus }
 

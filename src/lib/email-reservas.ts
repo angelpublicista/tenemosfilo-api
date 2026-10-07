@@ -69,6 +69,8 @@ export type DatosCorreoReserva = {
   clienteEmail?: string | null;
   clienteTelefono?: string | null;
   lugar?: string | null;
+  /** El idioma que pidio, ya en nombre y no en codigo: "Inglés". */
+  idioma?: string | null;
   peticiones?: string | null;
   total?: number;
   /**
@@ -239,6 +241,9 @@ const datosDelPlan = (d: DatosCorreoReserva): Fila[] => [
   { etiqueta: 'Fecha', valor: `${esc(fechaLarga(d.reservationDate))}, ${esc(hora(d.reservationDate))}` },
   { etiqueta: 'Personas', valor: esc(personas(d.participants)) },
   { etiqueta: 'Lugar', valor: esc(d.lugar ?? '') },
+  // Solo si lo pidio. Va en el plan y no solo en el correo del anfitrion
+  // porque el comensal tambien necesita ver confirmado lo que eligio.
+  { etiqueta: 'Idioma', valor: esc(d.idioma ?? '') },
   // El de la puerta, no el numero de reserva: ese lleva la hora dentro y solo
   // tres caracteres al azar, asi que se puede adivinar. El numero sigue siendo
   // la referencia para el pago y para soporte.

@@ -63,6 +63,9 @@ export const createReservationSchema = z.object({
   // Donde se presta, cuando la experiencia es a domicilio. La pone quien
   // reserva y cambia en cada reserva, asi que no vive en la experiencia.
   serviceAddress: z.string().optional(),
+  // En que idioma lo pide, de los que la experiencia ofrece. Es eleccion del
+  // comensal, asi que vive en la reserva y no en la experiencia.
+  language: z.string().min(2).max(8).optional(),
   specialRequirements: z.string().optional(),
   notes: z.string().optional(),
   // TR-42. El "programar de todas formas" cuando el anfitrion ya tiene algo a

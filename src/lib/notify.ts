@@ -29,6 +29,7 @@ import {
   correoCambioEnLaReserva,
   correoCalificacionComensal,
 } from './email-reservas.js';
+import { nombreDeIdioma } from './idiomas.js';
 
 type Aviso = {
   userId: string;
@@ -210,6 +211,7 @@ type DatosReserva = {
   logoEmpresa?: string | null;
   colorMarca?: string | null;
   lugar?: string | null;
+  idioma?: string | null;
   peticiones?: string | null;
 };
 
@@ -235,6 +237,7 @@ type ReservaCruda = {
   user?: { email?: string | null } | null;
   specialRequirements?: string | null;
   serviceAddress?: string | null;
+  language?: string | null;
 };
 
 /**
@@ -292,6 +295,8 @@ export function datosDeReserva(r: ReservaCruda): DatosReserva {
     // Filo, pero quien presta el servicio es el anfitrion.
     colorMarca: r.company?.brandPrimary ?? null,
     lugar,
+    // En nombre y no en codigo: en un correo, "en" no se entiende.
+    idioma: r.language ? nombreDeIdioma(r.language) : null,
     peticiones: r.specialRequirements ?? null,
   };
 }
@@ -330,6 +335,7 @@ function paraCorreo(r: DatosReserva): DatosCorreoReserva {
     clienteEmail: r.clienteEmail,
     clienteTelefono: r.clienteTelefono,
     lugar: r.lugar,
+    idioma: r.idioma,
     peticiones: r.peticiones,
     total: r.total,
   };

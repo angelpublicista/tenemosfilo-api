@@ -12,6 +12,7 @@ import { prisma } from '../../config/prisma.js';
 import { enlaceService } from '../opportunities/opportunities.enlace.js';
 import { opportunitiesService } from '../opportunities/opportunities.service.js';
 import { aforoMaximo } from '../../lib/franjas.js';
+import { listaDeIdiomas } from '../../lib/idiomas.js';
 
 export interface ContextoDelAgente {
   companyId: string;
@@ -148,7 +149,7 @@ async function verExperiencia(id: string, ctx: ContextoDelAgente): Promise<Resul
     where: { id, companyId: ctx.companyId, deletedAt: null, status: 'ACTIVE' },
     select: {
       title: true, description: true, includes: true, basePrice: true, duration: true,
-      presentialCity: true, atHome: true,
+      presentialCity: true, atHome: true, languages: true,
       locations: {
         where: { deletedAt: null },
         select: { id: true, name: true, address: true, isMain: true },
@@ -184,6 +185,10 @@ async function verExperiencia(id: string, ctx: ContextoDelAgente): Promise<Resul
       : '',
     e.basePrice ? `Precio: ${pesos(Number(e.basePrice))} por persona` : '',
     e.duration ? `Duración: ${e.duration} minutos` : '',
+    // Lo pregunta quien viaja, y es lo primero que decide si la reserva sirve.
+    // Sin idiomas declarados no se dice nada: inventar "en español" por
+    // defecto seria afirmar algo que el anfitrion no ha dicho.
+    e.languages.length ? `Se da en ${listaDeIdiomas(e.languages)}` : '',
     // Cuanta gente cabe lo dice el horario, no la experiencia.
     tope ? `Hasta ${tope} personas` : '',
     // A domicilio no hay sede que nombrar: se va donde diga el cliente.

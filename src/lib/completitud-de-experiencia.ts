@@ -23,6 +23,7 @@ export const PARA_COMPLETITUD = {
   presentialCity: true,
   presentialLocation: true,
   featuredImage: true,
+  languages: true,
   locations: { select: { id: true } },
 } satisfies Prisma.ExperienceSelect;
 
@@ -44,6 +45,7 @@ type Ficha = {
   presentialCity?: string | null;
   presentialLocation?: string | null;
   featuredImage?: string | null;
+  languages?: string[] | null;
   locations?: { id: string }[] | null;
 };
 
@@ -77,6 +79,11 @@ export function completitudDeExperiencia(e: Ficha): Completitud {
   // La foto no impide transaccionar, pero una tarjeta sin imagen no se vende.
   // Se dice aparte para no bloquear por algo que no rompe nada.
   if (!e.featuredImage?.trim()) recomendado.push('una imagen de portada');
+
+  // Tampoco impide vender: sin idiomas declarados se entiende que se da en
+  // español, que es lo que pasa hoy con todas. Pero declararlo es lo que
+  // permite al comensal pedir el suyo, y a quien busca en ingles encontrarla.
+  if (!e.languages || e.languages.length === 0) recomendado.push('los idiomas en que la das');
 
   return { completa: falta.length === 0, falta, recomendado };
 }

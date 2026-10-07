@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CODIGOS } from '../../lib/idiomas.js';
 
 // Sin PAUSED: pausar es de la publicacion, no de la pieza.
 const experienceStatusEnum = z.enum(['DRAFT', 'PENDING', 'ACTIVE', 'INACTIVE']);
@@ -26,6 +27,9 @@ export const createExperienceSchema = z.object({
   company: z.string().min(1).optional(),
   description: z.string().optional(),
   categories: z.array(z.string()).optional().default([]),
+  // En que idiomas puede darse. Lista cerrada: con texto libre el catalogo no
+  // se puede filtrar ni la reserva comprobar contra nada.
+  languages: z.array(z.enum(CODIGOS)).optional().default([]),
   duration: z.number().int().positive().optional(),
   // TR-19. Lo que ocupa ademas de si misma: montar antes y recoger despues.
   // En ese rato no cabe otra cosa, y la agenda lo cuenta.

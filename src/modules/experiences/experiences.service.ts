@@ -95,6 +95,7 @@ function buildBaseData(input: CreateExperienceInput) {
     title: input.title,
     description: input.description ?? null,
     categories: input.categories ?? [],
+    languages: input.languages ?? [],
     duration: input.duration ?? null,
     // TR-19. Montaje y limpieza: lo que ocupa la experiencia ademas de si
     // misma. Nulo es "no aplica", no cero por defecto, porque no es lo mismo
@@ -274,6 +275,7 @@ export const experiencesService = {
     }
     if (input.description !== undefined) data.description = input.description ?? null;
     if (input.categories !== undefined) data.categories = input.categories;
+    if (input.languages !== undefined) data.languages = input.languages;
     if (input.duration !== undefined) data.duration = input.duration;
     if (input.prepTime !== undefined) data.prepTime = input.prepTime ?? null;
     if (input.cleanupTime !== undefined) data.cleanupTime = input.cleanupTime ?? null;

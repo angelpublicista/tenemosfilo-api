@@ -47,6 +47,7 @@ import type {
   RescheduleInput,
   UpdateReservationInput,
 } from './reservations.schemas.js';
+import { comprobarIdioma } from '../../lib/idiomas.js';
 
 function generateReservationNumber(): string {
   const ts = Date.now().toString().slice(-6);
@@ -477,6 +478,11 @@ export const reservationsService = {
     // anfitrion la apago, no es sitio donde mandar gente.
     await comprobarSedeActiva(input.location);
 
+    // El idioma tambien se comprueba a mano: el anfitrion es quien declara en
+    // que idiomas la da, asi que uno que no esta en la lista es una errata, no
+    // una excepcion.
+    await comprobarIdioma(input.experience, input.language);
+
     // TR-06. El corte de anticipacion vale para lo que entra por un canal o
     // por el checkout. Lo que el anfitrion carga a mano no pasa por aqui: si
     // le llaman a las seis y decide aceptar, ya sabe lo que hay en su cocina.
@@ -547,6 +553,7 @@ export const reservationsService = {
         paymentDetails: (input.paymentDetails as Prisma.InputJsonValue | undefined) ?? Prisma.JsonNull,
         ...(input.location ? { location: { connect: { id: input.location } } } : {}),
         serviceAddress: input.serviceAddress ?? null,
+        language: input.language ?? null,
         specialRequirements: input.specialRequirements ?? null,
         notes: input.notes ?? null,
       },
@@ -658,6 +665,9 @@ export const reservationsService = {
     // de ofrecerla, pero el checkout no mira el catalogo.
     await comprobarEnPausa(input.experience, input.location ?? null);
 
+    // Y en un idioma que de verdad se ofrezca.
+    await comprobarIdioma(input.experience, input.language);
+
     // Y una hora que no esta abierta tampoco se vende, ni porque el patron no
     // abra ese dia ni porque se cerrara a mano: esconderlo en el calendario no
     // es cerrarlo.
@@ -725,6 +735,7 @@ export const reservationsService = {
         pricing,
         ...(input.location ? { location: { connect: { id: input.location } } } : {}),
         serviceAddress: input.serviceAddress ?? null,
+        language: input.language ?? null,
         specialRequirements: input.specialRequirements ?? null,
         notes: input.notes ?? null,
       },
@@ -783,6 +794,7 @@ export const reservationsService = {
         paymentStatus: true,
         pricing: true,
         serviceAddress: true,
+        language: true,
         specialRequirements: true,
         experience: { select: { id: true, title: true, duration: true, featuredImage: true } },
         // Con quien va a cenar y como contactarlo. Nada de finanzas del
@@ -1058,16 +1070,24 @@ export const reservationsService = {
     const antes = await prisma.reservation.findUnique({
       where: { id },
       select: {
+        experienceId: true,
         reservationDate: true,
         participants: true,
         locationId: true,
         status: true,
         paymentStatus: true,
         duration: true,
+        language: true,
         changes: true,
         location: { select: { name: true } },
       },
     });
+
+    // Corregir el idioma tampoco puede dejarlo en uno que no se ofrece: la
+    // comprobacion al vender no sirve de nada si la edicion la salta.
+    if (input.language !== undefined && antes) {
+      await comprobarIdioma(antes.experienceId, input.language);
+    }
 
     const data: Prisma.ReservationUpdateInput = {};
     if (input.client !== undefined) data.client = input.client as Prisma.InputJsonValue;
@@ -1083,6 +1103,7 @@ export const reservationsService = {
     if (input.paymentDetails !== undefined)
       data.paymentDetails = (input.paymentDetails as Prisma.InputJsonValue) ?? Prisma.JsonNull;
     if (input.serviceAddress !== undefined) data.serviceAddress = input.serviceAddress ?? null;
+    if (input.language !== undefined) data.language = input.language ?? null;
     if (input.specialRequirements !== undefined) data.specialRequirements = input.specialRequirements ?? null;
     if (input.notes !== undefined) data.notes = input.notes ?? null;
     if (input.location !== undefined && input.location !== null)
@@ -1109,6 +1130,7 @@ export const reservationsService = {
       if (input.paymentStatus !== undefined)
         anota('estado de pago', antes.paymentStatus, input.paymentStatus);
       if (input.duration !== undefined) anota('duracion', antes.duration, input.duration);
+      if (input.language !== undefined) anota('idioma', antes.language, input.language ?? null);
 
       if (nuevos.length > 0) {
         data.changes = [
