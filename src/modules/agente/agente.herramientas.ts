@@ -125,15 +125,19 @@ async function listarExperiencias(ctx: ContextoDelAgente): Promise<Resultado> {
   if (items.length === 0) {
     return { ok: true, texto: 'Este anfitrión no tiene experiencias publicadas ahora mismo.' };
   }
-  const lineas = items.map(
-    (e) =>
+  const lineas = items.map((e) => {
+    // Una sola vez: recorre las franjas de la semana y no hace falta dos veces
+    // por linea.
+    const tope = aforoMaximo(e.availabilities);
+    return (
       `- ${e.title} (id: ${e.id}) · ${e.basePrice ? pesos(Number(e.basePrice)) + ' por persona' : 'precio a consultar'}` +
       `${e.duration ? ` · ${e.duration} min` : ''}` +
-      `${aforoMaximo(e.availabilities) ? ` · hasta ${aforoMaximo(e.availabilities)} personas` : ''}` +
+      `${tope ? ` · hasta ${tope} personas` : ''}` +
       `${e.presentialCity ? ` · ${e.presentialCity}` : ''}` +
       // Que va a casa del cliente es de lo primero que pregunta quien escribe.
-      `${e.atHome ? ' · a domicilio' : ''}`,
-  );
+      `${e.atHome ? ' · a domicilio' : ''}`
+    );
+  });
   return { ok: true, texto: lineas.join('\n') };
 }
 
@@ -170,6 +174,7 @@ async function verExperiencia(id: string, ctx: ContextoDelAgente): Promise<Resul
   });
   if (!e) return { ok: false, texto: 'No encontré esa experiencia.' };
 
+  const tope = aforoMaximo(e.availabilities);
   const partes = [
     `${e.title}`,
     e.description ?? '',
@@ -180,7 +185,7 @@ async function verExperiencia(id: string, ctx: ContextoDelAgente): Promise<Resul
     e.basePrice ? `Precio: ${pesos(Number(e.basePrice))} por persona` : '',
     e.duration ? `Duración: ${e.duration} minutos` : '',
     // Cuanta gente cabe lo dice el horario, no la experiencia.
-    aforoMaximo(e.availabilities) ? `Hasta ${aforoMaximo(e.availabilities)} personas` : '',
+    tope ? `Hasta ${tope} personas` : '',
     // A domicilio no hay sede que nombrar: se va donde diga el cliente.
     e.atHome
       ? `Se hace a domicilio${e.presentialCity ? `, en ${e.presentialCity} y alrededores` : ''}`
