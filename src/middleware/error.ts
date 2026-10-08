@@ -5,11 +5,33 @@ import { logger } from '../lib/logger.js';
 
 export function errorHandler(
   err: unknown,
-  _req: Request,
+  req: Request,
   res: Response,
   _next: NextFunction,
 ) {
   if (err instanceof ZodError) {
+    // Que campo fallo y por que, en el log.
+    //
+    // El detalle ya iba en la respuesta, pero no quedaba rastro en el
+    // servidor: cuando alguien reportaba "me sale un error al crear la sede",
+    // el log mostraba un 400 pelado y no habia forma de saber que campo era
+    // sin pedirle que lo reprodujera.
+    //
+    // Se registran la ruta del campo y el codigo del fallo, NO el mensaje ni
+    // el valor. El codigo ya dice lo que hace falta para actuar
+    // —`maxCapacity: invalid_type` no deja dudas— y asi no acaba en el log lo
+    // que la persona escribio, que en estos formularios son telefonos,
+    // documentos y direcciones.
+    logger.warn(
+      {
+        ruta: `${req.method} ${req.originalUrl}`,
+        campos: err.issues.map((i) => ({
+          campo: i.path.join('.') || '(raiz)',
+          fallo: i.code,
+        })),
+      },
+      'validacion rechazada',
+    );
     return res.status(400).json({
       error: { code: 'VALIDATION_ERROR', message: 'Datos invalidos', details: err.flatten() },
     });
