@@ -87,6 +87,14 @@ export function queLeFalta(c: FilaDePasarela): string[] {
     return faltan;
   }
 
+  if (c.paymentProvider === 'BOLD') {
+    // Sus llaves no llevan el entorno dentro: no hay forma de comprobar aqui
+    // que no se cruzaron las de pruebas con las de produccion.
+    if (!c.gatewayPublicKey) faltan.push('Falta tu llave de identidad de Bold.');
+    if (!descifrar(c.gatewayPrivateKey)) faltan.push('Falta tu llave secreta de Bold.');
+    return faltan;
+  }
+
   if (!c.gatewayPublicKey) faltan.push('Falta la llave pública de Wompi.');
   else if (!llaveCoincideConEntorno(c.gatewayPublicKey, entorno)) {
     faltan.push(`Tu llave pública no es ${nombreDelEntorno}.`);

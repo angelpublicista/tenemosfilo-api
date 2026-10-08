@@ -77,6 +77,9 @@ const envSchema = z.object({
   // de verdad.
   MERCADOPAGO_API_URL: z.string().url().optional(),
 
+  // Lo mismo para Bold.
+  BOLD_API_URL: z.string().url().optional(),
+
   // URL publica de ESTE API. Mercado Pago necesita que le digamos a donde
   // mandar sus notificaciones, y APP_URL es la del front: un webhook que
   // aterrice alli no llega a ningun sitio.

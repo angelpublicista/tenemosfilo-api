@@ -20,9 +20,15 @@ export type Pasarela = {
   quienCobra: CollectedBy;
   proveedor: PaymentProvider;
   entorno: 'SANDBOX' | 'PRODUCTION';
-  /** Wompi la necesita en el navegador. Mercado Pago no la usa para cobrar. */
+  /**
+   * Wompi la necesita en el navegador. Mercado Pago no la usa para cobrar. En
+   * Bold es la llave de identidad, con la que se crean los links de pago.
+   */
   publicKey: string | null;
-  /** El access token en Mercado Pago; en Wompi, su llave privada. */
+  /**
+   * El access token en Mercado Pago; en Wompi, su llave privada; en Bold, la
+   * llave secreta con la que firma sus notificaciones.
+   */
   privateKey: string | null;
   /** Solo Wompi: firma los datos del checkout. */
   integritySecret: string | null;
@@ -34,9 +40,14 @@ export type Pasarela = {
  * Si con esta configuracion se puede cobrar de verdad.
  *
  * Cada pasarela necesita cosas distintas y no se puede preguntar por las de
- * Wompi a las dos: Mercado Pago no tiene secreto de integridad —firma del
+ * Wompi a las tres: Mercado Pago no tiene secreto de integridad —firma del
  * lado del servidor creando una preferencia— y su llave publica no
  * interviene en el cobro.
+ *
+ * Bold cobra solo con la llave de identidad, pero se le exige tambien la
+ * secreta: sin ella no se puede validar la notificacion, que es lo unico que
+ * nos dice que pagaron. Cobrar sin poder enterarse dejaria reservas pagadas
+ * sin confirmar.
  */
 export function puedeCobrar(p: {
   proveedor: PaymentProvider;
@@ -44,9 +55,14 @@ export function puedeCobrar(p: {
   privateKey: string | null;
   integritySecret: string | null;
 }): boolean {
-  return p.proveedor === 'MERCADO_PAGO'
-    ? Boolean(p.privateKey)
-    : Boolean(p.publicKey && p.integritySecret);
+  switch (p.proveedor) {
+    case 'MERCADO_PAGO':
+      return Boolean(p.privateKey);
+    case 'BOLD':
+      return Boolean(p.publicKey && p.privateKey);
+    default:
+      return Boolean(p.publicKey && p.integritySecret);
+  }
 }
 
 const SELECT_PASARELA = {

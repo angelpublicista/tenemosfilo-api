@@ -3,6 +3,7 @@ import { env } from '../../config/env.js';
 import { pasarelaDeLaReserva } from '../../lib/pasarela.js';
 import { URL_CHECKOUT, aCentavos, firmaIntegridad } from '../../lib/wompi.js';
 import { crearPreferencia } from '../../lib/mercadopago.js';
+import { crearLinkDePago } from '../../lib/bold.js';
 import { logger } from '../../lib/logger.js';
 
 /**
@@ -35,7 +36,17 @@ export type CheckoutMercadoPago = {
   environment: string;
 };
 
-export type DatosCheckout = CheckoutWompi | CheckoutMercadoPago;
+export type CheckoutBold = {
+  proveedor: 'BOLD';
+  /** A donde se manda al cliente. El link de pago ya esta creado. */
+  checkoutUrl: string;
+  reference: string;
+  currency: string;
+  amount: number;
+  environment: string;
+};
+
+export type DatosCheckout = CheckoutWompi | CheckoutMercadoPago | CheckoutBold;
 
 /**
  * Datos para abrir el checkout de una reserva.
@@ -113,6 +124,39 @@ export async function construirCheckout(
       };
     } catch (err) {
       logger.error({ err, reservationNumber }, 'no se pudo crear la preferencia de Mercado Pago');
+      return null;
+    }
+  }
+
+  if (pasarela.proveedor === 'BOLD') {
+    if (!pasarela.publicKey) return null;
+    const cliente = (reserva.client ?? {}) as { email?: string | null };
+
+    // Igual que con Mercado Pago: es una llamada a su API y puede fallar, y
+    // eso no puede tumbar un alta de reserva.
+    try {
+      const link = await crearLinkDePago({
+        llaveDeIdentidad: pasarela.publicKey,
+        descripcion: reserva.experience?.title ?? 'Reserva',
+        monto: total,
+        referencia: reservationNumber,
+        redirectUrl,
+        correoDelCliente: cliente.email ?? null,
+      });
+      if (!link) {
+        logger.error({ reservationNumber }, 'Bold no devolvio el link de pago');
+        return null;
+      }
+      return {
+        proveedor: 'BOLD',
+        checkoutUrl: link.url,
+        reference: reservationNumber,
+        currency,
+        amount: total,
+        environment: pasarela.entorno,
+      };
+    } catch (err) {
+      logger.error({ err, reservationNumber }, 'no se pudo crear el link de pago de Bold');
       return null;
     }
   }

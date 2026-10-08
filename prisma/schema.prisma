@@ -507,6 +507,7 @@ enum PayoutRole {
 enum PaymentProvider {
   WOMPI
   MERCADO_PAGO
+  BOLD
 }
 
 // Aparte de WompiEnvironment, que es de la pasarela de la plataforma: este
@@ -1569,7 +1570,7 @@ model ApiKey {
 model OrphanPayment {
   id String @id @default(cuid())
 
-  /// WOMPI | MERCADO_PAGO
+  /// WOMPI | MERCADO_PAGO | BOLD
   gateway       String
   /// La referencia que mando la pasarela: deberia ser un numero de reserva.
   reference     String

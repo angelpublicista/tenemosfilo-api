@@ -292,7 +292,7 @@ export type TransferirTitularidadInput = z.infer<typeof transferirTitularidadSch
  * de poder quitar una llave ya guardada sin exponer la que hay.
  */
 export const pasarelaSchema = z.object({
-  provider: z.enum(['WOMPI', 'MERCADO_PAGO']).optional(),
+  provider: z.enum(['WOMPI', 'MERCADO_PAGO', 'BOLD']).optional(),
   enabled: z.boolean().optional(),
   environment: z.enum(['SANDBOX', 'PRODUCTION']).optional(),
   publicKey: z.string().trim().max(200).optional(),

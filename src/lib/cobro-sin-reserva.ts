@@ -9,7 +9,7 @@ import { prisma } from '../config/prisma.js';
 import { logger } from './logger.js';
 
 export interface CobroHuerfano {
-  gateway: 'WOMPI' | 'MERCADO_PAGO';
+  gateway: 'WOMPI' | 'MERCADO_PAGO' | 'BOLD';
   reference: string;
   transactionId?: string | null;
   amount?: number | null;
