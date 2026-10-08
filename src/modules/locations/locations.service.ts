@@ -106,35 +106,49 @@ export const locationsService = {
 
     const slug = await uniqueSlug(companyId, input.name);
 
-    return prisma.location.create({
-      data: {
-        companyId,
-        name: input.name,
-        slug,
-        isMain: input.isMain ?? false,
-        description: input.description ?? null,
-        address: (input.address as Prisma.InputJsonValue | undefined) ?? Prisma.JsonNull,
-        contactInfo: (input.contactInfo as Prisma.InputJsonValue | undefined) ?? Prisma.JsonNull,
-        maxCapacity: input.maxCapacity,
-        responsibleContactId: input.responsibleContactId ?? null,
-        photos: input.photos ?? [],
-        videoUrl: input.videoUrl ?? null,
-        hasRooms: input.hasRooms ?? null,
-        amenities: input.amenities ?? [],
-        // Sin la casilla de audiovisuales, la frase no describe nada.
-        avEquipmentDetail: input.amenities?.includes('audiovisuales')
-          ? (input.avEquipmentDetail ?? null)
-          : null,
-        bathroomsCount: input.bathroomsCount ?? null,
-        importantInfo: input.importantInfo ?? null,
-        openingHours: (input.openingHours as Prisma.InputJsonValue | undefined) ?? Prisma.JsonNull,
-        ...(input.rooms?.length ? { rooms: { create: input.rooms.map(aSalon) } } : {}),
-        isPublic: input.isPublic ?? null,
-        latitude: input.latitude ?? null,
-        longitude: input.longitude ?? null,
-        isActive: input.isActive ?? true,
-      },
-      include: { responsibleContact: RESPONSABLE, rooms: SALONES },
+    // La sede principal es una sola. `setMain` ya lo garantizaba, pero aqui se
+    // podia llegar con isMain:true —el alta tiene su casilla— y la empresa
+    // acababa con dos principales sin que nadie se enterara. Se desmarcan las
+    // demas en la misma transaccion que crea esta, no antes: si la creacion
+    // falla, la que ya era principal lo sigue siendo.
+    return prisma.$transaction(async (tx) => {
+      if (input.isMain) {
+        await tx.location.updateMany({
+          where: { companyId, isMain: true, deletedAt: null },
+          data: { isMain: false },
+        });
+      }
+
+      return tx.location.create({
+        data: {
+          companyId,
+          name: input.name,
+          slug,
+          isMain: input.isMain ?? false,
+          description: input.description ?? null,
+          address: (input.address as Prisma.InputJsonValue | undefined) ?? Prisma.JsonNull,
+          contactInfo: (input.contactInfo as Prisma.InputJsonValue | undefined) ?? Prisma.JsonNull,
+          maxCapacity: input.maxCapacity,
+          responsibleContactId: input.responsibleContactId ?? null,
+          photos: input.photos ?? [],
+          videoUrl: input.videoUrl ?? null,
+          hasRooms: input.hasRooms ?? null,
+          amenities: input.amenities ?? [],
+          // Sin la casilla de audiovisuales, la frase no describe nada.
+          avEquipmentDetail: input.amenities?.includes('audiovisuales')
+            ? (input.avEquipmentDetail ?? null)
+            : null,
+          bathroomsCount: input.bathroomsCount ?? null,
+          importantInfo: input.importantInfo ?? null,
+          openingHours: (input.openingHours as Prisma.InputJsonValue | undefined) ?? Prisma.JsonNull,
+          ...(input.rooms?.length ? { rooms: { create: input.rooms.map(aSalon) } } : {}),
+          isPublic: input.isPublic ?? null,
+          latitude: input.latitude ?? null,
+          longitude: input.longitude ?? null,
+          isActive: input.isActive ?? true,
+        },
+        include: { responsibleContact: RESPONSABLE, rooms: SALONES },
+      });
     });
   },
 
@@ -249,10 +263,21 @@ export const locationsService = {
     if (input.longitude !== undefined) data.longitude = input.longitude;
     if (input.isActive !== undefined) data.isActive = input.isActive;
 
-    return prisma.location.update({
-      where: { id },
-      data,
-      include: { responsibleContact: RESPONSABLE, rooms: SALONES },
+    // Mismo invariante que en el alta: marcar esta como principal desmarca la
+    // anterior. Sin esto, editar una sede y activar la casilla dejaba dos.
+    return prisma.$transaction(async (tx) => {
+      if (input.isMain) {
+        await tx.location.updateMany({
+          where: { companyId: existing.companyId, isMain: true, deletedAt: null, NOT: { id } },
+          data: { isMain: false },
+        });
+      }
+
+      return tx.location.update({
+        where: { id },
+        data,
+        include: { responsibleContact: RESPONSABLE, rooms: SALONES },
+      });
     });
   },
 
