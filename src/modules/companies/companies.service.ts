@@ -80,9 +80,13 @@ const defaultInclude = {
   // El rol del titular dice que clase de negocio es la empresa: el de un
   // anfitrion que vende lo suyo o el de un revendedor que vende lo de
   // otros. El panel lo necesita para saber que pantallas enseñar cuando se
-  // opera sobre ella, y con ownerId a secas no puede deducirlo. Solo el
-  // rol: el id ya viaja en ownerId y el resto del titular no hace falta.
-  owner: { select: { id: true, role: true } },
+  // opera sobre ella, y con ownerId a secas no puede deducirlo.
+  //
+  // Y el nombre, para poder decir a quien se esta mirando: cuando un
+  // administrador entra en una empresa, el panel anuncia de quien es. Antes
+  // aqui solo venia el rol y el panel acababa saludando al administrador.
+  // No va el correo: nombrar a alguien no exige dar su direccion.
+  owner: { select: { id: true, name: true, role: true } },
   // Orden estable: los dos obligatorios primero y siempre en el mismo sitio,
   // para que la ficha no baile entre recargas. El enum los declara en ese
   // orden, asi que ordenar por type basta.
