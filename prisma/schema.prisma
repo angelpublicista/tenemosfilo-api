@@ -65,6 +65,9 @@ enum UserRole {
 }
 
 model User {
+  // Asistentes conectados por MCP en nombre de este usuario.
+  oauthGrants OAuthGrant[]
+
   id             String    @id @default(cuid())
   email          String    @unique
   name           String?
@@ -158,6 +161,9 @@ enum DocumentType {
 }
 
 model Company {
+  // Asistentes conectados por MCP en nombre de este anfitrion.
+  oauthGrants OAuthGrant[]
+
   id      String @id @default(cuid())
   ownerId String
   owner   User   @relation("CompanyOwner", fields: [ownerId], references: [id])
@@ -326,10 +332,10 @@ model Company {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  @@index([ownerId])
-
   /// TR-21. Su propia agenda: horarios sin sede ni experiencia.
   ownAvailabilities Availability[] @relation("AvailabilityCompany")
+
+  @@index([ownerId])
 }
 
 model Location {
@@ -435,7 +441,7 @@ model Location {
 
   isMain Boolean @default(false)
 
-  experiences    Experience[]   @relation("ExperienceLocations")
+  experiences    Experience[]      @relation("ExperienceLocations")
   availabilities Availability[]
   reservations   Reservation[]
   listings       LocationListing[]
@@ -625,10 +631,10 @@ model Experience {
   companyId String
   company   Company @relation(fields: [companyId], references: [id])
 
-  title              String
-  slug               String           @unique
-  description        String?          @db.Text
-  categories         String[]
+  title       String
+  slug        String   @unique
+  description String?  @db.Text
+  categories  String[]
 
   /// En que idiomas puede darse, en codigo ISO 639-1: ["es", "en"].
   ///
@@ -642,8 +648,8 @@ model Experience {
   ///
   /// Vacio = no se declaro. Entonces no se le pregunta nada al comensal, que
   /// es como venia funcionando.
-  languages          String[] @default([])
-  duration           Int? // minutos
+  languages String[] @default([])
+  duration  Int? // minutos
 
   // TR-19. Lo que ocupa la experiencia ademas de si misma.
   //
@@ -672,11 +678,11 @@ model Experience {
   // Sin `capacity`: los cupos son de la franja del horario. `minCapacity` se
   // queda porque no es inventario —es el tamaño de grupo por debajo del cual
   // la experiencia no se hace— y no cambia por ser sabado o martes.
-  minCapacity        Int?
-  basePrice          Decimal?         @db.Decimal(12, 2)
-  currency           String           @default("COP")
-  featuredImage      String?
-  gallery            Json? // string[] de URLs
+  minCapacity   Int?
+  basePrice     Decimal? @db.Decimal(12, 2)
+  currency      String   @default("COP")
+  featuredImage String?
+  gallery       Json? // string[] de URLs
   // Donde ocurre: en un sitio del anfitrion o en casa del cliente.
   //
   // Un chef que va a casa del cliente no tiene sede donde publicarse: la
@@ -686,7 +692,7 @@ model Experience {
   // Todo es presencial. El tipo VIRTUAL/HYBRID se fue: no se usaba —cero
   // experiencias y cero reservas en produccion— y obligaba a ramificar cada
   // pantalla por un caso que no existe.
-  atHome Boolean @default(false)
+  atHome        Boolean  @default(false)
 
   presentialLocation String?
   presentialAddress  String?
@@ -712,7 +718,7 @@ model Experience {
   /// catalogo ordena por ella. Las reservas y el dinero NO: son de Reservas y
   /// de Ingresos, y tenerlos tambien aqui seria mantener dos cifras de lo
   /// mismo.
-  rating             Float?
+  rating Float?
 
   locations        Location[]              @relation("ExperienceLocations")
   menus            Menu[]                  @relation("ExperienceMenus")
@@ -735,11 +741,11 @@ model Experience {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  @@index([companyId])
-  @@index([status])
-
   /// TR-14. Las opciones de cotizacion que la ofrecen.
   quoteOptions QuoteOption[] @relation("QuoteOptionExperience")
+
+  @@index([companyId])
+  @@index([status])
 }
 
 model Availability {
@@ -764,7 +770,7 @@ model Availability {
 
   experiences Experience[] @relation("ExperienceAvailabilities")
 
-  isMain         Boolean  @default(false)
+  isMain         Boolean @default(false)
   /// Las franjas horarias de cada dia de la semana.
   ///
   /// { monday: { isActive, franjas: [{ startTime, endTime, cupos? }] }, ... }
@@ -786,8 +792,8 @@ model Availability {
   //
   // `validUntil` nulo significa "sin fecha final" y es el caso de los
   // horarios creados antes de esta regla. Los nuevos la piden.
-  validFrom  DateTime?
-  validUntil DateTime?
+  validFrom     DateTime?
+  validUntil    DateTime?
   /// Lo que pasa en una FECHA concreta, por encima del patron semanal.
   ///
   /// { "2026-12-24": { isActive: false },
@@ -805,8 +811,8 @@ model Availability {
 
   // OBSOLETO. Se deja de leer y escribir en este despliegue y se borra en el
   // siguiente: la migracion corre con el codigo viejo todavia sirviendo.
-  blockedDates   String[] // ISO dates "YYYY-MM-DD"
-  notes          String?
+  blockedDates String[] // ISO dates "YYYY-MM-DD"
+  notes        String?
 
   isActive  Boolean   @default(true)
   createdAt DateTime  @default(now())
@@ -1294,7 +1300,7 @@ model Reservation {
   userId String?
   user   User?   @relation(fields: [userId], references: [id])
 
-  source          ReservationSource @default(MANUAL)
+  source ReservationSource @default(MANUAL)
 
   /// TR-04. El canal por el que entro esta venta, congelado al crearla.
   ///
@@ -1405,10 +1411,10 @@ model Reservation {
   // estadoDelReembolso }.
   partialCancellations Json[] @default([])
 
-  rescheduling        Json? // { originalDate, newDate, reason, requestedBy }
+  rescheduling Json? // { originalDate, newDate, reason, requestedBy }
   /// La nota que le pone el ANFITRION al cerrar la experiencia: como le fue a
   /// el. Es suya y nadie mas la ve.
-  rating              Int?
+  rating       Int?
 
   /// TR-24. Las estrellas que pone el COMENSAL, en cuatro cosas distintas:
   /// experiencia general, servicio, ubicacion y comida.
@@ -1421,7 +1427,7 @@ model Reservation {
   /// desconocidos es un producto en si mismo.
   ///
   /// { general, servicio, ubicacion, comida, fecha }
-  ratings             Json?
+  ratings Json?
 
   /// Con que enlace puede calificar quien vino.
   ///
@@ -1429,9 +1435,9 @@ model Reservation {
   /// por correo, se reenvia y acaba en sitios que nadie previo. Se genera solo
   /// cuando la experiencia se cierra con asistencia > 0, que es cuando hay
   /// algo que calificar.
-  ratingToken         String?   @unique
-  ratingRequestedAt   DateTime?
-  notes               String?      @db.Text
+  ratingToken       String?   @unique
+  ratingRequestedAt DateTime?
+  notes             String?   @db.Text
 
   // Codigo que el cliente enseña al llegar y el anfitrion valida.
   //
@@ -1733,8 +1739,8 @@ model LocationListing {
   // los NULL como distintos; de que no haya mas de una se encarga el servicio,
   // que busca antes de crear. Un indice parcial lo haria la base, pero Prisma
   // no sabe expresarlos y acabaria proponiendo borrarlo en cada migracion.
-  locationId   String?
-  location     Location?  @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  locationId String?
+  location   Location? @relation(fields: [locationId], references: [id], onDelete: Cascade)
 
   // Si aqui se venden cupos sueltos o se reserva el sitio completo.
   //
@@ -1997,4 +2003,82 @@ model AiMessage {
   createdAt DateTime @default(now())
 
   @@index([conversationId, createdAt])
+}
+
+// ──────── OAuth para el servidor MCP ────────
+//
+// FILO hace de servidor de autorizacion para los asistentes (Claude, ChatGPT,
+// Cursor) que un anfitrion conecta a su cuenta. Es OAuth 2.1 con PKCE y
+// clientes publicos: el asistente se registra solo, el anfitrion aprueba en
+// una pantalla nuestra y a partir de ahi el asistente actua en su nombre.
+//
+// Ni los codigos ni los tokens se guardan: solo su hash, igual que las API
+// keys. Una copia de la base no basta para actuar como nadie.
+
+// Una aplicacion que se registro para conectarse. La crea ella misma
+// (registro dinamico), asi que el nombre es el que dice tener: sirve para
+// enseñarlo, no para fiarse.
+model OAuthClient {
+  id           String   @id @default(cuid())
+  name         String
+  redirectUris String[]
+  createdAt    DateTime @default(now())
+
+  grants OAuthGrant[]
+}
+
+// Una conexion aprobada: esta aplicacion, en nombre de este usuario, sobre
+// esta empresa y con estos permisos. Es lo que el anfitrion ve y revoca.
+model OAuthGrant {
+  id String @id @default(cuid())
+
+  clientId  String
+  client    OAuthClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyId String
+  company   Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  scopes String[]
+
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+
+  tokens OAuthToken[]
+
+  @@index([companyId])
+  @@index([userId])
+}
+
+// El codigo de un solo uso que se canjea por tokens. Vive minutos.
+model OAuthCode {
+  id       String @id @default(cuid())
+  codeHash String @unique
+
+  clientId      String
+  userId        String
+  companyId     String
+  scopes        String[]
+  redirectUri   String
+  codeChallenge String
+
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+// Tokens de acceso (una hora) y de refresco (rotan en cada uso).
+model OAuthToken {
+  id        String @id @default(cuid())
+  tokenHash String @unique
+  /// ACCESS | REFRESH
+  kind      String
+
+  grantId String
+  grant   OAuthGrant @relation(fields: [grantId], references: [id], onDelete: Cascade)
+
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([grantId])
 }

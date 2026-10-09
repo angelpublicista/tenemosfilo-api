@@ -37,7 +37,12 @@ import { paymentsRouter } from './modules/payments/payments.routes.js';
 import { publicRouter } from './modules/public/public.routes.js';
 import { docsRouter } from './modules/docs/docs.routes.js';
 import { notificationsRouter } from './modules/notifications/notifications.routes.js';
+import { descubrimientoRouter, oauthRouter } from './modules/oauth/oauth.routes.js';
+import { mcpRouter } from './modules/mcp/mcp.routes.js';
 import { limiteGeneral, limitePublico, limiteSondeoDeKeys } from './middleware/rate-limit.js';
+
+/** Rutas a las que llega un asistente desde su propio dominio. */
+const ABIERTO_A_ASISTENTES = /^\/(mcp|\.well-known\/|oauth\/(register|token|revoke))(\/|$|\?)?/;
 
 export function createApp() {
   const app = express();
@@ -50,12 +55,26 @@ export function createApp() {
 
   app.use(helmet());
   app.use(
-    cors({
-      origin: (origin, cb) => {
-        if (!origin || corsOrigins.includes(origin)) return cb(null, true);
-        cb(new Error(`Origen no permitido por CORS: ${origin}`));
-      },
-      credentials: true,
+    cors((req, cb) => {
+      // Lo que llaman los asistentes —el MCP y la parte de OAuth que no es
+      // del panel— se abre a cualquier origen: un conector web vive en el
+      // dominio de su fabricante, que no se puede conocer de antemano. No hay
+      // riesgo en abrirlo porque ahi no viajan cookies: se entra con un
+      // token en la cabecera o no se entra.
+      if (ABIERTO_A_ASISTENTES.test(req.path ?? req.url ?? '')) {
+        return cb(null, {
+          origin: true,
+          credentials: false,
+          exposedHeaders: ['WWW-Authenticate', 'Mcp-Session-Id'],
+        });
+      }
+      cb(null, {
+        origin: (origin, cbOrigen) => {
+          if (!origin || corsOrigins.includes(origin)) return cbOrigen(null, true);
+          cbOrigen(new Error(`Origen no permitido por CORS: ${origin}`));
+        },
+        credentials: true,
+      });
     }),
   );
   app.use(
@@ -140,6 +159,12 @@ export function createApp() {
   app.use('/payouts', limiteGeneral, payoutsRouter);
   app.use('/payments', limiteGeneral, paymentsRouter);
   app.use('/notifications', limiteGeneral, notificationsRouter);
+
+  // El servidor MCP y el OAuth con el que se conectan los asistentes. Los
+  // limites de la parte publica de OAuth van dentro del router, ruta a ruta.
+  app.use('/.well-known', descubrimientoRouter);
+  app.use('/oauth', oauthRouter);
+  app.use('/mcp', limiteGeneral, mcpRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);
