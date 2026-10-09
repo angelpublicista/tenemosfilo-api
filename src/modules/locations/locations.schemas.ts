@@ -149,28 +149,46 @@ const coordenadasCompletas = (d: { latitude?: unknown; longitude?: unknown }) =>
   (d.longitude === undefined || d.longitude === null);
 const MENSAJE_COORDENADAS = 'La latitud y la longitud van juntas';
 
+/**
+ * Los opcionales aceptan null ademas de faltar.
+ *
+ * `.optional()` de zod admite `undefined` pero rechaza `null`, y el formulario
+ * de alta manda null en lo que se deja vacio —un campo que nadie toco existe
+ * en el objeto, con valor nulo—. El resultado era que crear una sede sin
+ * coordenadas, sin video o sin informacion importante fallaba con un 400,
+ * mientras que editarla funcionaba: `updateLocationSchema` si los declaraba
+ * nullable. El servicio ya trataba null como "no hay dato" (`?? null`), asi
+ * que lo unico que faltaba era dejarlo entrar.
+ */
 export const createLocationSchema = z.object({
   name: z.string().min(1),
   // companyId opcional: si no viene, usamos el companyId del user logueado.
   companyId: z.string().min(1).optional(),
   isMain: z.boolean().optional().default(false),
-  description: z.string().optional(),
-  address: addressSchema.optional(),
-  contactInfo: contactInfoSchema.optional(),
+  description: z.string().nullable().optional(),
+  address: addressSchema.nullable().optional(),
+  contactInfo: contactInfoSchema.nullable().optional(),
+  // Sin nullable: la capacidad es obligatoria.
   maxCapacity: maxCapacitySchema,
-  isPublic: z.boolean().optional(),
-  latitude: latitudeSchema.optional(),
-  longitude: longitudeSchema.optional(),
-  responsibleContactId: z.string().min(1).optional(),
+  isPublic: z.boolean().nullable().optional(),
+  latitude: latitudeSchema.nullable().optional(),
+  longitude: longitudeSchema.nullable().optional(),
+  responsibleContactId: z.string().min(1).nullable().optional(),
   photos: photosSchema.optional(),
-  videoUrl: videoUrlSchema.optional(),
-  hasRooms: z.boolean().optional(),
+  videoUrl: videoUrlSchema.nullable().optional(),
+  hasRooms: z.boolean().nullable().optional(),
   rooms: roomsSchema.optional(),
   amenities: amenitiesSchema.optional(),
-  avEquipmentDetail: z.preprocess(emptyToUndef, z.string().max(300).optional()),
-  bathroomsCount: bathroomsSchema.optional(),
-  importantInfo: z.preprocess(emptyToUndef, z.string().max(2000).optional()),
-  openingHours: openingHoursSchema.optional(),
+  avEquipmentDetail: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? null : v),
+    z.string().max(300).nullable().optional(),
+  ),
+  bathroomsCount: bathroomsSchema.nullable().optional(),
+  importantInfo: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? null : v),
+    z.string().max(2000).nullable().optional(),
+  ),
+  openingHours: openingHoursSchema.nullable().optional(),
   isActive: z.boolean().optional().default(true),
 }).refine(coordenadasCompletas, { message: MENSAJE_COORDENADAS, path: ['longitude'] });
 
