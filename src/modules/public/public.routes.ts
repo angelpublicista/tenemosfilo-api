@@ -136,6 +136,60 @@ async function soloLoQueSeOfrece<
 }
 
 /**
+ * Suma los horarios de sede a lo que ve el motor de reservas.
+ *
+ * El API acepta una reserva segun la cascada de `horariosQueAplican`, que
+ * incluye el horario DE LA SEDE —el que no es de ninguna experiencia—. El
+ * catalogo solo mandaba los atados a la experiencia, asi que quien tenia su
+ * calendario en la sede veia las horas por defecto y el checkout rechazaba lo
+ * que el motor ofrecia.
+ *
+ * Solo se añaden para las sedes donde la experiencia no tiene horario propio
+ * —ni de esa sede ni sin sede—, que es cuando la cascada llega a ese nivel.
+ */
+async function conHorariosDeSede<
+  T extends {
+    id: string;
+    locations: { id: string }[];
+    availabilities: Array<{ locationId: string | null }>;
+  },
+>(experiences: T[]): Promise<T[]> {
+  const sedes = [...new Set(experiences.flatMap((e) => e.locations.map((l) => l.id)))];
+  if (sedes.length === 0) return experiences;
+
+  const hoy = new Date();
+  hoy.setHours(0, 0, 0, 0);
+  const deSede = await prisma.availability.findMany({
+    where: {
+      deletedAt: null,
+      isActive: true,
+      locationId: { in: sedes },
+      experiences: { none: {} },
+      OR: [{ validUntil: null }, { validUntil: { gte: hoy } }],
+    },
+    select: {
+      id: true,
+      name: true,
+      weeklySchedule: true,
+      dateOverrides: true,
+      locationId: true,
+      validFrom: true,
+      validUntil: true,
+    },
+  });
+  if (deSede.length === 0) return experiences;
+
+  return experiences.map((e) => {
+    if (e.availabilities.some((a) => a.locationId === null)) return e;
+    const propias = new Set(e.availabilities.map((a) => a.locationId));
+    const extra = deSede.filter(
+      (h) => h.locationId && !propias.has(h.locationId) && e.locations.some((l) => l.id === h.locationId),
+    );
+    return extra.length > 0 ? { ...e, availabilities: [...e.availabilities, ...extra] } : e;
+  });
+}
+
+/**
  * TR-21. La agenda propia del anfitrion, para el catalogo.
  *
  * Vale para las experiencias que no tienen horario propio ni sede: un cocinero
@@ -229,7 +283,7 @@ publicRouter.get(
       where: { deletedAt: null, status: 'ACTIVE', company: { deletedAt: null, isActive: true } },
       include: experienciaPublica,
       orderBy: [{ isFeatured: 'desc' }, { createdAt: 'desc' }],
-    }).then(soloLoQueSeOfrece);
+    }).then(soloLoQueSeOfrece).then(conHorariosDeSede);
 
     // Aqui salen experiencias de varias empresas, y desde que cada anfitrion
     // puede cobrar con su pasarela la respuesta ya no es una sola para todas.
@@ -264,7 +318,7 @@ publicRouter.get(
       where: { companyId: company.id, deletedAt: null, status: 'ACTIVE' },
       include: experienciaPublica,
       orderBy: [{ isFeatured: 'desc' }, { createdAt: 'desc' }],
-    }).then(soloLoQueSeOfrece);
+    }).then(soloLoQueSeOfrece).then(conHorariosDeSede);
 
     // Solo si se cobra en linea. El resumen previo a confirmar cambia el
     // texto segun esto: prometer "pagas ahora" con la pasarela apagada deja

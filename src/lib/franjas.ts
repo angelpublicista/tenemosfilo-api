@@ -67,6 +67,26 @@ export function excepcionDelDia(
 }
 
 /**
+ * Si el horario rige en esa fecha: dentro de su vigencia (TR-35).
+ *
+ * Uno vencido o que aun no empieza no abre nada, aunque su semana diga que si.
+ * Se comprueba aqui, en un solo sitio, porque cuando cada consulta lo miraba a
+ * su manera el checkout dejaba pasar dias que despues no tenian cupos.
+ */
+export function rigeEnLaFecha(
+  horario: { validFrom?: Date | null; validUntil?: Date | null },
+  fecha: Date,
+): boolean {
+  const dia = new Date(fecha);
+  dia.setHours(0, 0, 0, 0);
+  if (horario.validFrom && claveDeFecha(dia) < horario.validFrom.toISOString().slice(0, 10)) {
+    return false;
+  }
+  if (horario.validUntil && dia > horario.validUntil) return false;
+  return true;
+}
+
+/**
  * Las franjas que rigen esa fecha en ese horario.
  *
  * Lo que se dijo de la fecha manda sobre el patron semanal: el 24 no se abre
@@ -145,7 +165,15 @@ export async function horariosQueAplican(experienceId: string, locationId?: stri
     validUntil: true,
     dateOverrides: true,
   } as const;
-  const vivos = { deletedAt: null, isActive: true } as const;
+  // Un horario vencido no cuenta como nivel: si lo hiciera taparia al general
+  // vigente y la publicacion saldria «sin horario» teniendo uno que rige.
+  const hoy = new Date();
+  hoy.setHours(0, 0, 0, 0);
+  const vigencia: Array<{ validUntil: null } | { validUntil: { gte: Date } }> = [
+    { validUntil: null },
+    { validUntil: { gte: hoy } },
+  ];
+  const vivos = { deletedAt: null, isActive: true, OR: vigencia } as const;
   const suyos = { experiences: { some: { id: experienceId } } } as const;
 
   if (sede) {
@@ -259,11 +287,7 @@ export async function franjaDeLaReserva(
 
   for (const h of horarios) {
     // La vigencia del horario cuenta: uno que ya no rige no pone cupos.
-    const soloElDia = `${dia.getFullYear()}-${String(dia.getMonth() + 1).padStart(2, '0')}-${String(
-      dia.getDate(),
-    ).padStart(2, '0')}`;
-    if (h.validFrom && soloElDia < h.validFrom.toISOString().slice(0, 10)) continue;
-    if (h.validUntil && dia > h.validUntil) continue;
+    if (!rigeEnLaFecha(h, fecha)) continue;
 
     for (const f of franjasDeLaFecha(h, fecha)) {
       if (f.cupos === null || f.cupos === undefined) continue;

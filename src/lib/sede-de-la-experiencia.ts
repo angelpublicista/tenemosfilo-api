@@ -12,7 +12,7 @@
 // miraban calendarios diferentes sin que nadie se diera cuenta.
 import { prisma } from '../config/prisma.js';
 import { BadRequest } from './errors.js';
-import { fechaCerrada, franjasDeLaFecha, horariosQueAplican } from './franjas.js';
+import { fechaCerrada, franjasDeLaFecha, horariosQueAplican, rigeEnLaFecha } from './franjas.js';
 import type { ExperienceKind, Prisma } from '@prisma/client';
 
 type Cliente = Prisma.TransactionClient | typeof prisma;
@@ -142,8 +142,10 @@ export async function comprobarDiaAbierto(
   fecha: Date,
   locationId?: string | null,
 ): Promise<void> {
-  const horarios = await horariosQueAplican(experienceId, locationId);
-  if (horarios.length === 0) return;
+  const todos = await horariosQueAplican(experienceId, locationId);
+  if (todos.length === 0) return;
+  // Solo los que rigen ese dia: uno vencido no abre nada.
+  const horarios = todos.filter((h) => rigeEnLaFecha(h, fecha));
 
   const minuto = fecha.getHours() * 60 + fecha.getMinutes();
   const enMinutos = (hhmm: string) => {

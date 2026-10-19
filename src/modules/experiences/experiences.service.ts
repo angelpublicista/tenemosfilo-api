@@ -319,7 +319,20 @@ export const experiencesService = {
     if (input.status !== undefined) data.status = input.status;
     if (input.isFeatured !== undefined) data.isFeatured = input.isFeatured;
 
+    // Las sedes que esta edicion deja fuera. Se desatan, y con ellas su
+    // publicacion: si no, quedaba una ficha de condiciones y una pausa de un
+    // escenario que ya no existe, y Publicaciones y el catalogo dejaban de
+    // contar lo mismo. Los horarios no se tocan: son de la sede y vuelven si
+    // se vuelve a publicar ahi.
+    let sedesQuitadas: string[] = [];
     if (input.locations !== undefined) {
+      const actuales = await prisma.experience.findUnique({
+        where: { id },
+        select: { locations: { select: { id: true } } },
+      });
+      sedesQuitadas = (actuales?.locations ?? [])
+        .map((l) => l.id)
+        .filter((sede) => !input.locations!.includes(sede));
       data.locations = { set: input.locations.map((id) => ({ id })) };
     }
     if (input.menus !== undefined) {
@@ -334,6 +347,11 @@ export const experiencesService = {
       data,
       include: fullInclude,
     });
+    if (sedesQuitadas.length > 0) {
+      await prisma.locationListing.deleteMany({
+        where: { experienceId: id, locationId: { in: sedesQuitadas } },
+      });
+    }
 
     // TR-23. Si la edicion la deja incompleta y estaba publicada, deja de
     // venderse: una ficha sin precio en el catalogo es una venta que acaba en
