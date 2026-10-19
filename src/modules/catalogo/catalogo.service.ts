@@ -59,27 +59,63 @@ const DIAS = [
   { clave: 'sunday', corto: 'D' },
 ] as const;
 
-function diasQueAbre(horarios: Array<{ weeklySchedule: unknown }>): string[] {
+type HorarioResumible = {
+  weeklySchedule: unknown;
+  dateOverrides?: unknown;
+  validUntil?: Date | null;
+};
+
+/**
+ * Los horarios que todavia rigen. Uno vencido no vende —al reservar no pone
+ * cupos—, asi que contarlo aqui decia «abre los lunes» de algo que ya no abre.
+ */
+function vigentes<T extends HorarioResumible>(horarios: T[]): T[] {
+  const hoy = new Date();
+  hoy.setHours(0, 0, 0, 0);
+  return horarios.filter((h) => !h.validUntil || h.validUntil >= hoy);
+}
+
+function diasQueAbre(horarios: HorarioResumible[]): string[] {
   const abiertos = new Set<string>();
-  for (const h of horarios) {
-    const semana = h.weeklySchedule as Record<string, { isActive?: boolean }> | null;
-    if (!semana) continue;
-    for (const d of DIAS) {
-      if (semana[d.clave]?.isActive) abiertos.add(d.corto);
+  const hoy = new Date();
+  for (const h of vigentes(horarios)) {
+    for (let i = 0; i < 7; i += 1) {
+      const d = new Date(hoy);
+      d.setDate(d.getDate() + i);
+      if (franjasDelDia(h.weeklySchedule, d).length > 0) {
+        abiertos.add(DIAS[(d.getDay() + 6) % 7]!.corto);
+      }
     }
   }
   return DIAS.filter((d) => abiertos.has(d.corto)).map((d) => d.corto);
 }
 
-/** Cuantas franjas tiene puestas, para distinguir «sin horario» de «con uno». */
-function cuantasFranjas(horarios: Array<{ weeklySchedule: unknown }>): number {
+/**
+ * Cuantas franjas tiene puestas, para distinguir «sin horario» de «con uno».
+ *
+ * Cuentan el patron semanal de los horarios vigentes y las fechas sueltas que
+ * abren de aqui en adelante: un horario que solo abre el 31 de diciembre vende,
+ * aunque su semana este vacia.
+ */
+function cuantasFranjas(horarios: HorarioResumible[]): number {
   let n = 0;
-  const lunes = new Date();
-  for (const h of horarios) {
+  const hoy = new Date();
+  hoy.setHours(0, 0, 0, 0);
+  for (const h of vigentes(horarios)) {
     for (let i = 0; i < 7; i += 1) {
-      const d = new Date(lunes);
+      const d = new Date(hoy);
       d.setDate(d.getDate() + i);
       n += franjasDelDia(h.weeklySchedule, d).length;
+    }
+    const sueltas = h.dateOverrides;
+    if (sueltas && typeof sueltas === 'object') {
+      for (const [dia, v] of Object.entries(sueltas as Record<string, unknown>)) {
+        const fecha = new Date(`${dia}T00:00:00`);
+        if (Number.isNaN(fecha.getTime()) || fecha < hoy) continue;
+        if (h.validUntil && fecha > h.validUntil) continue;
+        const o = v as { isActive?: boolean; franjas?: unknown[]; timeSlots?: unknown[] };
+        if (o?.isActive) n += (o.franjas ?? o.timeSlots ?? []).length;
+      }
     }
   }
   return n;
