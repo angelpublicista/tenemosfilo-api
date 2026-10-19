@@ -1776,6 +1776,13 @@ model LocationListing {
   // sede no tiene horno", "se monta en la terraza si no llueve".
   notes String? @db.Text
 
+  // Las ciudades donde se presta, para la publicacion a domicilio (la de sede
+  // nula). Una experiencia a domicilio puede atender varias, y como el precio o
+  // el horario cambian segun donde se ofrece, la cobertura es de la
+  // publicacion y no de la ficha. En una sede no se usa: la ciudad es la de la
+  // sede.
+  cities String[] @default([])
+
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?

@@ -138,6 +138,9 @@ export const condicionesDeSedeSchema = z.object({
   minimumNotice: z.number().int().nonnegative().max(8760).nullish(),
   isPublished: z.boolean().optional(),
   notes: z.string().nullish(),
+  // Ciudades donde se presta una publicacion a domicilio. Sin ellas no hay
+  // catalogo que le toque, asi que no se puede vender.
+  cities: z.array(z.string().trim().min(1).max(120)).max(60).optional(),
 });
 
 export const sedeParamsSchema = z.object({

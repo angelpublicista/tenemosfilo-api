@@ -181,6 +181,7 @@ export const catalogoService = {
                 minimumNotice: suya.minimumNotice,
                 isPublished: suya.isPublished,
                 notes: suya.notes,
+                cities: suya.cities,
               }
             : null,
           condiciones: await condicionesDe(p.id, null),
@@ -217,6 +218,7 @@ export const catalogoService = {
                 minimumNotice: suyas.minimumNotice,
                 isPublished: suyas.isPublished,
                 notes: suyas.notes,
+                cities: suyas.cities,
               }
             : null,
           condiciones: await condicionesDe(p.id, s.id),
@@ -284,7 +286,32 @@ export const catalogoService = {
     }
 
 
+    // Las ciudades donde se presta, solo para la publicacion a domicilio. Si la
+    // llamada no las trae se conservan las que ya tenia: pausar o cambiar el
+    // precio no puede borrar la cobertura.
+    const previa = await prisma.locationListing.findFirst({
+      where: { experienceId, locationId: locationId ?? null },
+      select: { id: true, cities: true },
+    });
+    const ciudades = exp.atHome
+      ? [
+          ...new Set(
+            (condiciones.cities ?? previa?.cities ?? []).map((c) => c.trim()).filter(Boolean),
+          ),
+        ]
+      : [];
+    // Sin ciudades no hay catalogo que le toque: un chef a domicilio sin zona
+    // se ofreceria a gente a la que no puede atender. Pausar si se deja, porque
+    // es dejar de vender, no vender.
+    if (exp.atHome && ciudades.length === 0 && condiciones.isPublished !== false) {
+      throw BadRequest(
+        'Una experiencia a domicilio necesita al menos una ciudad donde se presta.',
+        { motivo: 'SIN_ZONAS' },
+      );
+    }
+
     const datos = {
+      cities: ciudades,
       kind: condiciones.kind ?? null,
       minCapacity: condiciones.minCapacity ?? null,
       basePrice: condiciones.basePrice ?? null,
@@ -306,12 +333,8 @@ export const catalogoService = {
     // Se busca antes de crear en vez de un upsert: con la sede nula el unico
     // de la base no sirve —Postgres trata los NULL como distintos— y dos
     // publicaciones de la misma experiencia a domicilio no tendrian sentido.
-    const yaExiste = await prisma.locationListing.findFirst({
-      where: { experienceId, locationId: locationId ?? null },
-      select: { id: true },
-    });
-    if (yaExiste) {
-      await prisma.locationListing.update({ where: { id: yaExiste.id }, data: datos });
+    if (previa) {
+      await prisma.locationListing.update({ where: { id: previa.id }, data: datos });
     } else {
       await prisma.locationListing.create({
         data: { experienceId, locationId: locationId ?? null, ...datos },

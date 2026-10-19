@@ -39,6 +39,20 @@ type Resultado = { ok: true; texto: string } | { ok: false; texto: string };
 /** Lo que recibe quien prueba en vez de un enlace de reserva real. */
 const ENLACE_DE_MUESTRA = '[enlace de reserva de muestra: en WhatsApp aquí va el enlace real]';
 
+/**
+ * Las ciudades donde presta una experiencia a domicilio, en una frase. Salen
+ * de su publicacion; la ciudad de la ficha solo vale para lo anterior a ellas.
+ */
+function ciudadesDe(e: {
+  presentialCity: string | null;
+  locationListings: Array<{ locationId?: string | null; cities: string[] }>;
+}): string {
+  const zonas = e.locationListings
+    .filter((l) => (l.locationId ?? null) === null)
+    .flatMap((l) => l.cities);
+  return zonas.length > 0 ? zonas.join(', ') : (e.presentialCity ?? '');
+}
+
 const pesos = (n: number) =>
   new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n);
 
@@ -131,6 +145,11 @@ async function listarExperiencias(ctx: ContextoDelAgente): Promise<Resultado> {
       // Los cupos son de la franja: el maximo sale del horario.
       availabilities: { where: { deletedAt: null, isActive: true }, select: { weeklySchedule: true } },
       presentialCity: true, atHome: true,
+      // Donde presta una experiencia a domicilio: son ciudades de la publicacion.
+      locationListings: {
+        where: { deletedAt: null, isPublished: true, locationId: null },
+        select: { cities: true },
+      },
     },
     take: 25,
   });
@@ -145,7 +164,7 @@ async function listarExperiencias(ctx: ContextoDelAgente): Promise<Resultado> {
       `- ${e.title} (id: ${e.id}) · ${e.basePrice ? pesos(Number(e.basePrice)) + ' por persona' : 'precio a consultar'}` +
       `${e.duration ? ` · ${e.duration} min` : ''}` +
       `${tope ? ` · hasta ${tope} personas` : ''}` +
-      `${e.presentialCity ? ` · ${e.presentialCity}` : ''}` +
+      `${ciudadesDe(e) ? ` · ${ciudadesDe(e)}` : ''}` +
       // Que va a casa del cliente es de lo primero que pregunta quien escribe.
       `${e.atHome ? ' · a domicilio' : ''}`
     );
@@ -175,6 +194,7 @@ async function verExperiencia(id: string, ctx: ContextoDelAgente): Promise<Resul
           kind: true,
           basePrice: true,
           minimumNotice: true,
+          cities: true,
         },
       },
       availabilities: {
@@ -204,7 +224,7 @@ async function verExperiencia(id: string, ctx: ContextoDelAgente): Promise<Resul
     tope ? `Hasta ${tope} personas` : '',
     // A domicilio no hay sede que nombrar: se va donde diga el cliente.
     e.atHome
-      ? `Se hace a domicilio${e.presentialCity ? `, en ${e.presentialCity} y alrededores` : ''}`
+      ? `Se hace a domicilio${ciudadesDe(e) ? `, en ${ciudadesDe(e)} y alrededores` : ''}`
       : '',
     !e.atHome && e.locations.length
       ? `Sedes: ${e.locations

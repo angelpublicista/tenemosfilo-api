@@ -63,6 +63,8 @@ const experienciaPublica = {
       prepTime: true,
       cleanupTime: true,
       minimumNotice: true,
+      // Las ciudades donde presta una publicacion a domicilio.
+      cities: true,
     },
   },
   // Sin esto el paso de fecha y hora no tiene horarios que ofrecer y el
@@ -101,7 +103,12 @@ const experienciaPublica = {
  * cuelga.
  */
 async function soloLoQueSeOfrece<
-  T extends { id: string; atHome: boolean; locations: { id: string }[] },
+  T extends {
+    id: string;
+    atHome: boolean;
+    locations: { id: string }[];
+    locationListings: Array<{ locationId: string | null; cities: string[] }>;
+  },
 >(experiences: T[]): Promise<T[]> {
   if (experiences.length === 0) return experiences;
 
@@ -132,6 +139,14 @@ async function soloLoQueSeOfrece<
       locations: e.locations.filter((l) => !fuera.has(`${e.id}:${l.id}`)),
     }))
     .filter((e) => (e.teniaSedes ? e.locations.length > 0 : !domicilioEnPausa.has(e.id)))
+    // A domicilio sin ciudades no se vende: no hay zona que atender, y la
+    // ficha tampoco se deja activar asi. Esto cubre lo que quedara en pie si
+    // alguien borra las zonas de una pieza que ya estaba activa.
+    .filter(
+      (e) =>
+        !e.atHome ||
+        e.locationListings.some((l) => l.locationId === null && l.cities.length > 0),
+    )
     .map(({ teniaSedes: _, ...e }) => e as unknown as T);
 }
 

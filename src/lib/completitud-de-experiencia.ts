@@ -25,6 +25,12 @@ export const PARA_COMPLETITUD = {
   featuredImage: true,
   languages: true,
   locations: { select: { id: true } },
+  // La cobertura de una experiencia a domicilio es de su publicacion: las
+  // ciudades donde se presta viven en la fila sin sede.
+  locationListings: {
+    where: { deletedAt: null, locationId: null },
+    select: { locationId: true, cities: true },
+  },
 } satisfies Prisma.ExperienceSelect;
 
 export interface Completitud {
@@ -47,6 +53,7 @@ type Ficha = {
   featuredImage?: string | null;
   languages?: string[] | null;
   locations?: { id: string }[] | null;
+  locationListings?: { locationId?: string | null; cities?: string[] | null }[] | null;
 };
 
 export function completitudDeExperiencia(e: Ficha): Completitud {
@@ -68,10 +75,14 @@ export function completitudDeExperiencia(e: Ficha): Completitud {
   //
   // A domicilio no hace falta sede —la direccion la pone quien reserva— pero
   // si hace falta saber DONDE se presta: un chef que va a casa del cliente no
-  // cruza el pais, y sin la ciudad el catalogo se le ofrece a gente a la que
-  // no puede atender.
+  // cruza el pais, y sin ciudades el catalogo se le ofrece a gente a la que
+  // no puede atender. Pueden ser varias, y son de la publicacion.
   if (e.atHome) {
-    if (!e.presentialCity?.trim()) falta.push('la ciudad donde lo prestas');
+    const ciudades = (e.locationListings ?? [])
+      .filter((l) => (l.locationId ?? null) === null)
+      .flatMap((l) => l.cities ?? [])
+      .filter((c) => c.trim());
+    if (ciudades.length === 0) falta.push('al menos una ciudad donde lo prestas');
   } else if ((e.locations?.length ?? 0) === 0 && !e.presentialLocation?.trim()) {
     falta.push('el lugar o la sede');
   }

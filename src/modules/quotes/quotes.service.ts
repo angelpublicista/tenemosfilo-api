@@ -40,6 +40,21 @@ async function assertCanManage(id: string, requesterCompanyId: string | null | u
   return q;
 }
 
+/**
+ * Las experiencias a domicilio que cubren una ciudad.
+ *
+ * La cobertura es una lista por publicacion, y Prisma no filtra arrays con
+ * "contiene sin distinguir mayusculas", asi que se busca aqui con SQL.
+ */
+async function experienciasQueCubren(ciudad: string): Promise<string[]> {
+  const filas = await prisma.$queryRaw<Array<{ experienceId: string }>>`
+    SELECT DISTINCT l."experienceId"
+    FROM "LocationListing" l, unnest(l."cities") AS c
+    WHERE l."deletedAt" IS NULL AND l."isPublished" = true AND c ILIKE ${'%' + ciudad + '%'}
+  `;
+  return filas.map((f) => f.experienceId);
+}
+
 export const quotesService = {
   async create(
     requesterId: string,
@@ -371,10 +386,15 @@ export const quotesService = {
         deletedAt: null,
         status: 'ACTIVE',
         OR: [{ minCapacity: null }, { minCapacity: { lte: query.guests } }],
+        // En un AND aparte: dos `OR` en el mismo objeto se pisan, y la busqueda
+        // por ciudad borraba el filtro de aforo minimo.
         ...(query.location
           ? {
+              AND: [{
               OR: [
                 { presentialCity: { contains: query.location, mode: 'insensitive' } },
+                // Las ciudades que cubre una publicacion a domicilio.
+                { id: { in: await experienciasQueCubren(query.location) } },
                 {
                   locations: {
                     some: {
@@ -386,6 +406,7 @@ export const quotesService = {
                   },
                 },
               ],
+              }],
             }
           : {}),
       },
