@@ -104,6 +104,11 @@ export const HERRAMIENTAS = [
             description: 'Solo para PRIVADA: si es un plan personal o de una empresa.',
           },
           notas: { type: 'string', description: 'Lo que pidió, en una o dos frases.' },
+          experienceId: {
+            type: 'string',
+            description:
+              'El id (de listar_experiencias) de la experiencia concreta que le interesa, si ya la nombró. Con ella el enlace de reserva se abre directo en esa experiencia.',
+          },
           telefono: {
             type: 'string',
             description: 'Solo en el chat web: el teléfono que dio la persona. En WhatsApp no hace falta.',
@@ -122,8 +127,17 @@ export const HERRAMIENTAS = [
     function: {
       name: 'enviar_enlace_de_reserva',
       description:
-        'Devuelve el enlace para que la persona reserve ella misma, ya con sus datos puestos. Requiere haber guardado antes la solicitud. Tú no reservas ni cobras: solo le pasas el enlace.',
-      parameters: { type: 'object', properties: {}, required: [] },
+        'Devuelve el enlace para que la persona reserve ella misma, ya con sus datos puestos. Requiere haber guardado antes la solicitud. Tú no reservas ni cobras: solo le pasas el enlace. Si la persona ya eligió una experiencia concreta, pásala en experienceId para que el enlace se abra directo en ella.',
+      parameters: {
+        type: 'object',
+        properties: {
+          experienceId: {
+            type: 'string',
+            description: 'El id (de listar_experiencias) de la experiencia que quiere reservar.',
+          },
+        },
+        required: [],
+      },
     },
   },
 ];
@@ -141,7 +155,7 @@ export async function ejecutarHerramienta(
     case 'guardar_solicitud':
       return guardarSolicitud(argumentos, ctx);
     case 'enviar_enlace_de_reserva':
-      return enviarEnlace(ctx);
+      return enviarEnlace(ctx, String(argumentos.experienceId ?? ''));
     default:
       return { ok: false, texto: 'Esa herramienta no existe.' };
   }
@@ -324,6 +338,8 @@ async function guardarSolicitud(
     notes: argumentos.notas ? String(argumentos.notas).slice(0, 2000) : undefined,
   } as never);
 
+  await vincularExperiencia(ctx, creada.id, String(argumentos.experienceId ?? ''));
+
   await prisma.aiConversation.update({
     where: { id: ctx.conversationId },
     data: { opportunityId: creada.id, contactId: creada.contactId },
@@ -332,7 +348,35 @@ async function guardarSolicitud(
   return { ok: true, texto: 'Solicitud guardada. Un asesor del anfitrión la va a ver.' };
 }
 
-async function enviarEnlace(ctx: ContextoDelAgente): Promise<Resultado> {
+/**
+ * Ligar la experiencia que le interesa a la oportunidad.
+ *
+ * Es lo que hace específico el enlace de reserva: el catálogo entra directo a
+ * la experiencia que la oportunidad tenga. Sin esto el enlace abre el listado
+ * entero, aunque se haya hablado de una sola.
+ *
+ * Solo si la oportunidad no tiene ninguna: si alguien del equipo ya la curó
+ * (otra experiencia, varias), lo que decidió el anfitrión manda sobre lo que
+ * entendió el agente.
+ */
+async function vincularExperiencia(
+  ctx: ContextoDelAgente,
+  opportunityId: string,
+  experienceId: string,
+): Promise<void> {
+  if (!experienceId) return;
+  // El filtro por empresa es el mismo de siempre: el id lo escribe el modelo.
+  const exp = await prisma.experience.findFirst({
+    where: { id: experienceId, companyId: ctx.companyId, deletedAt: null, status: 'ACTIVE' },
+    select: { id: true },
+  });
+  if (!exp) return;
+  const yaTiene = await prisma.opportunityExperience.count({ where: { opportunityId } });
+  if (yaTiene > 0) return;
+  await prisma.opportunityExperience.create({ data: { opportunityId, experienceId: exp.id } });
+}
+
+async function enviarEnlace(ctx: ContextoDelAgente, experienceId = ''): Promise<Resultado> {
   if (!ctx.puedeEnviarEnlace) {
     return { ok: false, texto: 'No tienes permitido enviar el enlace de reserva.' };
   }
@@ -354,6 +398,7 @@ async function enviarEnlace(ctx: ContextoDelAgente): Promise<Resultado> {
   if (!conversacion?.opportunityId) {
     return { ok: false, texto: 'Primero guarda la solicitud con guardar_solicitud.' };
   }
+  await vincularExperiencia(ctx, conversacion.opportunityId, experienceId);
   const { url } = await enlaceService.generarEnlaceDeReserva(
     conversacion.opportunityId,
     ctx.companyId,
