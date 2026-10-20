@@ -142,6 +142,20 @@ export const limiteReservaPublica = rateLimit({
 });
 
 /**
+ * Chat del agente en el catalogo publico.
+ *
+ * Cada mensaje que pasa llama a un modelo de pago, asi que es el endpoint
+ * publico mas caro. El tope mensual del agente protege la factura; este
+ * protege al anfitrion de que una sola conexion le gaste el cupo del mes.
+ */
+export const limiteChatPublico = rateLimit({
+  ...comunes,
+  windowMs: 10 * MINUTO,
+  limit: 30,
+  handler: responder('Estás escribiendo muy rápido. Espera unos minutos e inténtalo de nuevo.'),
+});
+
+/**
  * Red de seguridad contra el sondeo de API keys.
  *
  * Solo mira peticiones cuyo token tiene forma de API key, y solo cuenta las

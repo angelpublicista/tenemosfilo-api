@@ -31,6 +31,8 @@ export interface ContextoDelAgente {
   esPrueba: boolean;
   /** Solo en prueba: si ya "guardo" la solicitud, para poder dar el enlace. */
   solicitudDePrueba: boolean;
+  /** WHATSAPP, WEB o PRUEBA. En WEB el "telefono" es un id de sesion, no un numero. */
+  canal: string;
 }
 
 /** Lo que se le devuelve al modelo: texto plano, nada de objetos crudos. */
@@ -102,6 +104,14 @@ export const HERRAMIENTAS = [
             description: 'Solo para PRIVADA: si es un plan personal o de una empresa.',
           },
           notas: { type: 'string', description: 'Lo que pidió, en una o dos frases.' },
+          telefono: {
+            type: 'string',
+            description: 'Solo en el chat web: el teléfono que dio la persona. En WhatsApp no hace falta.',
+          },
+          email: {
+            type: 'string',
+            description: 'Solo en el chat web: el correo que dio la persona. En WhatsApp no hace falta.',
+          },
         },
         required: ['nombre', 'tipo'],
       },
@@ -280,6 +290,16 @@ async function guardarSolicitud(
   }
 
   if (!nombre) return { ok: false, texto: 'Falta el nombre de la persona.' };
+
+  // En el chat web no hay numero de WhatsApp del que tirar: el hilo se
+  // identifica por una sesion del navegador. Sin un telefono o un correo que
+  // la persona haya dado, la solicitud no se podria contactar.
+  const esWeb = ctx.canal === 'WEB';
+  const telefonoDado = String(argumentos.telefono ?? '').trim().slice(0, 40);
+  const correoDado = String(argumentos.email ?? '').trim().slice(0, 120);
+  if (esWeb && !telefonoDado && !correoDado) {
+    return { ok: false, texto: 'Falta un teléfono o un correo para que el equipo pueda contactarla. Pídeselo.' };
+  }
   const tipo = argumentos.tipo === 'ABIERTA' ? 'ABIERTA' : 'PRIVADA';
 
   const [firstName, ...resto] = nombre.split(/\s+/);
@@ -293,9 +313,14 @@ async function guardarSolicitud(
     contacto: {
       firstName: firstName ?? nombre,
       ...(resto.length ? { lastName: resto.join(' ') } : {}),
-      phone: ctx.telefono,
+      ...(esWeb
+        ? {
+            ...(telefonoDado ? { phone: telefonoDado } : {}),
+            ...(correoDado ? { email: correoDado } : {}),
+          }
+        : { phone: ctx.telefono }),
     },
-    leadSource: 'WHATSAPP',
+    leadSource: esWeb ? 'WEB' : 'WHATSAPP',
     notas: argumentos.notas ? String(argumentos.notas).slice(0, 2000) : undefined,
   } as never);
 

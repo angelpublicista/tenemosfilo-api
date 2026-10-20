@@ -1941,6 +1941,11 @@ model AiAgent {
   puedeCrearSolicitud Boolean @default(true)
   puedeEnviarEnlace   Boolean @default(true)
 
+  /// Si el catalogo publico ofrece chatear con el agente. Aparte de `enabled`
+  /// a proposito: se puede tener el agente contestando WhatsApp sin querer
+  /// abrir un chat a cualquiera que visite el catalogo.
+  mostrarEnCatalogo Boolean @default(false)
+
   /// WhatsApp Cloud API, con las credenciales del propio anfitrion. Los tres
   /// secretos van cifrados: con ellos se escribe a sus clientes en su nombre.
   waPhoneNumberId String?

@@ -40,11 +40,16 @@ function instruccionesBase(datos: {
   instrucciones: string | null;
   puedeCrearSolicitud: boolean;
   puedeEnviarEnlace: boolean;
+  esWeb: boolean;
 }): string {
   return [
-    `Eres ${datos.nombreDelAgente}, quien atiende el WhatsApp de ${datos.empresa}.`,
+    datos.esWeb
+      ? `Eres ${datos.nombreDelAgente}, quien atiende el chat del catálogo web de ${datos.empresa}.`
+      : `Eres ${datos.nombreDelAgente}, quien atiende el WhatsApp de ${datos.empresa}.`,
     datos.tono ? `Tono: ${datos.tono}.` : 'Tono: cercano, claro y breve.',
-    'Escribes por WhatsApp: frases cortas, sin markdown, sin listas numeradas largas. Normalmente dos o tres líneas.',
+    datos.esWeb
+      ? 'Escribes en un chat de una página web: frases cortas, sin markdown, sin listas numeradas largas. Normalmente dos o tres líneas. La persona está viendo el catálogo y puede reservar ella misma desde la página.'
+      : 'Escribes por WhatsApp: frases cortas, sin markdown, sin listas numeradas largas. Normalmente dos o tres líneas.',
     '',
     'Reglas que no puedes saltarte:',
     '- Nunca inventes precios, horarios, sedes ni disponibilidad. Si no lo sacaste de una herramienta, no lo digas: pregunta o di que lo confirmas con el equipo.',
@@ -53,7 +58,9 @@ function instruccionesBase(datos: {
     '- Si te preguntan algo que no sabes, dilo y ofrece que un asesor lo contacte.',
     '- Si la persona pide hablar con alguien del equipo, dile que ya avisas y deja de insistir.',
     datos.puedeCrearSolicitud
-      ? '- En cuanto sepas su nombre y si quiere algo abierto o privado, guarda la solicitud. No esperes a tenerlo todo.'
+      ? datos.esWeb
+        ? '- En cuanto sepas su nombre, un teléfono o correo para contactarla, y si quiere algo abierto o privado, guarda la solicitud. Sin teléfono ni correo no se puede guardar: pídelo con naturalidad.'
+        : '- En cuanto sepas su nombre y si quiere algo abierto o privado, guarda la solicitud. No esperes a tenerlo todo.'
       : '- No puedes guardar solicitudes; cuando haya interés real, dile que un asesor lo contactará.',
     datos.puedeEnviarEnlace
       ? '- Si quiere reservar y ya guardaste la solicitud, pásale el enlace de reserva.'
@@ -139,8 +146,35 @@ async function llamarAlModelo(mensajes: MensajeOpenAI[]): Promise<{
 
 /** El canal de la prueba del panel: conversa de verdad, pero no escribe en el CRM. */
 export const CANAL_DE_PRUEBA = 'PRUEBA';
+/** El chat del catálogo público. El "teléfono" del hilo es el id de sesión del visitante. */
+export const CANAL_WEB = 'WEB';
+
+/** Lo que ve el visitante de su propio chat: lo que dijo y lo que le contestaron. */
+export type MensajeDelChat = { rol: 'CLIENTE' | 'AGENTE'; texto: string; createdAt: Date };
 
 export const agenteService = {
+  /**
+   * El hilo de un visitante del catalogo, para que recargar la pagina no le
+   * borre la conversacion. Solo CLIENTE y AGENTE: las herramientas que uso el
+   * agente son cosa del anfitrion.
+   */
+  async historialWeb(companyId: string, sessionId: string): Promise<MensajeDelChat[]> {
+    const hilo = await prisma.aiConversation.findUnique({
+      where: {
+        companyId_canal_telefono: { companyId, canal: CANAL_WEB, telefono: `web:${sessionId}` },
+      },
+      select: {
+        mensajes: {
+          where: { rol: { in: ['CLIENTE', 'AGENTE'] } },
+          orderBy: { createdAt: 'asc' },
+          take: 100,
+          select: { rol: true, texto: true, createdAt: true },
+        },
+      },
+    });
+    return (hilo?.mensajes ?? []) as MensajeDelChat[];
+  },
+
   /**
    * Responder a un mensaje. Devuelve lo que hay que enviarle a la persona, o
    * null si no hay que contestar (agente apagado, hilo pausado, sin cupo).
@@ -158,11 +192,16 @@ export const agenteService = {
       where: { companyId: params.companyId },
       select: {
         id: true, enabled: true, nombre: true, tono: true, instrucciones: true,
-        puedeCrearSolicitud: true, puedeEnviarEnlace: true,
+        puedeCrearSolicitud: true, puedeEnviarEnlace: true, mostrarEnCatalogo: true,
         company: { select: { companyName: true, ownerId: true } },
       },
     });
     if (!agente?.enabled) return { respuesta: null, motivo: 'El agente está apagado.' };
+    // Defensa en profundidad: la ruta publica ya lo comprueba, pero que el
+    // chat del catalogo siga cerrado no puede depender de una sola puerta.
+    if (canal === CANAL_WEB && !agente.mostrarEnCatalogo) {
+      return { respuesta: null, motivo: 'El chat del catálogo está desactivado.' };
+    }
     if (!env.OPENAI_API_KEY) {
       logger.error({ companyId: params.companyId }, 'agente sin OPENAI_API_KEY');
       return { respuesta: null, motivo: 'Falta configurar la clave del modelo en el servidor.' };
@@ -218,6 +257,7 @@ export const agenteService = {
           instrucciones: agente.instrucciones,
           puedeCrearSolicitud: agente.puedeCrearSolicitud,
           puedeEnviarEnlace: agente.puedeEnviarEnlace,
+          esWeb: canal === CANAL_WEB,
         }),
       },
       ...historial
@@ -251,6 +291,7 @@ export const agenteService = {
       usuarioId: agente.company.ownerId,
       esPrueba,
       solicitudDePrueba,
+      canal,
     };
 
     const herramientasUsadas: string[] = [];

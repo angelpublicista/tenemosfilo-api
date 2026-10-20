@@ -14,6 +14,7 @@ export interface ConfigDelAgente {
   instrucciones?: string;
   puedeCrearSolicitud?: boolean;
   puedeEnviarEnlace?: boolean;
+  mostrarEnCatalogo?: boolean;
   waPhoneNumberId?: string;
   waNumero?: string;
   waAccessToken?: string;
@@ -31,6 +32,7 @@ type Fila = {
   instrucciones: string | null;
   puedeCrearSolicitud: boolean;
   puedeEnviarEnlace: boolean;
+  mostrarEnCatalogo: boolean;
   waPhoneNumberId: string | null;
   waNumero: string | null;
   waAccessToken: string | null;
@@ -43,7 +45,7 @@ type Fila = {
 
 const SELECT = {
   id: true, enabled: true, nombre: true, tono: true, instrucciones: true,
-  puedeCrearSolicitud: true, puedeEnviarEnlace: true,
+  puedeCrearSolicitud: true, puedeEnviarEnlace: true, mostrarEnCatalogo: true,
   waPhoneNumberId: true, waNumero: true, waAccessToken: true, waVerifyToken: true,
   waAppSecret: true, mensajesPorMes: true, mensajesUsados: true, mesDelConteo: true,
 } as const;
@@ -68,6 +70,9 @@ function aRespuesta(a: Fila, companyId: string) {
     instrucciones: a.instrucciones,
     puedeCrearSolicitud: a.puedeCrearSolicitud,
     puedeEnviarEnlace: a.puedeEnviarEnlace,
+    mostrarEnCatalogo: a.mostrarEnCatalogo,
+    /** Visible de verdad: pedido por el anfitrion y con el agente encendido. */
+    chatEnCatalogo: a.enabled && a.mostrarEnCatalogo,
     waPhoneNumberId: a.waPhoneNumberId,
     waNumero: a.waNumero,
     accessTokenConfigurado: !!a.waAccessToken,
@@ -104,7 +109,7 @@ export const agenteConfigService = {
     for (const campo of ['nombre', 'tono', 'instrucciones', 'waPhoneNumberId', 'waNumero'] as const) {
       if (input[campo] !== undefined) data[campo] = input[campo] === '' ? null : input[campo];
     }
-    for (const campo of ['enabled', 'puedeCrearSolicitud', 'puedeEnviarEnlace'] as const) {
+    for (const campo of ['enabled', 'puedeCrearSolicitud', 'puedeEnviarEnlace', 'mostrarEnCatalogo'] as const) {
       if (input[campo] !== undefined) data[campo] = input[campo];
     }
     for (const campo of SECRETOS) {

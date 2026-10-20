@@ -120,6 +120,7 @@ const configSchema = z.object({
   instrucciones: z.string().trim().max(4000).optional(),
   puedeCrearSolicitud: z.boolean().optional(),
   puedeEnviarEnlace: z.boolean().optional(),
+  mostrarEnCatalogo: z.boolean().optional(),
   // Cadena vacia borra; omitido deja como esta. Igual que las pasarelas.
   waPhoneNumberId: z.string().trim().max(60).optional(),
   waNumero: z.string().trim().max(40).optional(),

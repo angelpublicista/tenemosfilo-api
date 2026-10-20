@@ -15,6 +15,9 @@ import { dondeEstaElCatalogo } from '../companies/companies.service.js';
 import { empresasQuePuedenCobrar, pasarelaDe } from '../../lib/pasarela.js';
 import { enlaceService } from '../opportunities/opportunities.enlace.js';
 import { recalcularNotaDeExperiencia } from '../../lib/calificacion.js';
+import { env } from '../../config/env.js';
+import { limiteChatPublico } from '../../middleware/rate-limit.js';
+import { agenteService, CANAL_WEB } from '../agente/agente.service.js';
 
 export const publicRouter = Router();
 
@@ -352,8 +355,85 @@ publicRouter.get(
       paymentsEnabled && (requirePayment ?? ajustes.requirePaymentDefault ?? false);
 
     res.json({
-      data: { company: empresaPublica, experiences, paymentsEnabled, paymentRequired },
+      data: {
+        company: empresaPublica,
+        experiences,
+        paymentsEnabled,
+        paymentRequired,
+        // Solo el nombre: el catalogo necesita saber si ofrece el chat y con
+        // quien se habla, nada de la configuracion del agente.
+        agente: await agenteDelChat(company.id),
+      },
     });
+  },
+);
+
+/**
+ * El agente que atiende el chat del catalogo, o null si no hay chat.
+ *
+ * Hay chat solo si el anfitrion lo pidio (mostrarEnCatalogo), el agente esta
+ * encendido y el servidor tiene con que llamar al modelo. Las tres: ofrecer
+ * un chat que luego no contesta es peor que no ofrecerlo.
+ */
+async function agenteDelChat(companyId: string): Promise<{ nombre: string } | null> {
+  if (!env.OPENAI_API_KEY) return null;
+  const a = await prisma.aiAgent.findUnique({
+    where: { companyId },
+    select: { enabled: true, mostrarEnCatalogo: true, nombre: true },
+  });
+  return a?.enabled && a.mostrarEnCatalogo ? { nombre: a.nombre } : null;
+}
+
+// El id de sesion lo genera el navegador del visitante y es lo unico que
+// identifica su hilo: tiene que ser largo y aleatorio, no adivinable.
+const sesionDelChat = z.string().regex(/^[A-Za-z0-9_-]{16,64}$/, 'Sesión inválida');
+
+/** Un mensaje al agente desde el catalogo. Sin sesion: el visitante no tiene cuenta. */
+publicRouter.post(
+  '/agente/:slug/mensaje',
+  limiteChatPublico,
+  validate(paramsSchema, 'params'),
+  validate(z.object({ sessionId: sesionDelChat, texto: z.string().trim().min(1).max(600) })),
+  async (req: Request, res: Response) => {
+    const { slug } = req.params as unknown as z.infer<typeof paramsSchema>;
+    const { sessionId, texto } = req.body as { sessionId: string; texto: string };
+
+    const company = await prisma.company.findFirst({
+      where: dondeEstaElCatalogo(slug),
+      select: { id: true },
+    });
+    if (!company || !(await agenteDelChat(company.id))) {
+      throw NotFound('Este catálogo no tiene chat');
+    }
+
+    const r = await agenteService.responder({
+      companyId: company.id,
+      telefono: `web:${sessionId}`,
+      nombrePerfil: null,
+      texto,
+      canal: CANAL_WEB,
+    });
+    // El motivo es para el panel del anfitrion; al visitante solo le toca
+    // saber si hubo respuesta. Un hilo tomado por el anfitrion tampoco debe
+    // sonar a error: el mensaje queda guardado y alguien lo va a leer.
+    res.json({ data: { respuesta: r.respuesta } });
+  },
+);
+
+/** El hilo del visitante, para no perderlo al recargar. */
+publicRouter.get(
+  '/agente/:slug/conversacion/:sessionId',
+  validate(z.object({ slug: z.string().min(1), sessionId: sesionDelChat }), 'params'),
+  async (req: Request, res: Response) => {
+    const { slug, sessionId } = req.params as { slug: string; sessionId: string };
+    const company = await prisma.company.findFirst({
+      where: dondeEstaElCatalogo(slug),
+      select: { id: true },
+    });
+    if (!company || !(await agenteDelChat(company.id))) {
+      throw NotFound('Este catálogo no tiene chat');
+    }
+    res.json({ data: { mensajes: await agenteService.historialWeb(company.id, sessionId) } });
   },
 );
 
