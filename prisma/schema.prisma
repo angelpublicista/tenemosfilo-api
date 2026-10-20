@@ -1762,6 +1762,14 @@ model LocationListing {
   cleanupTime   Int?
   minimumNotice Int?
 
+  // La URL propia de esta publicacion: /book/<empresa>/<slug>. Se calcula una
+  // vez al crearla y no se toca despues, aunque cambie el nombre de la
+  // experiencia o el de la sede: un enlace ya compartido tiene que seguir
+  // abriendo lo mismo. Unico en toda la plataforma porque el catalogo de un
+  // revendedor tambien la resuelve, y ahi las experiencias son de varias
+  // empresas.
+  slug String? @unique
+
   // Si esta publicacion esta a la venta ahora mismo.
   //
   // Pausar es de la PUBLICACION y no de la experiencia: la misma pieza puede

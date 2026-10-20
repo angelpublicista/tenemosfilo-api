@@ -60,6 +60,9 @@ const experienciaPublica = {
     where: { deletedAt: null, isPublished: true },
     select: {
       locationId: true,
+      // La URL propia de la publicacion: el revendedor arma con ella los
+      // enlaces que comparte.
+      slug: true,
       kind: true,
       minCapacity: true,
       basePrice: true,
@@ -363,6 +366,133 @@ publicRouter.get(
         // Solo el nombre: el catalogo necesita saber si ofrece el chat y con
         // quien se habla, nada de la configuracion del agente.
         agente: await agenteDelChat(company.id),
+      },
+    });
+  },
+);
+
+// ─── Una publicacion con su propia URL ──────────────────────────────────────
+//
+// /book/<empresa>/<publicacion> y /r/<revendedor>/<publicacion>. Una
+// publicacion es una experiencia en una sede (o a domicilio); la pagina enseña
+// solo esa, ya con la sede puesta, para compartirla suelta por redes o por
+// WhatsApp sin arrastrar el resto del catalogo.
+
+const paramsPublicacion = z.object({
+  slug: z.string().min(1),
+  pub: z.string().min(1).max(160),
+});
+
+/**
+ * La experiencia de una publicacion, lista para el motor de reservas.
+ *
+ * Solo sale si se puede vender ahora: publicacion viva y no pausada, experiencia
+ * activa y empresa en pie. Una pausada responde 404 como si no existiera, que
+ * es lo que ve quien abre un enlace viejo.
+ *
+ * `companyId` fija el anfitrion en su catalogo; en el de un revendedor va nulo,
+ * porque ahi la publicacion puede ser de cualquiera.
+ */
+async function experienciaDeLaPublicacion(pub: string, companyId: string | null) {
+  const fila = await prisma.locationListing.findFirst({
+    where: {
+      slug: pub,
+      deletedAt: null,
+      isPublished: true,
+      experience: {
+        deletedAt: null,
+        status: 'ACTIVE',
+        ...(companyId ? { companyId } : {}),
+        company: { deletedAt: null, isActive: true },
+      },
+    },
+    select: { slug: true, experienceId: true, locationId: true },
+  });
+  if (!fila) throw NotFound('Esta publicación no está disponible');
+
+  const [experiencia] = await prisma.experience
+    .findMany({ where: { id: fila.experienceId }, include: experienciaPublica })
+    .then(soloLoQueSeOfrece)
+    .then(conHorariosDeSede);
+  if (!experiencia) throw NotFound('Esta publicación no está disponible');
+
+  // Solo su sede: con las demas a la vista la pagina volveria a preguntar en
+  // cual, que es justo lo que el enlace ya respondio.
+  const soloEsta = fila.locationId
+    ? {
+        ...experiencia,
+        locations: experiencia.locations.filter((l) => l.id === fila.locationId),
+        locationListings: experiencia.locationListings.filter(
+          (l) => l.locationId === fila.locationId,
+        ),
+      }
+    : experiencia;
+
+  return {
+    experiencia: soloEsta,
+    publicacion: { slug: fila.slug, locationId: fila.locationId, experienceId: fila.experienceId },
+  };
+}
+
+publicRouter.get(
+  '/catalog/:slug/publicacion/:pub',
+  validate(paramsPublicacion, 'params'),
+  async (req: Request, res: Response) => {
+    const { slug, pub } = req.params as unknown as z.infer<typeof paramsPublicacion>;
+
+    const company = await prisma.company.findFirst({
+      where: dondeEstaElCatalogo(slug),
+      select: companiaPublica,
+    });
+    if (!company) throw NotFound('Catálogo no encontrado');
+
+    const { experiencia, publicacion } = await experienciaDeLaPublicacion(pub, company.id);
+
+    // Lo mismo que el catalogo completo: si se cobra en linea y si es obligado.
+    const ajustes = await getPlatformSettings();
+    const paymentsEnabled = (await pasarelaDe(company.id)) !== null;
+    const { requirePayment, ...empresaPublica } = company;
+    const paymentRequired =
+      paymentsEnabled && (requirePayment ?? ajustes.requirePaymentDefault ?? false);
+
+    res.json({
+      data: {
+        company: empresaPublica,
+        experiences: [experiencia],
+        paymentsEnabled,
+        paymentRequired,
+        agente: await agenteDelChat(company.id),
+        publicacion,
+      },
+    });
+  },
+);
+
+publicRouter.get(
+  '/reseller/:slug/publicacion/:pub',
+  validate(paramsPublicacion, 'params'),
+  async (req: Request, res: Response) => {
+    const { slug, pub } = req.params as unknown as z.infer<typeof paramsPublicacion>;
+
+    const reseller = await prisma.company.findFirst({
+      where: dondeEstaElCatalogo(slug),
+      select: companiaPublica,
+    });
+    if (!reseller) throw NotFound('Catálogo no encontrado');
+
+    const { experiencia, publicacion } = await experienciaDeLaPublicacion(pub, null);
+
+    // El cobro lo decide el anfitrion dueño de la experiencia, no el revendedor.
+    const puedenCobrar = await empresasQuePuedenCobrar([experiencia.companyId]);
+    const paymentsEnabled = puedenCobrar.has(experiencia.companyId);
+
+    res.json({
+      data: {
+        company: reseller,
+        experiences: [experiencia],
+        paymentsEnabled,
+        esReseller: true,
+        publicacion,
       },
     });
   },

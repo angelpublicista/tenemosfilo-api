@@ -21,6 +21,7 @@ import {
 import { condicionesDe } from '../../lib/sede-de-la-experiencia.js';
 import { franjasDelDia, horariosQueAplican } from '../../lib/franjas.js';
 import type { CondicionesDeSedeInput } from '../experiences/experiences.schemas.js';
+import { slugParaPublicacion } from '../../lib/slug-publicacion.js';
 
 /** Las experiencias de la empresa y las sedes donde esta cada una. */
 async function piezasYSedes(companyId: string) {
@@ -40,6 +41,44 @@ async function piezasYSedes(companyId: string) {
     },
     orderBy: [{ title: 'asc' }],
   });
+}
+
+/**
+ * Que toda publicacion visible tenga su fila, y toda fila su URL.
+ *
+ * Una experiencia conectada a una sede es una publicacion aunque la sede no
+ * cambie nada, y entonces no hay fila (ver el modelo). Pero la URL propia vive
+ * en la fila, asi que las que falten se crean aqui, con todos los campos nulos
+ * y publicada: exactamente lo que ya se comportaba sin ella. Es idempotente y
+ * la hace la primera lectura del panel; no hay un paso aparte que recordar.
+ */
+async function asegurarUrls(
+  piezas: Array<{ id: string; slug: string; locations: Array<{ id: string; name: string }> }>,
+  atHome: Set<string>,
+) {
+  for (const p of piezas) {
+    if (atHome.has(p.id)) continue;
+    const filas = await prisma.locationListing.findMany({
+      where: { experienceId: p.id, deletedAt: null },
+      select: { id: true, locationId: true, slug: true },
+    });
+    for (const s of p.locations) {
+      const fila = filas.find((f) => f.locationId === s.id);
+      if (fila?.slug) continue;
+      const slug = await slugParaPublicacion(p.slug, s.name);
+      if (fila) {
+        await prisma.locationListing.update({ where: { id: fila.id }, data: { slug } });
+      } else {
+        // Puede haber una borrada con esta pareja: el unico de la base es
+        // (experiencia, sede) y no distingue las borradas, asi que se revive.
+        await prisma.locationListing.upsert({
+          where: { experienceId_locationId: { experienceId: p.id, locationId: s.id } },
+          create: { experienceId: p.id, locationId: s.id, slug },
+          update: { deletedAt: null, slug },
+        });
+      }
+    }
+  }
 }
 
 /**
@@ -138,6 +177,10 @@ export const catalogoService = {
     if (!companyId) throw Forbidden('No tienes una company asociada');
 
     const piezas = await piezasYSedes(companyId);
+    await asegurarUrls(
+      piezas,
+      new Set(piezas.filter((p) => p.atHome).map((p) => p.id)),
+    );
     const filas = [];
 
     for (const p of piezas) {
@@ -171,6 +214,7 @@ export const catalogoService = {
           locationId: null,
           locationName: null,
           sedeActiva: null,
+          slugPublicacion: suya?.slug ?? null,
           propias: suya
             ? {
                 kind: suya.kind,
@@ -208,6 +252,7 @@ export const catalogoService = {
           locationId: s.id,
           locationName: s.name,
           sedeActiva: s.isActive,
+          slugPublicacion: suyas?.slug ?? null,
           propias: suyas
             ? {
                 kind: suyas.kind,
@@ -252,7 +297,7 @@ export const catalogoService = {
   ) {
     const exp = await prisma.experience.findFirst({
       where: { id: experienceId, deletedAt: null },
-      select: { id: true, companyId: true, atHome: true },
+      select: { id: true, companyId: true, atHome: true, slug: true },
     });
     if (!exp) throw NotFound('Experiencia no encontrada');
     if (!opts?.isAdmin && (!companyId || exp.companyId !== companyId)) {
@@ -333,11 +378,30 @@ export const catalogoService = {
     // Se busca antes de crear en vez de un upsert: con la sede nula el unico
     // de la base no sirve —Postgres trata los NULL como distintos— y dos
     // publicaciones de la misma experiencia a domicilio no tendrian sentido.
+    // La URL se pone una vez y no se toca: ver el modelo.
+    const nombreDeSede = locationId
+      ? (await prisma.location.findUnique({ where: { id: locationId }, select: { name: true } }))?.name ?? 'sede'
+      : null;
     if (previa) {
-      await prisma.locationListing.update({ where: { id: previa.id }, data: datos });
+      const conSlug = await prisma.locationListing.findUnique({
+        where: { id: previa.id },
+        select: { slug: true },
+      });
+      await prisma.locationListing.update({
+        where: { id: previa.id },
+        data: {
+          ...datos,
+          ...(conSlug?.slug ? {} : { slug: await slugParaPublicacion(exp.slug, nombreDeSede) }),
+        },
+      });
     } else {
       await prisma.locationListing.create({
-        data: { experienceId, locationId: locationId ?? null, ...datos },
+        data: {
+          experienceId,
+          locationId: locationId ?? null,
+          slug: await slugParaPublicacion(exp.slug, nombreDeSede),
+          ...datos,
+        },
       });
     }
 

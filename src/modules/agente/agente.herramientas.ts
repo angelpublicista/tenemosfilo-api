@@ -13,6 +13,7 @@ import { enlaceService } from '../opportunities/opportunities.enlace.js';
 import { opportunitiesService } from '../opportunities/opportunities.service.js';
 import { aforoMaximo } from '../../lib/franjas.js';
 import { listaDeIdiomas } from '../../lib/idiomas.js';
+import { aTelefonoInternacional, ultimosDiez } from '../../lib/telefono.js';
 
 export interface ContextoDelAgente {
   companyId: string;
@@ -111,7 +112,8 @@ export const HERRAMIENTAS = [
           },
           telefono: {
             type: 'string',
-            description: 'Solo en el chat web: el teléfono que dio la persona. En WhatsApp no hace falta.',
+            description:
+              'Solo en el chat web: el teléfono que dio la persona. Si es de Colombia basta con sus 10 dígitos; si es de otro país, debe traer el código de país (+34…, +1…): pídeselo. En WhatsApp no hace falta.',
           },
           email: {
             type: 'string',
@@ -314,6 +316,36 @@ async function guardarSolicitud(
   if (esWeb && !telefonoDado && !correoDado) {
     return { ok: false, texto: 'Falta un teléfono o un correo para que el equipo pueda contactarla. Pídeselo.' };
   }
+
+  // Siempre en formato internacional: quien escribe en un chat no pone el
+  // código de país, y el formulario de reserva lo necesita para leer el
+  // número. WhatsApp lo entrega completo pero sin el "+".
+  let telefono: string | null = null;
+  if (esWeb && telefonoDado) {
+    telefono = aTelefonoInternacional(telefonoDado);
+    if (!telefono) {
+      return {
+        ok: false,
+        texto:
+          'Ese teléfono no está completo: si es de Colombia necesita sus 10 dígitos; si es de otro país, el código de país (+34, +1…). Pídeselo de nuevo.',
+      };
+    }
+  } else if (!esWeb) {
+    const digitos = ctx.telefono.replace(/D/g, '');
+    telefono = digitos ? `+${digitos}` : null;
+  }
+
+  // Antes de crear un contacto, mirar si ya está. El formato guardado ha
+  // cambiado con los años ("300…", "57300…", "+57300…"), y el cruce exacto
+  // de la solicitud no los reconoce como el mismo número: sin esto, cada
+  // contacto antiguo se duplicaría al volver a escribir.
+  const diez = ultimosDiez(telefono);
+  const yaEsta = diez
+    ? await prisma.contact.findFirst({
+        where: { hostCompanyId: ctx.companyId, deletedAt: null, phone: { endsWith: diez } },
+        select: { id: true },
+      })
+    : null;
   const tipo = argumentos.tipo === 'ABIERTA' ? 'ABIERTA' : 'PRIVADA';
 
   const [firstName, ...resto] = nombre.split(/\s+/);
@@ -324,16 +356,16 @@ async function guardarSolicitud(
     ...(tipo === 'PRIVADA'
       ? { buyerKind: argumentos.comprador === 'CORPORATIVO' ? 'CORPORATIVO' : 'SOCIAL' }
       : {}),
-    contacto: {
-      firstName: firstName ?? nombre,
-      ...(resto.length ? { lastName: resto.join(' ') } : {}),
-      ...(esWeb
-        ? {
-            ...(telefonoDado ? { phone: telefonoDado } : {}),
-            ...(correoDado ? { email: correoDado } : {}),
-          }
-        : { phone: ctx.telefono }),
-    },
+    ...(yaEsta
+      ? { contactId: yaEsta.id }
+      : {
+          contacto: {
+            firstName: firstName ?? nombre,
+            ...(resto.length ? { lastName: resto.join(' ') } : {}),
+            ...(telefono ? { phone: telefono } : {}),
+            ...(esWeb && correoDado ? { email: correoDado } : {}),
+          },
+        }),
     leadSource: esWeb ? 'WEB' : 'WHATSAPP',
     notes: argumentos.notas ? String(argumentos.notas).slice(0, 2000) : undefined,
   } as never);

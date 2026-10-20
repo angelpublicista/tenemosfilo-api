@@ -19,6 +19,7 @@ import { conCupoApartado } from '../../lib/cupos.js';
 import { reservasQueAdmite } from '../../lib/opciones-de-cotizacion.js';
 import { pasarelaDe } from '../../lib/pasarela.js';
 import { logger } from '../../lib/logger.js';
+import { aTelefonoInternacional } from '../../lib/telefono.js';
 
 /** Los datos con los que se emite una factura. */
 export interface DatosDeFacturacion {
@@ -229,7 +230,9 @@ export const enlaceService = {
     return {
       nombre: [o.contact?.firstName, o.contact?.lastName].filter(Boolean).join(' ') || '',
       email: o.contact?.email ?? '',
-      telefono: o.contact?.phone ?? '',
+      // Contactos guardados antes de normalizar ("300…", "57300…") se
+      // entregan completos; si no se puede saber el país, tal cual estaban.
+      telefono: aTelefonoInternacional(o.contact?.phone) ?? o.contact?.phone ?? '',
       experienceId: o.experiences[0]?.experienceId ?? null,
     };
   },
