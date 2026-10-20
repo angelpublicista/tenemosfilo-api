@@ -321,7 +321,7 @@ async function guardarSolicitud(
         : { phone: ctx.telefono }),
     },
     leadSource: esWeb ? 'WEB' : 'WHATSAPP',
-    notas: argumentos.notas ? String(argumentos.notas).slice(0, 2000) : undefined,
+    notes: argumentos.notas ? String(argumentos.notas).slice(0, 2000) : undefined,
   } as never);
 
   await prisma.aiConversation.update({
