@@ -378,11 +378,19 @@ publicRouter.get(
 
     const reserva = await prisma.reservation.findUnique({
       where: { reservationNumber },
-      select: { reservationNumber: true, status: true, paymentStatus: true },
+      select: {
+        reservationNumber: true,
+        status: true,
+        paymentStatus: true,
+        company: { select: { brandPrimary: true } },
+      },
     });
     if (!reserva) throw NotFound('Reserva no encontrada');
 
-    res.json({ data: reserva });
+    // El color de marca no identifica a nadie y deja la pagina de retorno con
+    // el aspecto del catalogo desde el que se pago.
+    const { company, ...estado } = reserva;
+    res.json({ data: { ...estado, colorMarca: company?.brandPrimary ?? null } });
   },
 );
 
