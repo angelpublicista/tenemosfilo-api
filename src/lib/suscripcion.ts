@@ -12,6 +12,7 @@ import { prisma } from '../config/prisma.js';
 import { BadRequest } from './errors.js';
 import { logger } from './logger.js';
 import { sendEmail } from './email.js';
+import { armarCorreo } from './plantillas-de-correo.js';
 import { getPlatformSettings } from './commissions.js';
 import { pasarelaDeLaPlataforma } from './pasarela.js';
 import { URL_CHECKOUT, aCentavos, aEstadoDePago, firmaIntegridad, webhookValido } from './wompi.js';
@@ -270,25 +271,10 @@ export async function procesarEventoDeSuscripcion(
 
 // ── Correos ─────────────────────────────────────────────────────────────────
 
-const esc = (s: string) =>
-  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-
 const fechaLarga = (d: Date) =>
   d.toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'America/Bogota' });
 
 const pesos = (n: number) => `$${Math.round(n).toLocaleString('es-CO')}`;
-
-function correo(titulo: string, cuerpo: string, boton?: { texto: string; url: string }) {
-  return `<!DOCTYPE html><html lang="es"><body style="margin:0;padding:24px 12px;background:#f3f4f6;font-family:Arial,sans-serif;">
-  <table role="presentation" width="100%"><tr><td align="center">
-  <table role="presentation" width="600" style="max-width:600px;width:100%;background:#fff;border-radius:12px;overflow:hidden;">
-    <tr><td style="background:#F26726;color:#fff;padding:20px 32px;font-size:20px;font-weight:bold;">${esc(titulo)}</td></tr>
-    <tr><td style="padding:32px;color:#374151;font-size:15px;line-height:1.6;">${cuerpo}
-    ${boton ? `<p style="margin:24px 0 0;"><a href="${esc(boton.url)}" style="background:#F26726;color:#fff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:bold;display:inline-block;">${esc(boton.texto)}</a></p>` : ''}
-    </td></tr>
-    <tr><td style="padding:16px 32px;background:#f9fafb;color:#9ca3af;font-size:12px;text-align:center;">Tenemos Filo · suscripción sin permanencia: pagas mes a mes y puedes dejar de renovar cuando quieras.</td></tr>
-  </table></td></tr></table></body></html>`;
-}
 
 /** A quien se le escribe por la suscripcion de una empresa: el titular y su correo. */
 async function destinatarios(companyId: string): Promise<{ correos: string[]; nombre: string; endsAt: Date | null }> {
@@ -305,19 +291,17 @@ async function destinatarios(companyId: string): Promise<{ correos: string[]; no
   return { correos, nombre: e?.companyName ?? 'tu empresa', endsAt: e?.subscriptionEndsAt ?? null };
 }
 
-const URL_SUSCRIPCION = () => `${env.APP_URL}/dashboard/suscripcion`;
-
-async function avisarPagoDeSuscripcion(companyId: string): Promise<void> {
+export async function avisarPagoDeSuscripcion(companyId: string): Promise<void> {
   const { correos, nombre, endsAt } = await destinatarios(companyId);
   if (!endsAt) return;
-  const html = correo(
-    'Recibimos tu pago',
-    `<p>Hola,</p><p>La suscripción de <strong>${esc(nombre)}</strong> a Tenemos Filo está al día hasta el <strong>${esc(fechaLarga(endsAt))}</strong>.</p>
-     <p>Gracias por seguir con nosotros.</p>`,
-  );
-  await Promise.all(
-    correos.map((to) => sendEmail({ to, subject: 'Recibimos el pago de tu suscripción', html }).catch(() => false)),
-  );
+  // El primer pago activa la suscripcion y abre el panel; los siguientes son
+  // renovaciones. Se cuentan los pagos ya aplicados (este incluido).
+  const pagados = await prisma.subscriptionPayment.count({ where: { companyId, status: 'PAID' } });
+  const { subject, html } = await armarCorreo(pagados <= 1 ? 'suscripcion_activa' : 'suscripcion_renovada', {
+    empresa: nombre,
+    fecha: fechaLarga(endsAt),
+  });
+  await Promise.all(correos.map((to) => sendEmail({ to, subject, html }).catch(() => false)));
 }
 
 /**
@@ -362,31 +346,13 @@ export async function enviarRecordatoriosDeSuscripcion(): Promise<number> {
     }
 
     const precio = `${pesos(conIva(Number(ajustes.subscriptionPrice), Number(ajustes.subscriptionVat)).total)} (IVA incluido)`;
-    const textos = {
-      siete_dias: {
-        asunto: 'Tu suscripción a Tenemos Filo vence en unos días',
-        titulo: 'Tu suscripción está por vencer',
-        cuerpo: `Tu suscripción vence el <strong>${esc(fechaLarga(endsAt))}</strong>. Renueva por ${precio} para no perder el acceso a tu panel.`,
-      },
-      un_dia: {
-        asunto: 'Tu suscripción a Tenemos Filo vence mañana',
-        titulo: 'Vence mañana',
-        cuerpo: `Tu suscripción vence el <strong>${esc(fechaLarga(endsAt))}</strong>. Renueva por ${precio} y sigue con tu panel sin interrupciones.`,
-      },
-      vencida: {
-        asunto: 'Tu suscripción a Tenemos Filo venció',
-        titulo: 'Tu suscripción venció',
-        cuerpo: `Venció el <strong>${esc(fechaLarga(endsAt))}</strong> y tu panel quedó bloqueado. Renueva por ${precio} y vuelve a entrar al instante.`,
-      },
-    }[cuando];
-
-    const html = correo(
-      textos.titulo,
-      `<p>Hola,</p><p>${textos.cuerpo}</p><p>Empresa: <strong>${esc(nombre)}</strong></p>`,
-      { texto: 'Renovar mi suscripción', url: URL_SUSCRIPCION() },
-    );
+    const { subject, html } = await armarCorreo(`recordatorio_${cuando}` as const, {
+      empresa: nombre,
+      fecha: fechaLarga(endsAt),
+      precio,
+    });
     const salio = await Promise.all(
-      correos.map((to) => sendEmail({ to, subject: textos.asunto, html }).catch(() => false)),
+      correos.map((to) => sendEmail({ to, subject, html }).catch(() => false)),
     );
     if (salio.some(Boolean)) {
       enviados += 1;

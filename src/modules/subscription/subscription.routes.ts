@@ -9,6 +9,7 @@ import { prisma } from '../../config/prisma.js';
 import {
   PREFIJO_DE_SUSCRIPCION,
   aplicarPago,
+  avisarPagoDeSuscripcion,
   crearCheckoutDeSuscripcion,
   estadoDeSuscripcion,
   olvidarSuscripciones,
@@ -128,7 +129,9 @@ subscriptionRouter.post(
           createdByEmail: req.user!.email,
         },
       });
-      await aplicarPago(pago.id);
+      // Un pago registrado a mano activa la suscripcion igual que uno en linea, y
+      // el titular tiene que enterarse igual.
+      if (await aplicarPago(pago.id)) void avisarPagoDeSuscripcion(companyId).catch(() => undefined);
     }
     res.status(201).json({ data: await estadoDeSuscripcion(companyId) });
   },

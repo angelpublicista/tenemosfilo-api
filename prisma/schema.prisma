@@ -2254,3 +2254,18 @@ model HelpArticle {
 
   @@index([category, position])
 }
+
+// La version propia que el administrador hizo de una plantilla de correo. Sin
+// fila, se usa el texto por defecto del codigo (src/lib/plantillas-de-correo.ts);
+// borrarla es restaurarlo.
+model EmailTemplate {
+  /// La clave de la plantilla en el codigo, p. ej. "suscripcion_activa".
+  key         String   @id
+  subject     String
+  title       String
+  /// HTML sencillo con variables {{asi}}.
+  body        String
+  buttonText  String
+  updatedAt   DateTime @updatedAt
+  updatedByEmail String?
+}

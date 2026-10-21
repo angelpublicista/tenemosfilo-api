@@ -6,6 +6,7 @@ import { invitationEmailHtml, passwordResetEmailHtml, sendEmail } from '../../li
 import { BadRequest, Conflict, NotFound, Unauthorized } from '../../lib/errors.js';
 import { logger } from '../../lib/logger.js';
 import { hashPassword, verifyPassword } from '../../lib/password.js';
+import { enviarBienvenida } from '../../lib/email-cuenta.js';
 import { verificarRecaptcha } from '../../lib/recaptcha.js';
 import type {
   ChangePasswordInput,
@@ -84,6 +85,8 @@ export const authService = {
       },
       select: publicUserSelect,
     });
+    // Sin await: la cuenta ya existe y el correo no debe demorar ni romper el registro.
+    void enviarBienvenida(user);
     return user;
   },
 
