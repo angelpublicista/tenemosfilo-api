@@ -568,7 +568,15 @@ export const reservationsService = {
 
     // Un reintento no vuelve a avisar: el anfitrion recibiria dos veces el
     // mismo aviso de una sola venta.
-    if (!reutilizada) void avisarNuevaReserva(paraAvisos(creada));
+    //
+    // Si la cargo un usuario del anfitrion no se le manda el correo: es lo que
+    // acaba de hacer. Si la vendio un canal, si.
+    if (!reutilizada) {
+      void avisarNuevaReserva(paraAvisos(creada), {
+        correoAlAnfitrion: asReseller,
+        actor: asReseller ? 'reseller' : 'host_user',
+      });
+    }
 
     // TR-26. El comprador queda como contacto del anfitrion. Sin await: si
     // falla, la venta ya esta hecha y perder el contacto es molesto, perder
@@ -1312,7 +1320,14 @@ export const reservationsService = {
         include: fullInclude,
       });
 
-      void avisarBajaParcial(paraAvisos(reducida), sePierden, input.reason, reembolso);
+      void avisarBajaParcial(
+        paraAvisos(reducida),
+        sePierden,
+        input.reason,
+        reembolso,
+        input.cancelledBy,
+        opts?.comoCanal === true,
+      );
       return reducida;
     }
 
@@ -1344,7 +1359,11 @@ export const reservationsService = {
       },
       include: fullInclude,
     });
-    void avisarCambioDeEstado(paraAvisos(cancelada), 'CANCELLED', input.reason);
+    void avisarCambioDeEstado(paraAvisos(cancelada), 'CANCELLED', input.reason, {
+      cancelledBy: input.cancelledBy,
+      reembolso,
+      comoCanal: opts?.comoCanal === true,
+    });
     return cancelada;
   },
 
@@ -1682,7 +1701,27 @@ export const reservationsService = {
       datos.locationId,
     );
 
-    void avisarCambioDeEstado(paraAvisos(reprogramada), 'RESCHEDULED', input.reason);
+    // Reagendar es un cambio mas de la reserva, no un correo aparte: sale el
+    // mismo "tu reserva fue actualizada" con el antes y el ahora.
+    void (async () => {
+      const quien = opts?.comoCanal
+        ? (
+            await prisma.company.findUnique({
+              where: { id: requesterCompanyId! },
+              select: { companyName: true },
+            })
+          )?.companyName ?? 'Un canal de venta'
+        : null;
+      await avisarCambioEnLaReserva(
+        paraAvisos(reprogramada),
+        [
+          `La fecha pasa del ${cuandoEnPalabras(existing.reservationDate)} al ${cuandoEnPalabras(
+            nuevaFecha,
+          )}${input.reason ? ` (${input.reason})` : ''}`,
+        ],
+        { quienLoCambio: quien },
+      );
+    })();
     return reprogramada;
   },
 

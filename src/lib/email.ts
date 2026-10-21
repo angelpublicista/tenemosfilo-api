@@ -26,6 +26,10 @@ type SendEmailInput = {
   to: string;
   subject: string;
   html: string;
+  /** Nombre visible del remitente; la direccion sigue siendo la verificada. */
+  fromName?: string;
+  /** A donde llegan las respuestas del destinatario. */
+  replyTo?: string;
 };
 
 /**
@@ -35,14 +39,20 @@ type SendEmailInput = {
  * contraseña un fallo de correo NO debe cambiar la respuesta HTTP, porque
  * eso delataria si el email existe o no.
  */
-export async function sendEmail({ to, subject, html }: SendEmailInput): Promise<boolean> {
+export async function sendEmail({
+  to,
+  subject,
+  html,
+  fromName,
+  replyTo,
+}: SendEmailInput): Promise<boolean> {
   if (!env.ZEPTOMAIL_TOKEN || !env.ZEPTOMAIL_FROM_EMAIL) {
     logger.error('ZEPTOMAIL_TOKEN o ZEPTOMAIL_FROM_EMAIL sin configurar: no se envio el correo');
     return false;
   }
 
-  try {
-    const res = await fetch(env.ZEPTOMAIL_API_URL, {
+  const enviar = (conReplyTo: boolean) =>
+    fetch(env.ZEPTOMAIL_API_URL, {
       method: 'POST',
       headers: {
         Authorization: cabeceraDeAutorizacion(env.ZEPTOMAIL_TOKEN),
@@ -50,14 +60,28 @@ export async function sendEmail({ to, subject, html }: SendEmailInput): Promise<
         Accept: 'application/json',
       },
       body: JSON.stringify({
-        from: { address: env.ZEPTOMAIL_FROM_EMAIL, name: env.ZEPTOMAIL_FROM_NAME },
+        from: { address: env.ZEPTOMAIL_FROM_EMAIL, name: fromName ?? env.ZEPTOMAIL_FROM_NAME },
         // ZeptoMail anida el destinatario un nivel mas que otros proveedores:
         // to[].email_address.address, no to[].email.
         to: [{ email_address: { address: to } }],
+        ...(conReplyTo && replyTo ? { reply_to: [{ address: replyTo }] } : {}),
         subject,
         htmlbody: html,
       }),
     });
+
+  try {
+    let res = await enviar(true);
+
+    // ZeptoMail pide que el Reply-To sea de un dominio verificado en la cuenta,
+    // y el correo de un anfitrion (un gmail, por ejemplo) no lo es. Perder el
+    // Reply-To es molesto; perder el correo de la reserva, no. Se reintenta
+    // sin el.
+    if (!res.ok && replyTo) {
+      const body = await res.text().catch(() => '');
+      logger.warn({ status: res.status, body, replyTo }, 'ZeptoMail rechazo el Reply-To: se reenvia sin el');
+      res = await enviar(false);
+    }
 
     if (!res.ok) {
       const body = await res.text().catch(() => '');

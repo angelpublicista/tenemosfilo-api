@@ -18,11 +18,8 @@ import {
   correoCanceladaComensal,
   correoConfirmadaComensal,
   correoPagoAnfitrion,
-  correoPagoComensal,
-  correoReprogramadaComensal,
   correoReservaAdmin,
   correoReservaAnfitrion,
-  correoReservaComensal,
   type DatosCorreoReserva,
   correoBajaParcialComensal,
   correoBajaParcialAnfitrion,
@@ -85,7 +82,7 @@ export async function personasDeLaEmpresa(companyId: string | null | undefined):
 // Correo
 // ---------------------------------------------------------------------------
 
-type Envio = { to: string; subject: string; html: string };
+type Envio = { to: string; subject: string; html: string; fromName?: string; replyTo?: string };
 
 /**
  * Manda los correos y se traga cualquier fallo.
@@ -97,8 +94,11 @@ type Envio = { to: string; subject: string; html: string };
  *
  * Los envios van en paralelo pero sin bloquear a quien llama: si el proveedor tarda
  * dos segundos, la reserva ya se guardo y respondio hace rato.
+ *
+ * Devuelve a quien le llego, para que quien reclamo la clave de un envio sepa
+ * si tiene que soltarla.
  */
-async function despachar(envios: Envio[]): Promise<void> {
+async function despachar(envios: Envio[]): Promise<string[]> {
   const vistos = new Set<string>();
   const unicos = envios.filter((e) => {
     const dir = e.to?.trim().toLowerCase();
@@ -106,17 +106,167 @@ async function despachar(envios: Envio[]): Promise<void> {
     vistos.add(dir);
     return true;
   });
-  if (unicos.length === 0) return;
+  if (unicos.length === 0) return [];
 
-  await Promise.all(
+  const llegaron = await Promise.all(
     unicos.map(async (e) => {
       try {
-        await sendEmail(e);
+        return (await sendEmail(e)) ? e.to : null;
       } catch (err) {
         logger.error({ err, to: e.to }, 'no se pudo enviar el correo de reserva');
+        return null;
       }
     }),
   );
+  return llegaron.filter((a): a is string => a !== null);
+}
+
+/**
+ * Quien origino un hecho. Es lo que decide a quien se le avisa: al anfitrion
+ * no se le cuenta lo que hizo el, y al comensal lo que hizo el anfitrion se le
+ * dice distinto de lo que pidio el.
+ */
+export type ActorType = 'customer' | 'host_user' | 'system' | 'reseller';
+
+/** De `cancelledBy` —lo que declara quien cancela— al actor del hecho. */
+function actorDeCancelacion(c?: { cancelledBy?: QuienCancela; comoCanal?: boolean }): ActorType {
+  if (c?.comoCanal) return 'reseller';
+  if (c?.cancelledBy === 'client') return 'customer';
+  if (c?.cancelledBy === 'system') return 'system';
+  // Host, o sin dato: lo que llega sin `cancelledBy` sale del panel.
+  return 'host_user';
+}
+
+/**
+ * Deja constancia de un correo que no se mando porque no habia a quien
+ * escribirle. La operacion sigue: una reserva no se bloquea por no tener
+ * email, pero tiene que quedar dicho que el aviso no salio.
+ */
+async function registrarOmitido(
+  clave: string,
+  plantilla: string,
+  reservationId: string,
+  actor?: ActorType,
+): Promise<void> {
+  try {
+    await prisma.communicationLog.create({
+      data: { key: clave, templateId: plantilla, reservationId, skippedReason: 'no_email', actorType: actor },
+    });
+  } catch (err) {
+    if ((err as { code?: string }).code !== 'P2002') {
+      logger.error({ err, clave }, 'no se pudo registrar el correo omitido');
+    }
+  }
+}
+
+/** Una direccion que sirva para escribir, o null. */
+function correoValido(correo: string | null | undefined): string | null {
+  const c = correo?.trim();
+  return c && c.includes('@') ? c : null;
+}
+
+/**
+ * A quien se le escribe en la empresa por una reserva: su contacto de reservas.
+ *
+ * Si la empresa no ha declarado uno, el correo de la empresa y el del titular:
+ * un aviso que no le llega a nadie es peor que uno que le llega a quien no
+ * hacia falta.
+ */
+async function correosDeReservas(companyId: string | null | undefined): Promise<string[]> {
+  if (!companyId) return [];
+  try {
+    const contactos = await prisma.companyContact.findMany({
+      where: { companyId, type: 'RESERVAS' },
+      select: { email: true },
+    });
+    const declarados = contactos.map((c) => c.email).filter(Boolean);
+    if (declarados.length > 0) return declarados;
+
+    const empresa = await prisma.company.findUnique({
+      where: { id: companyId },
+      select: { companyEmail: true, owner: { select: { email: true } } },
+    });
+    return [empresa?.companyEmail ?? '', empresa?.owner?.email ?? ''].filter(Boolean);
+  } catch (err) {
+    logger.error({ err, companyId }, 'no se pudo resolver el contacto de reservas');
+    return [];
+  }
+}
+
+/**
+ * Manda los correos de UN hecho una sola vez.
+ *
+ * La clave nombra el hecho ("reservation:<id>:confirmed"), no el intento. Se
+ * reclama antes de enviar: dos procesos que llegan a la vez con el mismo
+ * evento —el webhook de la pasarela y el anfitrion guardando el estado— no
+ * pueden pasar los dos. Si no salio ningun correo se suelta, porque un fallo
+ * del proveedor no puede dejar el hecho marcado como avisado.
+ */
+async function despacharUnaVez(
+  clave: string,
+  plantilla: string,
+  reservationId: string,
+  envios: Envio[],
+  actor?: ActorType,
+): Promise<void> {
+  try {
+    await prisma.communicationLog.create({
+      data: { key: clave, templateId: plantilla, reservationId, actorType: actor },
+    });
+  } catch (err) {
+    // P2002: la clave ya existe, o sea que este hecho ya se aviso.
+    if ((err as { code?: string }).code === 'P2002') {
+      logger.info({ clave }, 'correo ya enviado para este hecho: no se repite');
+      return;
+    }
+    // Un fallo de la base no puede costar el correo de una reserva.
+    logger.error({ err, clave }, 'no se pudo reclamar el envio; se manda sin registro');
+    await despachar(envios);
+    return;
+  }
+
+  const llegaron = await despachar(envios);
+  try {
+    if (llegaron.length === 0) {
+      await prisma.communicationLog.delete({ where: { key: clave } });
+    } else {
+      await prisma.communicationLog.update({
+        where: { key: clave },
+        data: { sentAt: new Date(), recipients: llegaron },
+      });
+    }
+  } catch (err) {
+    logger.error({ err, clave }, 'no se pudo actualizar el registro del envio');
+  }
+}
+
+/**
+ * Como se presenta un correo al comensal: de parte del anfitrion, y con sus
+ * respuestas yendo al anfitrion y no a un buzon de la plataforma que nadie lee.
+ *
+ * El Reply-To es el contacto de reservas de la empresa; si no tiene, el correo
+ * de la empresa.
+ */
+async function remitenteDelComensal(
+  r: DatosReserva,
+): Promise<{ fromName?: string; replyTo?: string }> {
+  const nombre = r.empresaNombre?.replace(/[\r\n"<>]/g, ' ').trim();
+  const fromName = nombre ? `${nombre} vía FILO` : undefined;
+  try {
+    const [contacto, empresa] = await Promise.all([
+      prisma.companyContact.findFirst({
+        where: { companyId: r.companyId, type: 'RESERVAS' },
+        select: { email: true },
+        orderBy: { createdAt: 'asc' },
+      }),
+      prisma.company.findUnique({ where: { id: r.companyId }, select: { companyEmail: true } }),
+    ]);
+    const replyTo = contacto?.email || empresa?.companyEmail || undefined;
+    return { fromName, replyTo };
+  } catch (err) {
+    logger.error({ err, companyId: r.companyId }, 'no se pudo resolver el Reply-To de la empresa');
+    return { fromName };
+  }
 }
 
 /**
@@ -213,6 +363,10 @@ type DatosReserva = {
   lugar?: string | null;
   idioma?: string | null;
   peticiones?: string | null;
+  /** Estado en que esta la reserva al avisar. */
+  estado?: ReservationStatus;
+  /** Lo que lleva pagado; 0 si nada. */
+  pagado?: number;
 };
 
 /** Reserva tal como sale de la base con sus relaciones. */
@@ -226,6 +380,8 @@ type ReservaCruda = {
   resellerCompanyId?: string | null;
   userId?: string | null;
   pricing?: unknown;
+  status?: ReservationStatus;
+  paidAmount?: unknown;
   client?: unknown;
   experience?: { title?: string } | null;
   company?: {
@@ -285,7 +441,7 @@ export function datosDeReserva(r: ReservaCruda): DatosReserva {
     total: Number(precio.total ?? 0),
     // El correo que dejo al reservar manda sobre el de la cuenta: es donde
     // pidio que le escribieran, y muchas reservas no tienen cuenta detras.
-    clienteEmail: cliente.email ?? r.user?.email ?? null,
+    clienteEmail: correoValido(cliente.email) ?? correoValido(r.user?.email),
     clienteTelefono: cliente.phone ?? null,
     empresaNombre: r.company?.companyName ?? null,
     // El logo sale de la empresa dueña de la experiencia reservada: es el
@@ -298,6 +454,8 @@ export function datosDeReserva(r: ReservaCruda): DatosReserva {
     // En nombre y no en codigo: en un correo, "en" no se entiende.
     idioma: r.language ? nombreDeIdioma(r.language) : null,
     peticiones: r.specialRequirements ?? null,
+    estado: r.status,
+    pagado: Number(r.paidAmount ?? 0) || 0,
   };
 }
 
@@ -338,6 +496,7 @@ function paraCorreo(r: DatosReserva): DatosCorreoReserva {
     idioma: r.idioma,
     peticiones: r.peticiones,
     total: r.total,
+    pagado: r.pagado,
   };
 }
 
@@ -347,7 +506,19 @@ function paraCorreo(r: DatosReserva): DatosCorreoReserva {
  * Al anfitrion le llega como venta que atender; al revendedor, como venta
  * suya; al cliente, como confirmacion de que su solicitud entro.
  */
-export async function avisarNuevaReserva(r: DatosReserva): Promise<void> {
+export async function avisarNuevaReserva(
+  r: DatosReserva,
+  opts?: {
+    /**
+     * false cuando la reserva la acaba de cargar un usuario del propio
+     * anfitrion: sabe lo que hizo y no necesita un correo que se lo cuente.
+     * Sigue la bandeja de la app y el aviso a la plataforma.
+     */
+    correoAlAnfitrion?: boolean;
+    /** Quien creo la reserva; por defecto, el propio comensal. */
+    actor?: ActorType;
+  },
+): Promise<void> {
   const anfitriones = await personasDeLaEmpresa(r.companyId);
   const revendedores = r.resellerCompanyId
     ? await personasDeLaEmpresa(r.resellerCompanyId)
@@ -389,21 +560,45 @@ export async function avisarNuevaReserva(r: DatosReserva): Promise<void> {
 
   await notificar(avisos);
 
-  // Correo. Los tres publicos que se pidieron: comensal, anfitrion y admin.
+  // Correo.
   const d = paraCorreo(r);
+  const actor = opts?.actor ?? 'customer';
   const [correosAnfitrion, correosAdmin] = await Promise.all([
-    correosDeLaEmpresa(r.companyId, 'RESERVAS'),
+    correosDeReservas(r.companyId),
     correosDeAdmins(),
   ]);
 
-  await despachar([
-    // El comensal primero: si su direccion coincide con la del anfitrion
-    // —reservo en su propia experiencia— recibe la version del comensal,
-    // que es la que espera como cliente.
-    ...(r.clienteEmail ? [{ to: r.clienteEmail, ...correoReservaComensal(d) }] : []),
-    ...correosAnfitrion.map((to) => ({ to, ...correoReservaAnfitrion(d) })),
-    ...correosAdmin.map((to) => ({ to, ...correoReservaAdmin(d) })),
-  ]);
+  // Al comensal NO se le escribe por una reserva pendiente: el unico correo
+  // que recibe es el de confirmada, cuando lo esta. Solo si la reserva ya nace
+  // confirmada —la empresa pidio autoconfirmar— ese es el momento.
+  if (r.estado === 'CONFIRMED') {
+    if (r.clienteEmail) {
+      await despacharUnaVez(
+        `reservation:${r.id}:confirmed`,
+        'CLI-01',
+        r.id,
+        [{ to: r.clienteEmail, ...(await remitenteDelComensal(r)), ...correoConfirmadaComensal(d) }],
+        actor,
+      );
+    } else {
+      await registrarOmitido(`reservation:${r.id}:confirmed:skipped`, 'CLI-01', r.id, actor);
+    }
+  }
+
+  // Una reserva, un aviso al anfitrion y a la plataforma, aunque el mismo
+  // alta llegue dos veces.
+  await despacharUnaVez(
+    `reservation:${r.id}:host_new_booking`,
+    'HOST-01',
+    r.id,
+    [
+      ...(opts?.correoAlAnfitrion === false
+        ? []
+        : correosAnfitrion.map((to) => ({ to, ...correoReservaAnfitrion(d) }))),
+      ...correosAdmin.map((to) => ({ to, ...correoReservaAdmin(d) })),
+    ],
+    actor,
+  );
 }
 
 /**
@@ -436,10 +631,21 @@ const TIPO_ESTADO: Record<string, NotificationType> = {
  * confirmaron, le cancelaron o le movieron la fecha, y quien no esta mirando
  * el panel.
  */
+export type QuienCancela = 'client' | 'host' | 'system';
+
+/** Quien origino la cancelacion y que se devuelve; de ello salen los correos. */
+export type DatosDeCancelacion = {
+  cancelledBy?: QuienCancela;
+  reembolso?: number;
+  /** La cancelo el canal que vendio la reserva, en nombre de su cliente. */
+  comoCanal?: boolean;
+};
+
 export async function avisarCambioDeEstado(
   r: DatosReserva,
   estado: SucesoDeReserva,
   motivo?: string,
+  cancelacion?: DatosDeCancelacion,
 ): Promise<void> {
   const textos = TITULO_ESTADO[estado];
   const tipo = TIPO_ESTADO[estado];
@@ -481,22 +687,47 @@ export async function avisarCambioDeEstado(
 
   const d = paraCorreo(r);
   const envios: Envio[] = [];
+  const remitente = r.clienteEmail ? await remitenteDelComensal(r) : {};
 
-  if (r.clienteEmail) {
-    if (estado === 'CONFIRMED') envios.push({ to: r.clienteEmail, ...correoConfirmadaComensal(d) });
-    if (estado === 'CANCELLED')
-      envios.push({ to: r.clienteEmail, ...correoCanceladaComensal(d, motivo) });
-    if (estado === 'RESCHEDULED')
-      envios.push({ to: r.clienteEmail, ...correoReprogramadaComensal(d, motivo) });
+  // La confirmacion va aparte, con clave: entra a Confirmada una sola vez
+  // aunque el estado se guarde dos veces o el webhook se reintente.
+  if (estado === 'CONFIRMED') {
+    if (r.clienteEmail) {
+      await despacharUnaVez(`reservation:${r.id}:confirmed`, 'CLI-01', r.id, [
+        { to: r.clienteEmail, ...remitente, ...correoConfirmadaComensal(d) },
+      ]);
+    } else {
+      await registrarOmitido(`reservation:${r.id}:confirmed:skipped`, 'CLI-01', r.id);
+    }
   }
 
-  // La cancelacion tambien al anfitrion: le libera cupo y le quita ingreso,
-  // y enterarse mañana entrando al panel es tarde para revender esa mesa.
+  // Sin `cancelledBy` la cancelacion salio de guardar el estado desde el panel,
+  // o sea que la hizo el anfitrion: es lo unico que pasa por ahi.
+  const actor = actorDeCancelacion(cancelacion);
+  const porAnfitrion = actor === 'host_user';
+  const pago = { reembolso: cancelacion?.reembolso, porAnfitrion };
+
   if (estado === 'CANCELLED') {
+    if (r.clienteEmail) {
+      envios.push({ to: r.clienteEmail, ...remitente, ...correoCanceladaComensal(d, motivo, pago) });
+    } else {
+      await registrarOmitido(
+        `reservation:${r.id}:cancelled:skipped`,
+        porAnfitrion ? 'CLI-04' : 'CLI-03A',
+        r.id,
+        actor,
+      );
+    }
+  }
+
+  // La cancelacion tambien al anfitrion, pero solo si la origino otro: le
+  // libera cupo y le quita ingreso, y enterarse mañana entrando al panel es
+  // tarde para revender esa mesa. Si la cancelo el, ya lo sabe.
+  if (estado === 'CANCELLED' && !porAnfitrion) {
     // Tambien a reservas: una cancelacion libera un cupo, y quien lo gestiona
     // es justamente quien puede revenderlo.
-    const correos = await correosDeLaEmpresa(r.companyId, 'RESERVAS');
-    envios.push(...correos.map((to) => ({ to, ...correoCanceladaAnfitrion(d, motivo) })));
+    const correos = await correosDeReservas(r.companyId);
+    envios.push(...correos.map((to) => ({ to, ...correoCanceladaAnfitrion(d, motivo, pago) })));
   }
 
   await despachar(envios);
@@ -514,6 +745,8 @@ export async function avisarBajaParcial(
   personasQueSeCaen: number,
   motivo?: string,
   reembolso?: number,
+  cancelledBy?: QuienCancela,
+  comoCanal?: boolean,
 ): Promise<void> {
   const avisos: Aviso[] = [];
   const cuantas = `${personasQueSeCaen} ${personasQueSeCaen === 1 ? 'persona' : 'personas'}`;
@@ -544,13 +777,26 @@ export async function avisarBajaParcial(
   await notificar(avisos);
 
   const d = paraCorreo(r);
-  const correos = await correosDeLaEmpresa(r.companyId, 'RESERVAS');
+  // Al anfitrion solo si la baja no la hizo el: si la cargo el, ya lo sabe.
+  const actor = actorDeCancelacion({ cancelledBy, comoCanal });
+  const porAnfitrion = actor === 'host_user';
+  const correos = porAnfitrion ? [] : await correosDeReservas(r.companyId);
+  const remitente = r.clienteEmail ? await remitenteDelComensal(r) : {};
+  if (!r.clienteEmail) {
+    await registrarOmitido(
+      `reservation:${r.id}:partial_cancel:skipped:${Date.now()}`,
+      'CLI-03B',
+      r.id,
+      actor,
+    );
+  }
   await despachar([
     ...(r.clienteEmail
       ? [
           {
             to: r.clienteEmail,
-            ...correoBajaParcialComensal(d, personasQueSeCaen, motivo, reembolso),
+            ...remitente,
+            ...correoBajaParcialComensal(d, personasQueSeCaen, motivo, { reembolso, porAnfitrion }),
           },
         ]
       : []),
@@ -611,8 +857,19 @@ export async function avisarCambioEnLaReserva(
 
   if (r.clienteEmail) {
     await despachar([
-      { to: r.clienteEmail, ...correoCambioEnLaReserva(paraCorreo(r), cambios) },
+      {
+        to: r.clienteEmail,
+        ...(await remitenteDelComensal(r)),
+        ...correoCambioEnLaReserva(paraCorreo(r), cambios),
+      },
     ]);
+  } else {
+    await registrarOmitido(
+      `reservation:${r.id}:update:skipped:${Date.now()}`,
+      'CLI-02',
+      r.id,
+      opts?.quienLoCambio ? 'reseller' : 'host_user',
+    );
   }
 }
 
@@ -623,12 +880,27 @@ export async function avisarCambioEnLaReserva(
  * notificacion en una campana que no va a abrir no pide nada.
  */
 export async function pedirCalificacion(r: DatosReserva, token: string): Promise<void> {
-  if (!r.clienteEmail) return;
+  if (!r.clienteEmail) {
+    await registrarOmitido(`reservation:${r.id}:rating:skipped`, 'CLI-05', r.id, 'host_user');
+    return;
+  }
   const enlace = `${env.APP_URL}/calificar/${token}`;
-  await despachar([{ to: r.clienteEmail, ...correoCalificacionComensal(paraCorreo(r), enlace) }]);
+  await despacharUnaVez(`reservation:${r.id}:rating`, 'CLI-05', r.id, [
+    {
+      to: r.clienteEmail,
+      ...(await remitenteDelComensal(r)),
+      ...correoCalificacionComensal(paraCorreo(r), enlace),
+    },
+  ]);
 }
 
-/** Pago confirmado: al anfitrion le entra dinero, al cliente le queda pagado. */
+/**
+ * Pago confirmado: al anfitrion le entra dinero, al cliente le queda pagado.
+ *
+ * Por correo, solo al anfitrion. El comensal no recibe un "recibimos tu pago"
+ * aparte: el correo de reserva confirmada lleva lo pagado y le sirve de
+ * comprobante, y con dos o tres correos seguidos acaba sin leer ninguno.
+ */
 export async function avisarPago(r: DatosReserva): Promise<void> {
   const anfitriones = await personasDeLaEmpresa(r.companyId);
   const avisos: Aviso[] = anfitriones.map((userId) => ({
@@ -655,8 +927,5 @@ export async function avisarPago(r: DatosReserva): Promise<void> {
 
   const d = paraCorreo(r);
   const correos = await correosDeLaEmpresa(r.companyId, 'CONTABILIDAD');
-  await despachar([
-    ...(r.clienteEmail ? [{ to: r.clienteEmail, ...correoPagoComensal(d) }] : []),
-    ...correos.map((to) => ({ to, ...correoPagoAnfitrion(d) })),
-  ]);
+  await despachar(correos.map((to) => ({ to, ...correoPagoAnfitrion(d) })));
 }

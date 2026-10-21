@@ -1838,6 +1838,34 @@ model Notification {
   @@index([userId, createdAt])
 }
 
+// Correos transaccionales ya enviados.
+//
+// La clave identifica el HECHO, no el intento ("reservation:<id>:confirmed"):
+// un webhook que se reintenta o un estado que se guarda dos veces llegan hasta
+// aqui con la misma clave, y la unicidad es lo que impide el segundo correo.
+// Se reclama ANTES de enviar y se suelta si no salio nada, para que un fallo
+// del proveedor se pueda reintentar.
+model CommunicationLog {
+  id String @id @default(cuid())
+
+  key        String @unique
+  templateId String
+
+  // Sin relacion a proposito: el registro tiene que sobrevivir a la reserva.
+  reservationId String?
+
+  recipients    String[]
+  sentAt        DateTime?
+  // "no_email": la operacion siguio, pero no habia a quien escribirle.
+  skippedReason String?
+  // Quien origino el hecho: customer | host_user | system | reseller.
+  actorType     String?
+
+  createdAt DateTime @default(now())
+
+  @@index([reservationId])
+}
+
 // Contactos de la empresa: a quien escribir para cada asunto.
 //
 // No confundir con Contact, que son los CLIENTES del anfitrion en su CRM.

@@ -73,6 +73,8 @@ export type DatosCorreoReserva = {
   idioma?: string | null;
   peticiones?: string | null;
   total?: number;
+  /** Lo que lleva pagado. Sin valor mientras no haya pagado nada. */
+  pagado?: number;
   /**
    * Logo del anfitrion de la experiencia reservada. El correo lo manda Filo,
    * pero quien presta el servicio es el anfitrion: es su marca la que el
@@ -191,6 +193,8 @@ function marco(opts: {
   contenido: string;
   logo?: string | null;
   empresa?: string;
+  /** Pie del correo. Los del comensal llevan el de la especificacion. */
+  pie?: string;
 }): string {
   return `<!DOCTYPE html>
 <html lang="es">
@@ -222,7 +226,7 @@ function marco(opts: {
             </tr>
             <tr>
               <td style="padding:20px 32px;background-color:#f9fafb;color:#9ca3af;font-size:12px;text-align:center;">
-                Tenemos Filo · experiencias gastronómicas
+                ${esc(opts.pie ?? 'Tenemos Filo · experiencias gastronómicas')}
               </td>
             </tr>
           </table>
@@ -232,6 +236,9 @@ function marco(opts: {
   </body>
 </html>`;
 }
+
+/** Pie de todo correo que le llega al comensal. */
+const PIE_DEL_COMENSAL = 'Reserva gestionada con FILO.';
 
 const PANEL_ANFITRION = `${env.APP_URL}/dashboard/reservations`;
 const PANEL_COMENSAL = `${env.APP_URL}/dashboard/mis-reservas`;
@@ -255,35 +262,10 @@ const datosDelPlan = (d: DatosCorreoReserva): Fila[] => [
 // Reserva nueva
 // ---------------------------------------------------------------------------
 
-/** Al comensal: confirmacion de que su solicitud entro y que sigue. */
-export function correoReservaComensal(d: DatosCorreoReserva) {
-  return {
-    subject: `Recibimos tu reserva · ${d.experienceTitle}`,
-    html: marco({
-      titulo: 'Tu reserva quedó registrada',
-      logo: d.logoEmpresa,
-      empresa: d.empresaNombre,
-      color: marca(d),
-      contenido: `
-        <p>Hola ${esc(d.clienteNombre)},</p>
-        <p>Registramos tu reserva en <strong>${esc(d.empresaNombre)}</strong>.
-           Te avisaremos por este medio en cuanto el anfitrión la confirme.</p>
-        ${bloqueDatos([
-          ...datosDelPlan(d),
-          { etiqueta: 'Total', valor: d.total ? esc(dinero(d.total)) : '' },
-        ])}
-        ${boton('Ver mi reserva', PANEL_COMENSAL, marca(d))}
-        <p style="font-size:13px;color:#6b7280;margin-top:24px;">
-          Guarda el código <strong>${esc(d.confirmationCode ?? d.reservationNumber)}</strong>: es lo que te van a pedir el día de la experiencia.
-        </p>`,
-    }),
-  };
-}
-
 /** Al anfitrion: una venta que atender, con como contactar al cliente. */
 export function correoReservaAnfitrion(d: DatosCorreoReserva) {
   return {
-    subject: `Nueva reserva · ${d.experienceTitle} · ${fechaLarga(d.reservationDate)}`,
+    subject: `Nueva reserva: ${d.experienceTitle} · ${fechaLarga(d.reservationDate)}`,
     html: marco({
       titulo: 'Tienes una reserva nueva',
       logo: d.logoEmpresa,
@@ -335,39 +317,96 @@ export function correoReservaAdmin(d: DatosCorreoReserva) {
 /** Al comensal: confirmada. Es el correo que va a guardar y releer. */
 export function correoConfirmadaComensal(d: DatosCorreoReserva) {
   return {
-    subject: `Confirmada · ${d.experienceTitle} · ${fechaLarga(d.reservationDate)}`,
+    subject: `Tu reserva en ${d.experienceTitle} está confirmada`,
     html: marco({
       titulo: '¡Tu reserva está confirmada!',
+      pie: PIE_DEL_COMENSAL,
       logo: d.logoEmpresa,
       empresa: d.empresaNombre,
       color: VERDE,
       contenido: `
         <p>Hola ${esc(d.clienteNombre)},</p>
-        <p><strong>${esc(d.empresaNombre)}</strong> confirmó tu reserva. Te esperan:</p>
-        ${bloqueDatos(datosDelPlan(d))}
+        <p>Tu reserva con <strong>${esc(d.empresaNombre)}</strong> está confirmada.</p>
+        ${bloqueDatos([
+          ...datosDelPlan(d),
+          // Es el unico correo que le llega al comensal al pagar: tiene que
+          // servirle de comprobante. Solo si pago algo.
+          { etiqueta: 'Pagado', valor: d.pagado ? esc(dinero(d.pagado)) : '' },
+        ])}
         ${boton('Ver mi reserva', PANEL_COMENSAL, marca(d))}`,
     }),
   };
 }
 
-export function correoCanceladaComensal(d: DatosCorreoReserva, motivo?: string) {
+export type PagoDeLaCancelacion = {
+  /** Lo que se devuelve. Sin valor cuando no se sabe, y entonces no se dice nada. */
+  reembolso?: number;
+  /** Quien cancela es el anfitrion, no el comensal ni su canal. */
+  porAnfitrion?: boolean;
+};
+
+/**
+ * Lo que le pasa al dinero, en las palabras que se le dicen al comensal.
+ *
+ * Son tres textos y no se improvisan otros. Cuando cancela el anfitrion no
+ * existe "sin reembolso": el comensal no hizo nada, de modo que si no hay un
+ * reembolso registrado queda como pendiente de gestion por el anfitrion.
+ * null cuando no hay nada que decir: no se pago nada, o no se sabe.
+ */
+export function textoDeReembolso(d: DatosCorreoReserva, pago?: PagoDeLaCancelacion): string | null {
+  if (!pago || pago.reembolso === undefined) return null;
+
+  if (pago.reembolso > 0) {
+    return `Se registró un reembolso por ${dinero(pago.reembolso)}. El tiempo en que veas reflejado el dinero depende del canal y medio de pago utilizado.`;
+  }
+  // Sin dinero de por medio no hay nada que contar.
+  if (!(d.pagado && d.pagado > 0)) return null;
+
+  return pago.porAnfitrion
+    ? `El reembolso correspondiente está pendiente de gestión por ${d.empresaNombre}.`
+    : 'De acuerdo con las condiciones aplicables a esta reserva, no se registró un reembolso.';
+}
+
+const bloqueSobreTuPago = (texto: string | null) =>
+  texto
+    ? `<p style="margin-top:20px;"><strong>Sobre tu pago</strong></p><p>${esc(texto)}</p>`
+    : '';
+
+/**
+ * Al comensal cuando se cancela su reserva entera.
+ *
+ * Dos correos distintos segun quien cancela: si fue el comensal o su canal, se
+ * le confirma lo que pidio; si fue el anfitrion, se le dice quien y que no es
+ * culpa suya.
+ */
+export function correoCanceladaComensal(
+  d: DatosCorreoReserva,
+  motivo?: string,
+  pago?: PagoDeLaCancelacion,
+) {
+  const porAnfitrion = pago?.porAnfitrion === true;
   return {
-    subject: `Reserva cancelada · ${d.experienceTitle}`,
+    subject: porAnfitrion
+      ? `Tu reserva en ${d.experienceTitle} fue cancelada por ${d.empresaNombre}`
+      : `Tu reserva en ${d.experienceTitle} fue cancelada`,
     html: marco({
       titulo: 'Tu reserva fue cancelada',
+      pie: PIE_DEL_COMENSAL,
       logo: d.logoEmpresa,
       empresa: d.empresaNombre,
       color: ROJO,
       contenido: `
         <p>Hola ${esc(d.clienteNombre)},</p>
-        <p>Se canceló tu reserva en <strong>${esc(d.empresaNombre)}</strong>.</p>
+        <p>${
+          porAnfitrion
+            ? `<strong>${esc(d.empresaNombre)}</strong> canceló <strong>${esc(d.experienceTitle)}</strong> para la fecha indicada a continuación. Tu reserva quedó cancelada.`
+            : `Confirmamos la cancelación de tu reserva en <strong>${esc(d.experienceTitle)}</strong> con <strong>${esc(d.empresaNombre)}</strong>.`
+        }</p>
         ${bloqueDatos([
           ...datosDelPlan(d),
           { etiqueta: 'Motivo', valor: esc(motivo ?? '') },
         ])}
-        <p style="font-size:13px;color:#6b7280;">
-          Si ya habías pagado, el reembolso se gestiona con el anfitrión.
-        </p>
+        ${bloqueSobreTuPago(textoDeReembolso(d, pago))}
         ${boton('Ver mis reservas', PANEL_COMENSAL, marca(d))}`,
     }),
   };
@@ -380,9 +419,13 @@ export function correoCanceladaComensal(d: DatosCorreoReserva, motivo?: string) 
  * cupo y le quita ingreso: enterarse al dia siguiente entrando al panel es
  * tarde para revender esa mesa.
  */
-export function correoCanceladaAnfitrion(d: DatosCorreoReserva, motivo?: string) {
+export function correoCanceladaAnfitrion(
+  d: DatosCorreoReserva,
+  motivo?: string,
+  pago?: PagoDeLaCancelacion,
+) {
   return {
-    subject: `Cancelación · ${d.reservationNumber} · ${d.experienceTitle}`,
+    subject: `Cancelación de cliente: ${d.experienceTitle} · ${fechaLarga(d.reservationDate)}`,
     html: marco({
       titulo: 'Se canceló una reserva',
       logo: d.logoEmpresa,
@@ -393,6 +436,7 @@ export function correoCanceladaAnfitrion(d: DatosCorreoReserva, motivo?: string)
         ${bloqueDatos([
           ...datosDelPlan(d),
           { etiqueta: 'Motivo', valor: esc(motivo ?? '') },
+          { etiqueta: 'Resultado económico', valor: esc(textoDeReembolso(d, pago) ?? '') },
         ])}
         ${boton('Ver reservas', PANEL_ANFITRION, marca(d))}`,
     }),
@@ -410,12 +454,13 @@ export function correoBajaParcialComensal(
   d: DatosCorreoReserva,
   personasQueSeCaen: number,
   motivo?: string,
-  reembolso?: number,
+  pago?: PagoDeLaCancelacion,
 ) {
   return {
-    subject: `Cambio en tu reserva · ${d.experienceTitle}`,
+    subject: `Actualizamos tu reserva en ${d.experienceTitle}`,
     html: marco({
       titulo: 'Tu reserva queda con menos personas',
+      pie: PIE_DEL_COMENSAL,
       logo: d.logoEmpresa,
       empresa: d.empresaNombre,
       color: marca(d),
@@ -426,15 +471,8 @@ export function correoBajaParcialComensal(
         ${bloqueDatos([
           ...datosDelPlan(d),
           { etiqueta: 'Motivo', valor: esc(motivo ?? '') },
-          ...(reembolso && reembolso > 0
-            ? [{ etiqueta: 'Reembolso', valor: esc(dinero(reembolso)) }]
-            : []),
         ])}
-        ${
-          reembolso && reembolso > 0
-            ? '<p style="font-size:13px;color:#6b7280;">El reembolso se gestiona con el anfitrión.</p>'
-            : ''
-        }
+        ${bloqueSobreTuPago(textoDeReembolso(d, pago))}
         ${boton('Ver mis reservas', PANEL_COMENSAL, marca(d))}`,
     }),
   };
@@ -447,7 +485,7 @@ export function correoBajaParcialAnfitrion(
   motivo?: string,
 ) {
   return {
-    subject: `Baja parcial · ${d.reservationNumber} · ${d.experienceTitle}`,
+    subject: `Cancelación de cliente: ${d.experienceTitle} · ${fechaLarga(d.reservationDate)}`,
     html: marco({
       titulo: 'Se cayó parte de un grupo',
       logo: d.logoEmpresa,
@@ -474,9 +512,10 @@ export function correoBajaParcialAnfitrion(
  */
 export function correoCambioEnLaReserva(d: DatosCorreoReserva, cambios: string[]) {
   return {
-    subject: `Cambio en tu reserva · ${d.experienceTitle}`,
+    subject: `Tu reserva en ${d.experienceTitle} fue actualizada`,
     html: marco({
       titulo: 'Cambió algo en tu reserva',
+      pie: PIE_DEL_COMENSAL,
       logo: d.logoEmpresa,
       empresa: d.empresaNombre,
       color: marca(d),
@@ -505,9 +544,10 @@ export function correoCambioEnLaReserva(d: DatosCorreoReserva, cambios: string[]
  */
 export function correoCalificacionComensal(d: DatosCorreoReserva, enlace: string) {
   return {
-    subject: `¿Qué tal estuvo? · ${d.experienceTitle}`,
+    subject: `¿Cómo fue tu experiencia en ${d.experienceTitle}?`,
     html: marco({
       titulo: '¿Qué tal estuvo?',
+      pie: PIE_DEL_COMENSAL,
       logo: d.logoEmpresa,
       empresa: d.empresaNombre,
       color: marca(d),
@@ -527,51 +567,9 @@ export function correoCalificacionComensal(d: DatosCorreoReserva, enlace: string
   };
 }
 
-export function correoReprogramadaComensal(d: DatosCorreoReserva, motivo?: string) {
-  return {
-    subject: `Nueva fecha · ${d.experienceTitle}`,
-    html: marco({
-      titulo: 'Cambió la fecha de tu reserva',
-      logo: d.logoEmpresa,
-      empresa: d.empresaNombre,
-      color: marca(d),
-      contenido: `
-        <p>Hola ${esc(d.clienteNombre)},</p>
-        <p>Tu reserva en <strong>${esc(d.empresaNombre)}</strong> quedó para una fecha nueva:</p>
-        ${bloqueDatos([
-          ...datosDelPlan(d),
-          { etiqueta: 'Motivo', valor: esc(motivo ?? '') },
-        ])}
-        ${boton('Ver mi reserva', PANEL_COMENSAL, marca(d))}`,
-    }),
-  };
-}
-
 // ---------------------------------------------------------------------------
 // Pago
 // ---------------------------------------------------------------------------
-
-/** Al comensal: comprobante. Lo va a buscar despues, asi que lleva el detalle. */
-export function correoPagoComensal(d: DatosCorreoReserva) {
-  return {
-    subject: `Pago confirmado · ${d.reservationNumber}`,
-    html: marco({
-      titulo: 'Recibimos tu pago',
-      logo: d.logoEmpresa,
-      empresa: d.empresaNombre,
-      color: VERDE,
-      contenido: `
-        <p>Hola ${esc(d.clienteNombre)},</p>
-        <p>Tu pago quedó registrado. Esto sirve como comprobante.</p>
-        ${bloqueDatos([
-          { etiqueta: 'Pagado', valor: d.total ? esc(dinero(d.total)) : '' },
-          ...datosDelPlan(d),
-          { etiqueta: 'Anfitrión', valor: esc(d.empresaNombre) },
-        ])}
-        ${boton('Ver mi reserva', PANEL_COMENSAL, marca(d))}`,
-    }),
-  };
-}
 
 export function correoPagoAnfitrion(d: DatosCorreoReserva) {
   return {
