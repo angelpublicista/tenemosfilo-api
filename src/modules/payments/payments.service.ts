@@ -3,7 +3,7 @@ import { env } from '../../config/env.js';
 import { pasarelaDeLaReserva } from '../../lib/pasarela.js';
 import { URL_CHECKOUT, aCentavos, firmaIntegridad } from '../../lib/wompi.js';
 import { crearPreferencia } from '../../lib/mercadopago.js';
-import { crearLinkDePago } from '../../lib/bold.js';
+import { crearLinkDePago, mediosParaElMonto } from '../../lib/bold.js';
 import { logger } from '../../lib/logger.js';
 
 /**
@@ -130,6 +130,15 @@ export async function construirCheckout(
 
   if (pasarela.proveedor === 'BOLD') {
     if (!pasarela.publicKey) return null;
+    if (!mediosParaElMonto(total)) {
+      // La reserva existe igual; el anfitrion la cobra aparte. Se deja dicho
+      // por que, porque "Bold no devolvio el link" no lo explicaria.
+      logger.warn(
+        { reservationNumber, total },
+        'Monto fuera de los limites de Bold (1.000 a 10.000.000 COP): no se crea el link de pago',
+      );
+      return null;
+    }
     const cliente = (reserva.client ?? {}) as { email?: string | null };
 
     // Igual que con Mercado Pago: es una llamada a su API y puede fallar, y

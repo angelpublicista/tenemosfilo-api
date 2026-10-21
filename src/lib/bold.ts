@@ -46,6 +46,28 @@ export function aEstadoDePago(tipo: string): EstadoDeBold | null {
 export type LinkCreado = { url: string; linkId: string };
 
 /**
+ * Montos que Bold acepta por medio de pago, en pesos (GET /online/link/v1/
+ * payment_methods). Fuera de ese rango el link no se crea.
+ */
+const MINIMO = 1000;
+const MAXIMO_TARJETA_Y_PSE = 5_000_000;
+const MAXIMO_NEQUI_Y_BANCOLOMBIA = 10_000_000;
+
+/**
+ * Con que medios se puede cobrar este monto. null si con ninguno.
+ *
+ * Pasado el tope de tarjeta y PSE el link sigue siendo cobrable, pero solo con
+ * Nequi y Bancolombia; pedirle a Bold todos los medios con un monto que la
+ * mitad no admite es lo que haria fallar la creacion.
+ */
+export function mediosParaElMonto(monto: number): string[] | null {
+  const m = Math.round(monto);
+  if (m < MINIMO || m > MAXIMO_NEQUI_Y_BANCOLOMBIA) return null;
+  if (m > MAXIMO_TARJETA_Y_PSE) return ['NEQUI', 'BOTON_BANCOLOMBIA'];
+  return ['CREDIT_CARD', 'PSE', 'BOTON_BANCOLOMBIA', 'NEQUI'];
+}
+
+/**
  * Crea el link de pago y devuelve a donde hay que mandar al cliente.
  *
  * El monto va en pesos, no en centavos, y cerrado (`CLOSE`): el cliente no
@@ -61,6 +83,9 @@ export async function crearLinkDePago(params: {
   redirectUrl: string;
   correoDelCliente?: string | null;
 }): Promise<LinkCreado | null> {
+  const medios = mediosParaElMonto(params.monto);
+  if (!medios) return null;
+
   const cuerpo = {
     amount_type: 'CLOSE',
     amount: {
@@ -75,6 +100,8 @@ export async function crearLinkDePago(params: {
     // en la pagina de Bold al terminar.
     ...(params.redirectUrl.startsWith('https://') ? { callback_url: params.redirectUrl } : {}),
     ...(params.correoDelCliente ? { payer_email: params.correoDelCliente } : {}),
+    // Sin esto Bold ofrece todos; solo se acota cuando el monto no los admite.
+    ...(medios.length < 4 ? { payment_methods: medios } : {}),
   };
 
   const r = await fetch(`${API}/online/link/v1`, {
