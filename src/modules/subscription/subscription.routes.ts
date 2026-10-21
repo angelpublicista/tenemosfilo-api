@@ -153,3 +153,40 @@ subscriptionRouter.patch(
     res.json({ data: await estadoDeSuscripcion(companyId) });
   },
 );
+
+const vencimientoSchema = z.object({
+  /** Null deja a la empresa sin suscripcion pagada. */
+  endsAt: z.string().datetime().nullable(),
+  /** Por que se cambia. Queda en el registro de actividad junto al cambio. */
+  notes: z.string().trim().max(500).optional(),
+});
+
+/**
+ * Corregir la fecha de vencimiento a mano.
+ *
+ * Para lo que un pago manual no resuelve: un pago extemporaneo que hay que
+ * cubrir desde su fecha real, un error al registrar, un acuerdo. No crea un
+ * pago ni suma dias: fija la fecha tal cual. El cambio queda en el registro de
+ * actividad con el body, nota incluida.
+ */
+subscriptionRouter.patch(
+  '/admin/:companyId/vencimiento',
+  validate(z.object({ companyId: z.string().min(1) }), 'params'),
+  validate(vencimientoSchema),
+  async (req: Request, res: Response) => {
+    const { companyId } = req.params as { companyId: string };
+    const { endsAt } = req.body as z.infer<typeof vencimientoSchema>;
+    const empresa = await prisma.company.findFirst({
+      where: { id: companyId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!empresa) throw NotFound('La empresa indicada no existe');
+
+    await prisma.company.update({
+      where: { id: companyId },
+      data: { subscriptionEndsAt: endsAt ? new Date(endsAt) : null },
+    });
+    olvidarSuscripciones();
+    res.json({ data: await estadoDeSuscripcion(companyId) });
+  },
+);
