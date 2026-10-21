@@ -157,6 +157,13 @@ jobs:
           # migracion ya esta aplicada y no se deshace sola.
           ( cd "$NUEVA" && npm run prisma:deploy )
 
+          # Contenido inicial de la base de conocimiento. Solo crea los
+          # articulos que faltan, asi que repetirlo no pisa lo que el admin
+          # haya editado. No tumba el despliegue si falla: es contenido, no
+          # esquema, y se puede cargar despues con `npm run ayuda:cargar`.
+          ( cd "$NUEVA" && npm run ayuda:cargar ) \
+            || echo "AVISO: no se pudieron cargar los articulos de ayuda." >&2
+
           ANTERIOR_REAL=$(readlink -f "$RUTA/current" 2>/dev/null || echo "")
 
           ln -sfn "$NUEVA" "$RUTA/current"

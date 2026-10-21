@@ -13,6 +13,7 @@
     "prisma:deploy": "node scripts/resolve-db-url.mjs prisma migrate deploy",
     "prisma:studio": "node scripts/resolve-db-url.mjs prisma studio",
     "prisma:reset": "node scripts/resolve-db-url.mjs prisma migrate reset",
+    "ayuda:cargar": "node scripts/resolve-db-url.mjs tsx scripts/seed-ayuda.ts",
     "script:create-host": "tsx scripts/create-host.ts",
     "script:promote-reseller": "tsx scripts/promote-to-reseller.ts",
     "script:cifrar-llaves": "node scripts/cifrar-llaves-de-la-plataforma.mjs",
