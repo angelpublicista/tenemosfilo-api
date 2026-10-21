@@ -168,6 +168,13 @@ model Company {
   ownerId String
   owner   User   @relation("CompanyOwner", fields: [ownerId], references: [id])
 
+  // Suscripcion a la plataforma. Hasta cuando esta pagada; null = nunca ha
+  // pagado. `subscriptionExempt` la salta (la casa, una cuenta de pruebas, un
+  // acuerdo especial) sin tener que inventarle una fecha.
+  subscriptionEndsAt   DateTime?
+  subscriptionExempt   Boolean   @default(false)
+  subscriptionPayments SubscriptionPayment[]
+
   companyName    String
   slug           String        @unique
   // Slugs que esta empresa tuvo antes de renombrarse. El slug sigue al
@@ -565,6 +572,48 @@ model Payout {
   @@index([paidAt])
 }
 
+enum SubscriptionPaymentStatus {
+  PENDING
+  PAID
+  FAILED
+}
+
+// Un pago de la suscripcion de un anfitrion a la plataforma.
+//
+// Cada intento de pago es una fila con su propia referencia ("SUB-..."): la
+// referencia es lo que el webhook de la pasarela nos devuelve, y no puede
+// repetirse. Los dias solo se suman cuando el pago queda en PAID.
+model SubscriptionPayment {
+  id String @id @default(cuid())
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+
+  reference String                    @unique
+  // Lo que se cobra: base + IVA. Se congela al crear el intento, porque el
+  // precio o el IVA pueden cambiar despues y la factura es de lo que se pago.
+  amount    Decimal                   @db.Decimal(12, 2)
+  baseAmount Decimal                  @db.Decimal(12, 2)
+  vatAmount  Decimal                  @db.Decimal(12, 2)
+  status    SubscriptionPaymentStatus @default(PENDING)
+  // WOMPI: lo pago el anfitrion en linea. MANUAL: lo registro el admin (una
+  // transferencia, un acuerdo).
+  method    String                    @default("WOMPI")
+
+  transactionId String?
+  // Los 30 dias que compro. Se fijan al pagarse, no al crearse.
+  periodStart   DateTime?
+  periodEnd     DateTime?
+  paidAt        DateTime?
+
+  notes          String?
+  createdByEmail String?
+
+  createdAt DateTime @default(now())
+
+  @@index([companyId, createdAt])
+}
+
 // Pago de un anfitrion a FILO por su comision de un mes.
 //
 // Es el reves de Payout: aqui paga el anfitrion. Con pasarela propia el dinero
@@ -622,6 +671,16 @@ model PlatformSettings {
   // Exigir pago sin pasarela activa dejaria el catalogo sin forma de
   // reservar, asi que solo surte efecto si wompiEnabled esta encendido.
   requirePaymentDefault Boolean @default(false)
+
+  // ──────── Suscripcion de los anfitriones ────────
+  // Apagada por defecto: encenderla es una decision del administrador, cuando
+  // la pasarela esta lista. Con ella apagada nadie queda bloqueado.
+  subscriptionRequired Boolean @default(false)
+  // Lo que vale la suscripcion por 30 dias, en pesos y SIN IVA. Sin
+  // permanencia: cada pago suma 30 dias y no hay cobro automatico.
+  subscriptionPrice    Decimal @default(79000) @db.Decimal(12, 2)
+  // IVA que se suma al precio, en porcentaje. Lo que se cobra es precio + IVA.
+  subscriptionVat      Decimal @default(19) @db.Decimal(5, 2)
 
   // ──────── Pasarela de pagos (Wompi) ────────
   // Solo el ADMIN configura esto. Las llaves privadas NUNCA salen del API:

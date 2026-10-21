@@ -2,7 +2,8 @@ import type { NextFunction, Request, Response } from 'express';
 import { jwtVerify } from 'jose';
 import { env } from '../config/env.js';
 import { prisma } from '../config/prisma.js';
-import { Forbidden, Unauthorized } from '../lib/errors.js';
+import { Forbidden, SuscripcionRequerida, Unauthorized } from '../lib/errors.js';
+import { estaBloqueada } from '../lib/suscripcion.js';
 import { hashApiKey, isApiKeyToken } from '../lib/api-key.js';
 
 export type AuthUser = {
@@ -82,6 +83,29 @@ async function applyActingCompany(req: Request) {
   req.user.companyId = company.id;
 }
 
+/**
+ * Lo que sigue abierto aunque la suscripcion este vencida: la propia
+ * suscripcion —sin ella no hay forma de renovar— y lo que hace falta para
+ * iniciar sesion y saber quien eres.
+ */
+const LIBRES_SIN_SUSCRIPCION = ['/subscription', '/auth/', '/users/me'];
+
+/**
+ * El panel de un anfitrion con la suscripcion vencida esta cerrado.
+ *
+ * Aqui y no en cada router porque es una regla de toda la sesion, y repartida
+ * se olvidaria en el primer modulo nuevo. Solo aplica a un anfitrion con
+ * sesion: las API keys son de revendedores y el admin opera sobre cualquier
+ * empresa sin pagarla.
+ */
+async function exigirSuscripcion(req: Request) {
+  const u = req.user;
+  if (!u || req.apiKey || u.role !== 'HOST' || !u.companyId) return;
+  const ruta = req.originalUrl.split('?')[0] ?? '';
+  if (LIBRES_SIN_SUSCRIPCION.some((p) => ruta.startsWith(p))) return;
+  if (await estaBloqueada(u.companyId)) throw SuscripcionRequerida();
+}
+
 export async function requireAuth(req: Request, _res: Response, next: NextFunction) {
   try {
     const header = req.headers.authorization;
@@ -97,6 +121,7 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
       await authenticateJwt(req, token);
     }
     await applyActingCompany(req);
+    await exigirSuscripcion(req);
     next();
   } catch (err) {
     if (err instanceof Error && err.name === 'HttpError') return next(err);

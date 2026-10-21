@@ -20,6 +20,7 @@ import { prisma } from '../../config/prisma.js';
 import { aEstadoDePago, webhookValido } from '../../lib/wompi.js';
 import { avisarCambioDeEstado, avisarPago, cargarDatosDeReserva } from '../../lib/notify.js';
 import { construirCheckout } from './payments.service.js';
+import { PREFIJO_DE_SUSCRIPCION, procesarEventoDeSuscripcion } from '../../lib/suscripcion.js';
 import { cerrarVentaPorPagoEnLinea } from '../opportunities/opportunities.enlace.js';
 
 export const paymentsRouter = Router();
@@ -103,6 +104,17 @@ paymentsRouter.post('/wompi/webhook', async (req: Request, res: Response) => {
 
   if (typeof referencia !== 'string' || typeof estado !== 'string') {
     return res.status(200).json({ received: true });
+  }
+
+  // Los pagos de la suscripcion de un anfitrion a la plataforma comparten
+  // este webhook con las reservas, y se distinguen por el prefijo de su
+  // referencia. Se atienden antes: no son una reserva y no hay que buscarlos
+  // como tal.
+  if (referencia.startsWith(PREFIJO_DE_SUSCRIPCION)) {
+    const codigo = await procesarEventoDeSuscripcion(evento, transaccion);
+    return codigo === 401
+      ? res.status(401).json({ error: { code: 'INVALID_SIGNATURE' } })
+      : res.status(200).json({ received: true });
   }
 
   // La referencia que enviamos al checkout es el numero de reserva.

@@ -16,5 +16,8 @@ export const Forbidden = (msg = 'Sin permisos') => new HttpError(403, 'FORBIDDEN
 export const BadRequest = (msg = 'Solicitud invalida', details?: unknown) =>
   new HttpError(400, 'BAD_REQUEST', msg, details);
 export const Conflict = (msg = 'Conflicto') => new HttpError(409, 'CONFLICT', msg);
+/** 402: la suscripcion de la empresa esta vencida y el panel esta cerrado. */
+export const SuscripcionRequerida = (msg = 'Tu suscripción venció. Renuévala para seguir usando el panel.') =>
+  new HttpError(402, 'SUBSCRIPTION_REQUIRED', msg);
 export const NotImplemented = (msg = 'No implementado') =>
   new HttpError(501, 'NOT_IMPLEMENTED', msg);

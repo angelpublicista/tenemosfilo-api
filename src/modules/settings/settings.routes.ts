@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { requireAuth, requireHumanAuth, requireRole } from '../../middleware/auth.js';
 import { validate } from '../../middleware/validate.js';
 import { getPlatformSettings } from '../../lib/commissions.js';
+import { olvidarSuscripciones } from '../../lib/suscripcion.js';
 import { llaveCoincideConEntorno } from '../../lib/wompi.js';
 import { cifrar, hayLlaveDeCifrado } from '../../lib/cripto.js';
 import { BadRequest } from '../../lib/errors.js';
@@ -29,6 +30,10 @@ const updateSettingsSchema = z
 
     wompiEnabled: z.boolean().optional(),
     requirePaymentDefault: z.boolean().optional(),
+    subscriptionRequired: z.boolean().optional(),
+    // Sin IVA. El minimo evita un precio de 0, que dejaria a todos pagando nada.
+    subscriptionPrice: z.number().min(1000).max(100_000_000).optional(),
+    subscriptionVat: z.number().min(0).max(100).optional(),
     wompiEnvironment: wompiEnvironmentEnum.optional(),
     wompiPublicKey: secreto,
     wompiPrivateKey: secreto,
@@ -66,6 +71,9 @@ function aRespuesta(s: Awaited<ReturnType<typeof getPlatformSettings>>) {
 
     wompiEnabled: s.wompiEnabled,
     requirePaymentDefault: s.requirePaymentDefault,
+    subscriptionRequired: s.subscriptionRequired,
+    subscriptionPrice: s.subscriptionPrice,
+    subscriptionVat: s.subscriptionVat,
     wompiEnvironment: s.wompiEnvironment,
     // La llave publica si se devuelve: es publica por diseño y el front la
     // necesita para abrir el checkout.
@@ -152,11 +160,20 @@ settingsRouter.patch('/', validate(updateSettingsSchema), async (req: Request, r
       ...(input.resellerCommissionValue !== undefined && {
         resellerCommissionValue: input.resellerCommissionValue,
       }),
+      ...(input.subscriptionRequired !== undefined && {
+        subscriptionRequired: input.subscriptionRequired,
+      }),
+      ...(input.subscriptionPrice !== undefined && { subscriptionPrice: input.subscriptionPrice }),
+      ...(input.subscriptionVat !== undefined && { subscriptionVat: input.subscriptionVat }),
       ...(input.wompiEnabled !== undefined && { wompiEnabled: input.wompiEnabled }),
       ...(input.wompiEnvironment !== undefined && { wompiEnvironment: input.wompiEnvironment }),
       ...conSecretos,
     },
   });
+
+  // Encender la suscripcion, o cambiar su precio, cambia a quien se bloquea:
+  // que la cache de 30 segundos no lo retrase.
+  olvidarSuscripciones();
 
   res.json({ data: aRespuesta(data) });
 });
