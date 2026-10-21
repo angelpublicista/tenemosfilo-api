@@ -2230,3 +2230,27 @@ model OAuthToken {
 
   @@index([grantId])
 }
+
+// Un articulo de la base de conocimiento. Lo escribe el admin y lo lee cualquiera
+// que haya iniciado sesion en el panel.
+model HelpArticle {
+  id       String @id @default(cuid())
+  /// La URL del articulo: /dashboard/ayuda/<slug>.
+  slug     String @unique
+  title    String
+  /// Una o dos frases para la lista y el buscador.
+  summary  String
+  /// Markdown.
+  body     String
+  category String
+  /// Orden dentro de su categoria; menor primero.
+  position Int    @default(0)
+  /// A quien se le muestra. Vacio = a todos.
+  audience UserRole[]
+  isPublished Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category, position])
+}
