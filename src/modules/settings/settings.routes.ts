@@ -22,6 +22,8 @@ const updateSettingsSchema = z
   .object({
     filoCommissionType: commissionTypeEnum.optional(),
     filoCommissionValue: z.number().nonnegative().optional(),
+    filoCommissionOwnGatewayType: commissionTypeEnum.optional(),
+    filoCommissionOwnGatewayValue: z.number().nonnegative().optional(),
     resellerCommissionType: commissionTypeEnum.optional(),
     resellerCommissionValue: z.number().nonnegative().optional(),
 
@@ -36,6 +38,10 @@ const updateSettingsSchema = z
   .refine(
     (d) =>
       !(d.filoCommissionType === 'PERCENT' && (d.filoCommissionValue ?? 0) > 100) &&
+      !(
+        d.filoCommissionOwnGatewayType === 'PERCENT' &&
+        (d.filoCommissionOwnGatewayValue ?? 0) > 100
+      ) &&
       !(d.resellerCommissionType === 'PERCENT' && (d.resellerCommissionValue ?? 0) > 100),
     { message: 'Un porcentaje no puede ser mayor que 100' },
   );
@@ -53,6 +59,8 @@ function aRespuesta(s: Awaited<ReturnType<typeof getPlatformSettings>>) {
   return {
     filoCommissionType: s.filoCommissionType,
     filoCommissionValue: s.filoCommissionValue,
+    filoCommissionOwnGatewayType: s.filoCommissionOwnGatewayType,
+    filoCommissionOwnGatewayValue: s.filoCommissionOwnGatewayValue,
     resellerCommissionType: s.resellerCommissionType,
     resellerCommissionValue: s.resellerCommissionValue,
 
@@ -131,6 +139,12 @@ settingsRouter.patch('/', validate(updateSettingsSchema), async (req: Request, r
       ...(input.filoCommissionType !== undefined && { filoCommissionType: input.filoCommissionType }),
       ...(input.filoCommissionValue !== undefined && {
         filoCommissionValue: input.filoCommissionValue,
+      }),
+      ...(input.filoCommissionOwnGatewayType !== undefined && {
+        filoCommissionOwnGatewayType: input.filoCommissionOwnGatewayType,
+      }),
+      ...(input.filoCommissionOwnGatewayValue !== undefined && {
+        filoCommissionOwnGatewayValue: input.filoCommissionOwnGatewayValue,
       }),
       ...(input.resellerCommissionType !== undefined && {
         resellerCommissionType: input.resellerCommissionType,

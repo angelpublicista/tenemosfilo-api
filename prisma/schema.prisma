@@ -571,6 +571,13 @@ model PlatformSettings {
   filoCommissionType  CommissionType @default(PERCENT)
   filoCommissionValue Decimal        @default(0) @db.Decimal(12, 2)
 
+  // La misma comision, pero cuando el anfitrion cobra con SU pasarela: el
+  // dinero no pasa por FILO y esta comision se le descuenta de lo que gana, no
+  // del pago. Las dos de arriba solo valen cuando cobra FILO. Por defecto 0,
+  // que es como funcionaba antes de poder fijarla.
+  filoCommissionOwnGatewayType  CommissionType @default(PERCENT)
+  filoCommissionOwnGatewayValue Decimal        @default(0) @db.Decimal(12, 2)
+
   // Comision del revendedor: solo se aplica si la reserva entra por esa via.
   resellerCommissionType  CommissionType @default(PERCENT)
   resellerCommissionValue Decimal        @default(0) @db.Decimal(12, 2)

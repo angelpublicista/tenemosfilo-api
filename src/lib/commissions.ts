@@ -69,12 +69,22 @@ function aNumero(v: unknown): number | null {
  */
 export function resolverComisiones(
   experiencia: FuenteComision | null,
-  ajustes: FuenteComision,
-): { filo: Comision; reseller: Comision } {
+  ajustes: FuenteComision & {
+    filoCommissionOwnGatewayType?: CommissionType | null;
+    filoCommissionOwnGatewayValue?: unknown;
+  },
+): { filo: Comision; filoPasarelaPropia: Comision; reseller: Comision } {
   const valorExpFilo = aNumero(experiencia?.filoCommissionValue);
   const valorExpReseller = aNumero(experiencia?.resellerCommissionValue);
 
   return {
+    // Cuando el anfitrion cobra con su pasarela, solo manda lo que fije la
+    // plataforma: la comision propia de una experiencia es la que cobra FILO
+    // por vender con su maquinaria, y aqui no es el caso.
+    filoPasarelaPropia: {
+      type: ajustes.filoCommissionOwnGatewayType ?? 'PERCENT',
+      value: aNumero(ajustes.filoCommissionOwnGatewayValue) ?? 0,
+    },
     filo:
       experiencia?.filoCommissionType && valorExpFilo !== null
         ? { type: experiencia.filoCommissionType, value: valorExpFilo }
@@ -98,11 +108,13 @@ export function resolverComisiones(
  * La comision de revendedor solo se cobra si la reserva entro por esa via;
  * en una reserva directa del anfitrion no hay revendedor a quien pagarle.
  *
- * Y la de FILO solo si FILO cobra. Ver `cobraElAnfitrion`.
+ * La de FILO depende de quien cobra: si cobra FILO, la comision de siempre; si
+ * cobra el anfitrion con su pasarela, la que la plataforma fije para ese caso
+ * (`filoPasarelaPropia`), que sin fijar es cero. Ver `cobraElAnfitrion`.
  */
 export function calcularDesglose(
   total: number,
-  comisiones: { filo: Comision; reseller: Comision },
+  comisiones: { filo: Comision; filoPasarelaPropia?: Comision; reseller: Comision },
   opts: { esDeReseller: boolean; cobraElAnfitrion?: boolean; generaFee?: boolean },
 ): DesgloseComisiones {
   // TR-13. FILO solo cobra sobre lo que vendio su maquinaria: una abierta que
@@ -110,11 +122,15 @@ export function calcularDesglose(
   // reserva que el anfitrion carga a mano, o una privada que negocio y cobro
   // el por fuera, no le deben nada a FILO.
   //
-  // Con pasarela propia tampoco: el dinero no pasa por FILO y no hay de donde
-  // descontar. La del revendedor si se devenga —el trabajo lo hizo igual—,
-  // solo que la debe el anfitrion en vez de FILO.
-  const noHayFee = opts.cobraElAnfitrion || opts.generaFee === false;
-  const filo = noHayFee ? 0 : calcularImporte(comisiones.filo, total);
+  // Con pasarela propia el dinero no pasa por FILO: no hay de donde descontar
+  // el pago, pero la comision que fije la plataforma se le resta igual a lo
+  // que gana el anfitrion, y es el quien se la debe a FILO. La del revendedor
+  // se devenga igual —el trabajo lo hizo—, solo que tambien la debe el
+  // anfitrion en vez de FILO.
+  const comisionDeFilo = opts.cobraElAnfitrion
+    ? (comisiones.filoPasarelaPropia ?? { type: 'PERCENT' as const, value: 0 })
+    : comisiones.filo;
+  const filo = opts.generaFee === false ? 0 : calcularImporte(comisionDeFilo, total);
   const reseller = opts.esDeReseller ? calcularImporte(comisiones.reseller, total) : 0;
 
   // Si entre las dos superan el total, se prorratean: el anfitrion nunca

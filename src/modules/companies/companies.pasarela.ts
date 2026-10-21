@@ -9,6 +9,20 @@ import { BadRequest, Forbidden, NotFound } from '../../lib/errors.js';
 import { cifrar, descifrar, hayLlaveDeCifrado } from '../../lib/cripto.js';
 import { llaveCoincideConEntorno } from '../../lib/wompi.js';
 import { credencialCoincideConEntorno } from '../../lib/mercadopago.js';
+import { getPlatformSettings } from '../../lib/commissions.js';
+
+/**
+ * Lo que FILO se lleva de las ventas que el anfitrion cobra en su cuenta. Se
+ * enseña en su pantalla de cobro propio: encender el cobro directo sin saber
+ * que sigue habiendo una comision seria una sorpresa.
+ */
+async function comisionDeFiloConPasarelaPropia() {
+  const s = await getPlatformSettings();
+  return {
+    type: s.filoCommissionOwnGatewayType,
+    value: Number(s.filoCommissionOwnGatewayValue),
+  };
+}
 
 export interface PasarelaInput {
   provider?: PaymentProvider;
@@ -141,7 +155,10 @@ export function aRespuestaDePasarela(c: {
 
 export const pasarelaDeEmpresaService = {
   async ver(id: string, requesterId: string, esAdmin: boolean) {
-    return aRespuestaDePasarela(await miEmpresa(id, requesterId, esAdmin));
+    return {
+      ...aRespuestaDePasarela(await miEmpresa(id, requesterId, esAdmin)),
+      comisionDeFilo: await comisionDeFiloConPasarelaPropia(),
+    };
   },
 
   /**
@@ -216,6 +233,10 @@ export const pasarelaDeEmpresaService = {
       },
     });
 
-    return { ...aRespuestaDePasarela(guardada), reservasSinCobrar };
+    return {
+      ...aRespuestaDePasarela(guardada),
+      comisionDeFilo: await comisionDeFiloConPasarelaPropia(),
+      reservasSinCobrar,
+    };
   },
 };
