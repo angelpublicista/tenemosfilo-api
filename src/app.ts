@@ -33,6 +33,7 @@ import { uploadsRouter } from './modules/uploads/uploads.routes.js';
 import { auditRouter } from './modules/audit/audit.routes.js';
 import { settingsRouter } from './modules/settings/settings.routes.js';
 import { payoutsRouter } from './modules/payouts/payouts.routes.js';
+import { feesRouter } from './modules/fees/fees.routes.js';
 import { paymentsRouter } from './modules/payments/payments.routes.js';
 import { publicRouter } from './modules/public/public.routes.js';
 import { docsRouter } from './modules/docs/docs.routes.js';
@@ -157,6 +158,7 @@ export function createApp() {
   app.use('/audit-logs', limiteGeneral, auditRouter);
   app.use('/settings', limiteGeneral, settingsRouter);
   app.use('/payouts', limiteGeneral, payoutsRouter);
+  app.use('/fees', limiteGeneral, feesRouter);
   app.use('/payments', limiteGeneral, paymentsRouter);
   app.use('/notifications', limiteGeneral, notificationsRouter);
 

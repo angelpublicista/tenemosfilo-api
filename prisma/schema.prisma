@@ -313,6 +313,9 @@ model Company {
   // Las dispersiones que ESTA empresa paga, no las que recibe: con pasarela
   // propia el anfitrion le paga su comision al revendedor.
   payoutsPagados         Payout[]         @relation("PayoutPagador")
+  // Lo que esta empresa le ha pagado a FILO de su comision por cobrar con su
+  // propia pasarela.
+  feePayments            FeePayment[]
   aiAgent                AiAgent?
   aiConversations        AiConversation[]
   channelListings        ChannelListing[]
@@ -560,6 +563,37 @@ model Payout {
   @@index([companyId, role])
   @@index([payerCompanyId])
   @@index([paidAt])
+}
+
+// Pago de un anfitrion a FILO por su comision de un mes.
+//
+// Es el reves de Payout: aqui paga el anfitrion. Con pasarela propia el dinero
+// de la venta nunca pasa por FILO, asi que la comision no se puede descontar
+// del pago; se junta por mes, FILO factura por fuera y aqui solo se deja
+// constancia de lo que ya pago. Lo devengado NO se guarda: sale de las
+// reservas, igual que los saldos de Payout.
+model FeePayment {
+  id String @id @default(cuid())
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+
+  // Mes que se paga, "2026-10", en hora de Bogota.
+  period String
+
+  amount    Decimal @db.Decimal(14, 2)
+  // Numero de la factura de FILO o del comprobante de pago.
+  reference String?
+  notes     String?
+
+  // Sin FK: el historial tiene que sobrevivir al borrado del usuario.
+  createdById    String?
+  createdByEmail String?
+
+  paidAt    DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  @@index([companyId, period])
 }
 
 // Ajustes globales de la plataforma. Fila unica (id = "default"): son
