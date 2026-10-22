@@ -1,61 +1,15 @@
-// Plantillas de los correos de reserva.
+// Correos de reserva: que datos lleva cada uno.
 //
-// Viven aparte de email.ts porque ese archivo es el transporte —como se
-// entrega un correo— y este es el contenido. Cambiar el proveedor de envio
-// no deberia obligar a tocar los textos, ni al reves.
+// Los TEXTOS viven en plantillas-de-reserva.ts, donde el administrador puede
+// editarlos, y la maqueta en email-marco.ts. Aqui solo se decide con que valores
+// se rellena cada plantilla y se arman las tablas de datos, que son del codigo.
 //
 // El mismo hecho se le cuenta distinto a cada quien: al comensal le importa
 // SU plan, al anfitrion le importa a quien tiene que atender, y al admin le
 // importa que la plataforma esta vendiendo. Por eso hay una plantilla por
 // audiencia y no una sola con condicionales.
-import { env } from '../config/env.js';
-
-const NARANJA = '#F26726';
-const AZUL = '#334C5D';
-const VERDE = '#16a34a';
-const ROJO = '#dc2626';
-
-/**
- * Colombia, siempre.
- *
- * Sin fijar la zona, la hora sale en la del servidor: en produccion eso es
- * UTC y el correo le diria al comensal que su cena es cinco horas mas
- * tarde. Una reserva mal fechada es peor que no mandar el correo.
- */
-const ZONA = 'America/Bogota';
-
-const fechaLarga = (f: Date) =>
-  f.toLocaleDateString('es-CO', {
-    timeZone: ZONA,
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  });
-
-const hora = (f: Date) =>
-  f.toLocaleTimeString('es-CO', { timeZone: ZONA, hour: 'numeric', minute: '2-digit' });
-
-const dinero = (n: number) =>
-  `$${Number(n || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 })}`;
-
-const personas = (n: number) => `${n} ${n === 1 ? 'persona' : 'personas'}`;
-
-/**
- * Escapa lo que viene del usuario antes de meterlo en el HTML.
- *
- * El nombre del cliente y las peticiones especiales son texto libre que
- * cualquiera puede escribir desde el motor de reservas publico. Sin esto,
- * un nombre con etiquetas se ejecutaria dentro del correo del anfitrion.
- */
-function esc(valor: unknown): string {
-  return String(valor ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
+import { armarCorreo, type ClaveDePlantilla } from './plantillas-de-correo.js';
+import { bloqueDatos, dinero, esc, fechaLarga, hora, personas, type Fila } from './email-marco.js';
 
 export type DatosCorreoReserva = {
   reservationNumber: string;
@@ -92,156 +46,36 @@ export type DatosCorreoReserva = {
   colorMarca?: string | null;
 };
 
-/** El color principal de quien presta el servicio, o el de la plataforma. */
-const marca = (d: DatosCorreoReserva) => d.colorMarca ?? NARANJA;
-
-/**
- * Blanco o negro, el que se lea sobre ese fondo.
- *
- * El blanco es el de siempre y se respeta: esto es una red de seguridad, no
- * un optimizador de contraste. Solo se pasa a texto oscuro cuando el blanco
- * encima seria ilegible de verdad —por debajo de 3:1, que no alcanza ni para
- * texto grande segun la WCAG—.
- *
- * El maximo contraste matematico pediria texto oscuro sobre el naranja de la
- * plataforma, lo que cambiaria el aspecto de todos los correos que ya se
- * mandan. Aqui solo se interviene con un amarillo o un pastel, que es donde
- * el problema es real. El umbral sale de despejar 1,05 / (L + 0,05) < 3.
- */
-function textoSobre(fondo: string): string {
-  const m = /^#([0-9a-f]{6})$/i.exec(fondo.trim());
-  const cifras = m?.[1];
-  if (!cifras) return '#ffffff';
-  const n = parseInt(cifras, 16);
-  const canal = (c: number) => {
-    const v = c / 255;
-    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+/** Los valores que casi todas las plantillas de reserva comparten. */
+function valoresComunes(d: DatosCorreoReserva): Record<string, string> {
+  return {
+    cliente: d.clienteNombre,
+    empresa: d.empresaNombre,
+    experiencia: d.experienceTitle,
+    fecha: fechaLarga(d.reservationDate),
+    hora: hora(d.reservationDate),
+    personas: personas(d.participants),
+    lugar: d.lugar ?? '',
+    // El de la puerta, no el numero de reserva: ese lleva la hora dentro y solo
+    // tres caracteres al azar, asi que se puede adivinar.
+    codigo: d.confirmationCode ?? d.reservationNumber,
+    numero_reserva: d.reservationNumber,
+    total: d.total ? dinero(d.total) : '',
   };
-  const L =
-    0.2126 * canal((n >> 16) & 255) +
-    0.7152 * canal((n >> 8) & 255) +
-    0.0722 * canal(n & 255);
-  // El umbral sale de igualar el contraste contra blanco y contra negro.
-  return L > 0.30 ? '#111827' : '#ffffff';
 }
 
-type Fila = { etiqueta: string; valor: string };
-
-/**
- * Los datos de la reserva como tabla.
- *
- * Tabla y estilos en linea, no flex ni clases: los clientes de correo
- * —Outlook sobre todo— no soportan CSS moderno y romperian el bloque que
- * justamente tiene que leerse de un vistazo.
- */
-function bloqueDatos(filas: Fila[]): string {
-  const cuerpo = filas
-    .filter((f) => f.valor)
-    .map(
-      (f) => `
-        <tr>
-          <td style="padding:8px 0;color:#6b7280;font-size:14px;width:40%;vertical-align:top;">${esc(
-            f.etiqueta,
-          )}</td>
-          <td style="padding:8px 0;color:#111827;font-size:14px;font-weight:600;">${f.valor}</td>
-        </tr>`,
-    )
-    .join('');
-
-  return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%"
-                 style="border-collapse:collapse;margin:8px 0 24px;">${cuerpo}</table>`;
+/** Arma el correo de una plantilla con los valores comunes de la reserva y los propios de ese correo. */
+function armar(
+  key: ClaveDePlantilla,
+  d: DatosCorreoReserva,
+  extra: Record<string, string> = {},
+  botonUrl?: string,
+) {
+  return armarCorreo(key, { ...valoresComunes(d), ...extra }, {
+    botonUrl,
+    contexto: { logo: d.logoEmpresa, empresa: d.empresaNombre, colorMarca: d.colorMarca },
+  });
 }
-
-function boton(texto: string, url: string, color: string = NARANJA): string {
-  return `
-    <p style="text-align:center;margin:28px 0 8px;">
-      <a href="${esc(url)}"
-         style="display:inline-block;background-color:${color};color:${textoSobre(color)};padding:13px 28px;
-                text-decoration:none;border-radius:6px;font-weight:600;font-size:15px;">
-        ${esc(texto)}
-      </a>
-    </p>`;
-}
-
-/**
- * La marca del anfitrion, sobre banda blanca.
- *
- * No va dentro de la cabecera de color porque ese color cambia segun el
- * mensaje —verde si se confirma, rojo si se cancela— y el logo lo pone cada
- * anfitrion: no hay forma de saber si contrastara. Sobre blanco funciona
- * siempre.
- *
- * El alt lleva el nombre de la empresa a proposito: muchos clientes de correo
- * bloquean las imagenes por defecto, y asi lo que se ve en su lugar sigue
- * diciendo de quien es el correo.
- */
-function bandaDeMarca(logo: string | null | undefined, empresa: string): string {
-  if (!logo) return '';
-  return `
-            <tr>
-              <td style="padding:24px 32px 8px;text-align:center;background-color:#ffffff;">
-                <img src="${esc(logo)}" alt="${esc(empresa)}"
-                     style="max-height:52px;max-width:200px;height:auto;width:auto;" />
-              </td>
-            </tr>`;
-}
-
-/** Marco comun: marca del anfitrion, cabecera de color, contenido y pie. */
-function marco(opts: {
-  titulo: string;
-  color: string;
-  contenido: string;
-  logo?: string | null;
-  empresa?: string;
-  /** Pie del correo. Los del comensal llevan el de la especificacion. */
-  pie?: string;
-}): string {
-  return `<!DOCTYPE html>
-<html lang="es">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>${esc(opts.titulo)}</title>
-  </head>
-  <body style="margin:0;padding:0;background-color:#f3f4f6;">
-    <table role="presentation" cellpadding="0" cellspacing="0" width="100%"
-           style="background-color:#f3f4f6;padding:24px 12px;">
-      <tr>
-        <td align="center">
-          <table role="presentation" cellpadding="0" cellspacing="0" width="600"
-                 style="max-width:600px;width:100%;background-color:#ffffff;border-radius:12px;overflow:hidden;
-                        font-family:Arial,Helvetica,sans-serif;">
-            ${bandaDeMarca(opts.logo, opts.empresa ?? 'Tenemos Filo')}
-            <tr>
-              <td style="background-color:${opts.color};padding:28px 32px;">
-                <h1 style="margin:0;color:${textoSobre(opts.color)};font-size:22px;font-weight:700;">${esc(
-                  opts.titulo,
-                )}</h1>
-              </td>
-            </tr>
-            <tr>
-              <td style="padding:32px;color:#374151;font-size:15px;line-height:1.6;">
-                ${opts.contenido}
-              </td>
-            </tr>
-            <tr>
-              <td style="padding:20px 32px;background-color:#f9fafb;color:#9ca3af;font-size:12px;text-align:center;">
-                ${esc(opts.pie ?? 'Tenemos Filo · experiencias gastronómicas')}
-              </td>
-            </tr>
-          </table>
-        </td>
-      </tr>
-    </table>
-  </body>
-</html>`;
-}
-
-/** Pie de todo correo que le llega al comensal. */
-const PIE_DEL_COMENSAL = 'Reserva gestionada con FILO.';
-
-const PANEL_ANFITRION = `${env.APP_URL}/dashboard/reservations`;
-const PANEL_COMENSAL = `${env.APP_URL}/dashboard/mis-reservas`;
 
 const datosDelPlan = (d: DatosCorreoReserva): Fila[] => [
   { etiqueta: 'Experiencia', valor: esc(d.experienceTitle) },
@@ -264,50 +98,29 @@ const datosDelPlan = (d: DatosCorreoReserva): Fila[] => [
 
 /** Al anfitrion: una venta que atender, con como contactar al cliente. */
 export function correoReservaAnfitrion(d: DatosCorreoReserva) {
-  return {
-    subject: `Nueva reserva: ${d.experienceTitle} · ${fechaLarga(d.reservationDate)}`,
-    html: marco({
-      titulo: 'Tienes una reserva nueva',
-      logo: d.logoEmpresa,
-      empresa: d.empresaNombre,
-      color: AZUL,
-      contenido: `
-        <p><strong>${esc(d.clienteNombre)}</strong> reservó ${esc(
-          personas(d.participants),
-        )} en ${esc(d.experienceTitle)}.</p>
-        ${bloqueDatos([
-          ...datosDelPlan(d),
-          // El anfitrion necesita poder escribirle o llamarlo sin entrar al
-          // panel: muchas veces lee esto desde el celular en servicio.
-          { etiqueta: 'Contacto', valor: esc(d.clienteEmail ?? '') },
-          { etiqueta: 'Teléfono', valor: esc(d.clienteTelefono ?? '') },
-          { etiqueta: 'Peticiones', valor: esc(d.peticiones ?? '') },
-          { etiqueta: 'Total', valor: d.total ? esc(dinero(d.total)) : '' },
-        ])}
-        ${boton('Confirmar en el panel', PANEL_ANFITRION, marca(d))}`,
-    }),
-  };
+  return armar('reserva_nueva_anfitrion', d, {
+    datos_reserva: bloqueDatos([
+      ...datosDelPlan(d),
+      // El anfitrion necesita poder escribirle o llamarlo sin entrar al
+      // panel: muchas veces lee esto desde el celular en servicio.
+      { etiqueta: 'Contacto', valor: esc(d.clienteEmail ?? '') },
+      { etiqueta: 'Teléfono', valor: esc(d.clienteTelefono ?? '') },
+      { etiqueta: 'Peticiones', valor: esc(d.peticiones ?? '') },
+      { etiqueta: 'Total', valor: d.total ? esc(dinero(d.total)) : '' },
+    ]),
+  });
 }
 
 /** Al admin: pulso de la plataforma, sin el detalle operativo del servicio. */
 export function correoReservaAdmin(d: DatosCorreoReserva) {
-  return {
-    subject: `[Filo] Reserva ${d.reservationNumber} · ${d.empresaNombre}`,
-    html: marco({
-      titulo: 'Reserva nueva en la plataforma',
-      logo: d.logoEmpresa,
-      empresa: d.empresaNombre,
-      color: AZUL,
-      contenido: `
-        ${bloqueDatos([
-          { etiqueta: 'Empresa', valor: esc(d.empresaNombre) },
-          ...datosDelPlan(d),
-          { etiqueta: 'Cliente', valor: esc(d.clienteNombre) },
-          { etiqueta: 'Total', valor: d.total ? esc(dinero(d.total)) : '' },
-        ])}
-        ${boton('Ver en el panel', PANEL_ANFITRION, marca(d))}`,
-    }),
-  };
+  return armar('reserva_nueva_admin', d, {
+    datos_reserva: bloqueDatos([
+      { etiqueta: 'Empresa', valor: esc(d.empresaNombre) },
+      ...datosDelPlan(d),
+      { etiqueta: 'Cliente', valor: esc(d.clienteNombre) },
+      { etiqueta: 'Total', valor: d.total ? esc(dinero(d.total)) : '' },
+    ]),
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -316,26 +129,14 @@ export function correoReservaAdmin(d: DatosCorreoReserva) {
 
 /** Al comensal: confirmada. Es el correo que va a guardar y releer. */
 export function correoConfirmadaComensal(d: DatosCorreoReserva) {
-  return {
-    subject: `Tu reserva en ${d.experienceTitle} está confirmada`,
-    html: marco({
-      titulo: '¡Tu reserva está confirmada!',
-      pie: PIE_DEL_COMENSAL,
-      logo: d.logoEmpresa,
-      empresa: d.empresaNombre,
-      color: VERDE,
-      contenido: `
-        <p>Hola ${esc(d.clienteNombre)},</p>
-        <p>Tu reserva con <strong>${esc(d.empresaNombre)}</strong> está confirmada.</p>
-        ${bloqueDatos([
-          ...datosDelPlan(d),
-          // Es el unico correo que le llega al comensal al pagar: tiene que
-          // servirle de comprobante. Solo si pago algo.
-          { etiqueta: 'Pagado', valor: d.pagado ? esc(dinero(d.pagado)) : '' },
-        ])}
-        ${boton('Ver mi reserva', PANEL_COMENSAL, marca(d))}`,
-    }),
-  };
+  return armar('reserva_confirmada_comensal', d, {
+    datos_reserva: bloqueDatos([
+      ...datosDelPlan(d),
+      // Es el unico correo que le llega al comensal al pagar: tiene que
+      // servirle de comprobante. Solo si pago algo.
+      { etiqueta: 'Pagado', valor: d.pagado ? esc(dinero(d.pagado)) : '' },
+    ]),
+  });
 }
 
 export type PagoDeLaCancelacion = {
@@ -375,8 +176,8 @@ const bloqueSobreTuPago = (texto: string | null) =>
 /**
  * Al comensal cuando se cancela su reserva entera.
  *
- * Dos correos distintos segun quien cancela: si fue el comensal o su canal, se
- * le confirma lo que pidio; si fue el anfitrion, se le dice quien y que no es
+ * Dos plantillas distintas segun quien cancela: si fue el comensal o su canal,
+ * se le confirma lo que pidio; si fue el anfitrion, se le dice quien y que no es
  * culpa suya.
  */
 export function correoCanceladaComensal(
@@ -385,31 +186,11 @@ export function correoCanceladaComensal(
   pago?: PagoDeLaCancelacion,
 ) {
   const porAnfitrion = pago?.porAnfitrion === true;
-  return {
-    subject: porAnfitrion
-      ? `Tu reserva en ${d.experienceTitle} fue cancelada por ${d.empresaNombre}`
-      : `Tu reserva en ${d.experienceTitle} fue cancelada`,
-    html: marco({
-      titulo: 'Tu reserva fue cancelada',
-      pie: PIE_DEL_COMENSAL,
-      logo: d.logoEmpresa,
-      empresa: d.empresaNombre,
-      color: ROJO,
-      contenido: `
-        <p>Hola ${esc(d.clienteNombre)},</p>
-        <p>${
-          porAnfitrion
-            ? `<strong>${esc(d.empresaNombre)}</strong> canceló <strong>${esc(d.experienceTitle)}</strong> para la fecha indicada a continuación. Tu reserva quedó cancelada.`
-            : `Confirmamos la cancelación de tu reserva en <strong>${esc(d.experienceTitle)}</strong> con <strong>${esc(d.empresaNombre)}</strong>.`
-        }</p>
-        ${bloqueDatos([
-          ...datosDelPlan(d),
-          { etiqueta: 'Motivo', valor: esc(motivo ?? '') },
-        ])}
-        ${bloqueSobreTuPago(textoDeReembolso(d, pago))}
-        ${boton('Ver mis reservas', PANEL_COMENSAL, marca(d))}`,
-    }),
-  };
+  return armar(porAnfitrion ? 'reserva_cancelada_por_anfitrion' : 'reserva_cancelada_comensal', d, {
+    motivo: motivo ?? '',
+    datos_reserva: bloqueDatos([...datosDelPlan(d), { etiqueta: 'Motivo', valor: esc(motivo ?? '') }]),
+    sobre_tu_pago: bloqueSobreTuPago(textoDeReembolso(d, pago)),
+  });
 }
 
 /**
@@ -424,23 +205,14 @@ export function correoCanceladaAnfitrion(
   motivo?: string,
   pago?: PagoDeLaCancelacion,
 ) {
-  return {
-    subject: `Cancelación de cliente: ${d.experienceTitle} · ${fechaLarga(d.reservationDate)}`,
-    html: marco({
-      titulo: 'Se canceló una reserva',
-      logo: d.logoEmpresa,
-      empresa: d.empresaNombre,
-      color: ROJO,
-      contenido: `
-        <p><strong>${esc(d.clienteNombre)}</strong> ya no asiste. El cupo queda libre.</p>
-        ${bloqueDatos([
-          ...datosDelPlan(d),
-          { etiqueta: 'Motivo', valor: esc(motivo ?? '') },
-          { etiqueta: 'Resultado económico', valor: esc(textoDeReembolso(d, pago) ?? '') },
-        ])}
-        ${boton('Ver reservas', PANEL_ANFITRION, marca(d))}`,
-    }),
-  };
+  return armar('reserva_cancelada_anfitrion', d, {
+    motivo: motivo ?? '',
+    datos_reserva: bloqueDatos([
+      ...datosDelPlan(d),
+      { etiqueta: 'Motivo', valor: esc(motivo ?? '') },
+      { etiqueta: 'Resultado económico', valor: esc(textoDeReembolso(d, pago) ?? '') },
+    ]),
+  });
 }
 
 /**
@@ -456,26 +228,12 @@ export function correoBajaParcialComensal(
   motivo?: string,
   pago?: PagoDeLaCancelacion,
 ) {
-  return {
-    subject: `Actualizamos tu reserva en ${d.experienceTitle}`,
-    html: marco({
-      titulo: 'Tu reserva queda con menos personas',
-      pie: PIE_DEL_COMENSAL,
-      logo: d.logoEmpresa,
-      empresa: d.empresaNombre,
-      color: marca(d),
-      contenido: `
-        <p>Hola ${esc(d.clienteNombre)},</p>
-        <p>Se dieron de baja <strong>${esc(personas(personasQueSeCaen))}</strong> de tu reserva en
-           <strong>${esc(d.empresaNombre)}</strong>. El resto sigue en pie:</p>
-        ${bloqueDatos([
-          ...datosDelPlan(d),
-          { etiqueta: 'Motivo', valor: esc(motivo ?? '') },
-        ])}
-        ${bloqueSobreTuPago(textoDeReembolso(d, pago))}
-        ${boton('Ver mis reservas', PANEL_COMENSAL, marca(d))}`,
-    }),
-  };
+  return armar('baja_parcial_comensal', d, {
+    personas_que_se_caen: personas(personasQueSeCaen),
+    motivo: motivo ?? '',
+    datos_reserva: bloqueDatos([...datosDelPlan(d), { etiqueta: 'Motivo', valor: esc(motivo ?? '') }]),
+    sobre_tu_pago: bloqueSobreTuPago(textoDeReembolso(d, pago)),
+  });
 }
 
 /** Al anfitrion: se cayo parte del grupo y esos cupos vuelven a estar libres. */
@@ -484,23 +242,11 @@ export function correoBajaParcialAnfitrion(
   personasQueSeCaen: number,
   motivo?: string,
 ) {
-  return {
-    subject: `Cancelación de cliente: ${d.experienceTitle} · ${fechaLarga(d.reservationDate)}`,
-    html: marco({
-      titulo: 'Se cayó parte de un grupo',
-      logo: d.logoEmpresa,
-      empresa: d.empresaNombre,
-      color: ROJO,
-      contenido: `
-        <p>La reserva de <strong>${esc(d.clienteNombre)}</strong> baja
-           ${esc(personas(personasQueSeCaen))}. Esos cupos quedan libres.</p>
-        ${bloqueDatos([
-          ...datosDelPlan(d),
-          { etiqueta: 'Motivo', valor: esc(motivo ?? '') },
-        ])}
-        ${boton('Ver reservas', PANEL_ANFITRION, marca(d))}`,
-    }),
-  };
+  return armar('baja_parcial_anfitrion', d, {
+    personas_que_se_caen: personas(personasQueSeCaen),
+    motivo: motivo ?? '',
+    datos_reserva: bloqueDatos([...datosDelPlan(d), { etiqueta: 'Motivo', valor: esc(motivo ?? '') }]),
+  });
 }
 
 /**
@@ -511,25 +257,12 @@ export function correoBajaParcialAnfitrion(
  * hacer algo, y la mayoria no la abre.
  */
 export function correoCambioEnLaReserva(d: DatosCorreoReserva, cambios: string[]) {
-  return {
-    subject: `Tu reserva en ${d.experienceTitle} fue actualizada`,
-    html: marco({
-      titulo: 'Cambió algo en tu reserva',
-      pie: PIE_DEL_COMENSAL,
-      logo: d.logoEmpresa,
-      empresa: d.empresaNombre,
-      color: marca(d),
-      contenido: `
-        <p>Hola ${esc(d.clienteNombre)},</p>
-        <p>Tu reserva en <strong>${esc(d.empresaNombre)}</strong> cambió:</p>
-        <ul style="margin:0 0 16px;padding-left:20px;font-size:14px;color:#374151">
+  return armar('reserva_modificada_comensal', d, {
+    cambios: `<ul style="margin:0 0 16px;padding-left:20px;font-size:14px;color:#374151">
           ${cambios.map((c) => `<li style="margin-bottom:4px">${esc(c)}</li>`).join('')}
-        </ul>
-        <p>Así queda:</p>
-        ${bloqueDatos(datosDelPlan(d))}
-        ${boton('Ver mis reservas', PANEL_COMENSAL, marca(d))}`,
-    }),
-  };
+        </ul>`,
+    datos_reserva: bloqueDatos(datosDelPlan(d)),
+  });
 }
 
 /**
@@ -543,28 +276,17 @@ export function correoCambioEnLaReserva(d: DatosCorreoReserva, cambios: string[]
  * para decir si le gusto.
  */
 export function correoCalificacionComensal(d: DatosCorreoReserva, enlace: string) {
-  return {
-    subject: `¿Cómo fue tu experiencia en ${d.experienceTitle}?`,
-    html: marco({
-      titulo: '¿Qué tal estuvo?',
-      pie: PIE_DEL_COMENSAL,
-      logo: d.logoEmpresa,
-      empresa: d.empresaNombre,
-      color: marca(d),
-      contenido: `
-        <p>Hola ${esc(d.clienteNombre)},</p>
-        <p>Gracias por venir a <strong>${esc(d.experienceTitle)}</strong>. Si tienes un
-           minuto, cuéntanos cómo estuvo: son cuatro estrellas y nada más que marcar.</p>
-        ${bloqueDatos([
-          { etiqueta: 'Experiencia', valor: esc(d.experienceTitle) },
-          { etiqueta: 'Fecha', valor: esc(fechaLarga(d.reservationDate)) },
-        ])}
-        ${boton('Calificar', enlace, marca(d))}
-        <p style="font-size:13px;color:#6b7280;">
-          No hace falta crear una cuenta ni escribir nada.
-        </p>`,
-    }),
-  };
+  return armar(
+    'calificacion_comensal',
+    d,
+    {
+      datos_reserva: bloqueDatos([
+        { etiqueta: 'Experiencia', valor: esc(d.experienceTitle) },
+        { etiqueta: 'Fecha', valor: esc(fechaLarga(d.reservationDate)) },
+      ]),
+    },
+    enlace,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -572,23 +294,11 @@ export function correoCalificacionComensal(d: DatosCorreoReserva, enlace: string
 // ---------------------------------------------------------------------------
 
 export function correoPagoAnfitrion(d: DatosCorreoReserva) {
-  return {
-    subject: `Pago recibido · ${d.reservationNumber}`,
-    html: marco({
-      titulo: 'Entró un pago',
-      logo: d.logoEmpresa,
-      empresa: d.empresaNombre,
-      color: VERDE,
-      contenido: `
-        ${bloqueDatos([
-          { etiqueta: 'Monto', valor: d.total ? esc(dinero(d.total)) : '' },
-          ...datosDelPlan(d),
-          { etiqueta: 'Cliente', valor: esc(d.clienteNombre) },
-        ])}
-        <p style="font-size:13px;color:#6b7280;">
-          Lo que te corresponde de esta venta lo ves en Ingresos, ya descontada la comisión.
-        </p>
-        ${boton('Ver ingresos', `${env.APP_URL}/dashboard/ingresos`, marca(d))}`,
-    }),
-  };
+  return armar('pago_recibido_anfitrion', d, {
+    datos_reserva: bloqueDatos([
+      { etiqueta: 'Monto', valor: d.total ? esc(dinero(d.total)) : '' },
+      ...datosDelPlan(d),
+      { etiqueta: 'Cliente', valor: esc(d.clienteNombre) },
+    ]),
+  });
 }

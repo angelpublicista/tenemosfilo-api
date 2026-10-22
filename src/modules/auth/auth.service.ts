@@ -2,7 +2,8 @@ import { createHash, randomBytes } from 'node:crypto';
 import { OAuth2Client } from 'google-auth-library';
 import { env } from '../../config/env.js';
 import { prisma } from '../../config/prisma.js';
-import { invitationEmailHtml, passwordResetEmailHtml, sendEmail } from '../../lib/email.js';
+import { sendEmail } from '../../lib/email.js';
+import { armarCorreo } from '../../lib/plantillas-de-correo.js';
 import { BadRequest, Conflict, NotFound, Unauthorized } from '../../lib/errors.js';
 import { logger } from '../../lib/logger.js';
 import { hashPassword, verifyPassword } from '../../lib/password.js';
@@ -152,11 +153,8 @@ export const authService = {
     });
 
     const resetUrl = `${env.APP_URL}/reset-password?token=${token}`;
-    const sent = await sendEmail({
-      to: user.email,
-      subject: 'Recupera tu contraseña - Tenemos Filo',
-      html: passwordResetEmailHtml(resetUrl),
-    });
+    const correo = await armarCorreo('restablecer_contrasena', {}, { botonUrl: resetUrl });
+    const sent = await sendEmail({ to: user.email, ...correo });
 
     // Un fallo de correo se registra pero no cambia la respuesta HTTP.
     if (!sent) logger.error({ userId: user.id }, 'No se pudo enviar el correo de recuperacion');
@@ -202,11 +200,13 @@ export const authService = {
       // el API el token es el mismo. Si se pierde por el camino, la persona
       // vera el texto de recuperacion y podra elegir contraseña igualmente.
       const url = `${env.APP_URL}/reset-password?token=${token}&invitacion=1`;
-      const enviado = await sendEmail({
-        to: user.email,
-        subject: 'Tu cuenta en Tenemos Filo',
-        html: invitationEmailHtml(url, user.name),
-      });
+      const nombre = user.name?.trim();
+      const correo = await armarCorreo(
+        'invitacion_cuenta',
+        { saludo: nombre ? `Hola ${nombre},` : 'Hola,' },
+        { botonUrl: url },
+      );
+      const enviado = await sendEmail({ to: user.email, ...correo });
 
       if (!enviado) {
         logger.error({ userId, email: user.email }, 'no se pudo enviar la invitacion');

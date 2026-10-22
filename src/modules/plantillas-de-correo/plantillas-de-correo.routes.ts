@@ -18,6 +18,7 @@ import {
   valoresDeEjemplo,
   type ClaveDePlantilla,
 } from '../../lib/plantillas-de-correo.js';
+import { CONTEXTO_DE_EJEMPLO } from '../../lib/plantillas-de-reserva.js';
 
 export const plantillasDeCorreoRouter = Router();
 
@@ -47,7 +48,14 @@ const detalle = async (key: ClaveDePlantilla) => {
     nombre: def.nombre,
     descripcion: def.descripcion,
     cuando: def.cuando,
-    variables: def.variables,
+    grupo: def.grupo,
+    // La muestra es HTML para la vista previa; al editor no le sirve.
+    variables: def.variables.map(({ clave, descripcion, ejemplo, html }) => ({
+      clave,
+      descripcion,
+      ejemplo,
+      html: html === true,
+    })),
     defecto: def.defecto,
     actual: {
       subject: vigente.subject,
@@ -69,6 +77,7 @@ plantillasDeCorreoRouter.get('/', async (_req: Request, res: Response) => {
       nombre: PLANTILLAS[key].nombre,
       descripcion: PLANTILLAS[key].descripcion,
       cuando: PLANTILLAS[key].cuando,
+      grupo: PLANTILLAS[key].grupo,
       personalizada: editadas.has(key),
       updatedAt: editadas.get(key) ?? null,
     })),
@@ -113,7 +122,7 @@ plantillasDeCorreoRouter.post(
   async (req: Request, res: Response) => {
     const key = claveDe(req);
     const contenido = validarContenido(key, req.body as z.infer<typeof contenidoSchema>);
-    res.json({ data: componer(key, contenido, valoresDeEjemplo(key)) });
+    res.json({ data: componer(key, contenido, valoresDeEjemplo(key), { contexto: CONTEXTO_DE_EJEMPLO }) });
   },
 );
 
@@ -125,7 +134,7 @@ plantillasDeCorreoRouter.post(
   async (req: Request, res: Response) => {
     const key = claveDe(req);
     const contenido = validarContenido(key, req.body as z.infer<typeof contenidoSchema>);
-    const { subject, html } = componer(key, contenido, valoresDeEjemplo(key));
+    const { subject, html } = componer(key, contenido, valoresDeEjemplo(key), { contexto: CONTEXTO_DE_EJEMPLO });
     const enviado = await sendEmail({ to: req.user!.email, subject: `[Prueba] ${subject}`, html });
     if (!enviado) throw BadRequest('No se pudo enviar el correo de prueba. Revisa la configuración del correo.');
     res.json({ data: { enviadoA: req.user!.email } });

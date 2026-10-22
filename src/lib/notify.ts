@@ -577,7 +577,7 @@ export async function avisarNuevaReserva(
         `reservation:${r.id}:confirmed`,
         'CLI-01',
         r.id,
-        [{ to: r.clienteEmail, ...(await remitenteDelComensal(r)), ...correoConfirmadaComensal(d) }],
+        [{ to: r.clienteEmail, ...(await remitenteDelComensal(r)), ...(await correoConfirmadaComensal(d)) }],
         actor,
       );
     } else {
@@ -587,6 +587,10 @@ export async function avisarNuevaReserva(
 
   // Una reserva, un aviso al anfitrion y a la plataforma, aunque el mismo
   // alta llegue dos veces.
+  const [paraAnfitrion, paraAdmin] = await Promise.all([
+    correoReservaAnfitrion(d),
+    correoReservaAdmin(d),
+  ]);
   await despacharUnaVez(
     `reservation:${r.id}:host_new_booking`,
     'HOST-01',
@@ -594,8 +598,8 @@ export async function avisarNuevaReserva(
     [
       ...(opts?.correoAlAnfitrion === false
         ? []
-        : correosAnfitrion.map((to) => ({ to, ...correoReservaAnfitrion(d) }))),
-      ...correosAdmin.map((to) => ({ to, ...correoReservaAdmin(d) })),
+        : correosAnfitrion.map((to) => ({ to, ...paraAnfitrion }))),
+      ...correosAdmin.map((to) => ({ to, ...paraAdmin })),
     ],
     actor,
   );
@@ -694,7 +698,7 @@ export async function avisarCambioDeEstado(
   if (estado === 'CONFIRMED') {
     if (r.clienteEmail) {
       await despacharUnaVez(`reservation:${r.id}:confirmed`, 'CLI-01', r.id, [
-        { to: r.clienteEmail, ...remitente, ...correoConfirmadaComensal(d) },
+        { to: r.clienteEmail, ...remitente, ...(await correoConfirmadaComensal(d)) },
       ]);
     } else {
       await registrarOmitido(`reservation:${r.id}:confirmed:skipped`, 'CLI-01', r.id);
@@ -709,7 +713,7 @@ export async function avisarCambioDeEstado(
 
   if (estado === 'CANCELLED') {
     if (r.clienteEmail) {
-      envios.push({ to: r.clienteEmail, ...remitente, ...correoCanceladaComensal(d, motivo, pago) });
+      envios.push({ to: r.clienteEmail, ...remitente, ...(await correoCanceladaComensal(d, motivo, pago)) });
     } else {
       await registrarOmitido(
         `reservation:${r.id}:cancelled:skipped`,
@@ -727,7 +731,8 @@ export async function avisarCambioDeEstado(
     // Tambien a reservas: una cancelacion libera un cupo, y quien lo gestiona
     // es justamente quien puede revenderlo.
     const correos = await correosDeReservas(r.companyId);
-    envios.push(...correos.map((to) => ({ to, ...correoCanceladaAnfitrion(d, motivo, pago) })));
+    const paraAnfitrion = await correoCanceladaAnfitrion(d, motivo, pago);
+    envios.push(...correos.map((to) => ({ to, ...paraAnfitrion })));
   }
 
   await despachar(envios);
@@ -790,17 +795,19 @@ export async function avisarBajaParcial(
       actor,
     );
   }
+  const paraAnfitrion =
+    correos.length > 0 ? await correoBajaParcialAnfitrion(d, personasQueSeCaen, motivo) : null;
   await despachar([
     ...(r.clienteEmail
       ? [
           {
             to: r.clienteEmail,
             ...remitente,
-            ...correoBajaParcialComensal(d, personasQueSeCaen, motivo, { reembolso, porAnfitrion }),
+            ...(await correoBajaParcialComensal(d, personasQueSeCaen, motivo, { reembolso, porAnfitrion })),
           },
         ]
       : []),
-    ...correos.map((to) => ({ to, ...correoBajaParcialAnfitrion(d, personasQueSeCaen, motivo) })),
+    ...(paraAnfitrion ? correos.map((to) => ({ to, ...paraAnfitrion })) : []),
   ]);
 }
 
@@ -860,7 +867,7 @@ export async function avisarCambioEnLaReserva(
       {
         to: r.clienteEmail,
         ...(await remitenteDelComensal(r)),
-        ...correoCambioEnLaReserva(paraCorreo(r), cambios),
+        ...(await correoCambioEnLaReserva(paraCorreo(r), cambios)),
       },
     ]);
   } else {
@@ -889,7 +896,7 @@ export async function pedirCalificacion(r: DatosReserva, token: string): Promise
     {
       to: r.clienteEmail,
       ...(await remitenteDelComensal(r)),
-      ...correoCalificacionComensal(paraCorreo(r), enlace),
+      ...(await correoCalificacionComensal(paraCorreo(r), enlace)),
     },
   ]);
 }
@@ -927,5 +934,6 @@ export async function avisarPago(r: DatosReserva): Promise<void> {
 
   const d = paraCorreo(r);
   const correos = await correosDeLaEmpresa(r.companyId, 'CONTABILIDAD');
-  await despachar(correos.map((to) => ({ to, ...correoPagoAnfitrion(d) })));
+  const correo = correos.length > 0 ? await correoPagoAnfitrion(d) : null;
+  await despachar(correo ? correos.map((to) => ({ to, ...correo })) : []);
 }

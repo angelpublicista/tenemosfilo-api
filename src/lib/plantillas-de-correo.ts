@@ -15,8 +15,33 @@
 import { env } from '../config/env.js';
 import { prisma } from '../config/prisma.js';
 import { BadRequest } from './errors.js';
+import { logger } from './logger.js';
+import { PLANTILLAS_DE_RESERVA } from './plantillas-de-reserva.js';
 
-export type VariableDePlantilla = { clave: string; descripcion: string; ejemplo: string };
+export type VariableDePlantilla = {
+  clave: string;
+  descripcion: string;
+  ejemplo: string;
+  /**
+   * Su valor ya es HTML armado por el codigo (una tabla, una lista): entra al
+   * cuerpo sin escapar. Solo vale en el cuerpo; en el asunto, el titulo o el
+   * boton se rechaza.
+   */
+  html?: boolean;
+  /** Lo que se pone en la vista previa si el ejemplo no sirve tal cual (variables html). */
+  muestra?: string;
+};
+
+/** Lo que da identidad al correo de un anfitrion: su logo y su color. */
+export type ContextoDeMarca = { logo?: string | null; empresa?: string; colorMarca?: string | null };
+
+export type Maqueta = (p: {
+  titulo: string;
+  cuerpo: string;
+  botonTexto: string;
+  botonUrl: string;
+  contexto: ContextoDeMarca;
+}) => string;
 
 export type ContenidoDePlantilla = {
   subject: string;
@@ -27,6 +52,8 @@ export type ContenidoDePlantilla = {
 };
 
 export type DefinicionDePlantilla = {
+  /** Para agrupar la lista del administrador. */
+  grupo: string;
   nombre: string;
   descripcion: string;
   /** Cuándo se envía, en palabras del administrador. */
@@ -34,6 +61,8 @@ export type DefinicionDePlantilla = {
   variables: VariableDePlantilla[];
   /** A dónde lleva el botón. Es del código, no se edita. */
   urlDelBoton: () => string;
+  /** Maqueta propia; sin ella se usa la de las cuentas y suscripciones. */
+  maqueta?: Maqueta;
   defecto: ContenidoDePlantilla;
 };
 
@@ -63,11 +92,14 @@ const ENLACE_AYUDA: VariableDePlantilla = {
   ejemplo: 'https://app.tenemosfilo.com/dashboard/ayuda',
 };
 
+const GRUPO_CUENTA = 'Cuenta y suscripción';
+
 const urlPanel = () => `${env.APP_URL}/dashboard`;
 const urlSuscripcion = () => `${env.APP_URL}/dashboard/suscripcion`;
 
 export const PLANTILLAS = {
   bienvenida_anfitrion: {
+    grupo: GRUPO_CUENTA,
     nombre: 'Bienvenida a un anfitrión',
     descripcion: 'Se envía al crear una cuenta de anfitrión.',
     cuando: 'Cuando alguien se registra como anfitrión',
@@ -88,6 +120,7 @@ export const PLANTILLAS = {
     },
   },
   bienvenida: {
+    grupo: GRUPO_CUENTA,
     nombre: 'Bienvenida (otros roles)',
     descripcion: 'Se envía al crear una cuenta que no es de anfitrión.',
     cuando: 'Cuando alguien se registra sin ser anfitrión',
@@ -103,6 +136,7 @@ export const PLANTILLAS = {
     },
   },
   suscripcion_activa: {
+    grupo: GRUPO_CUENTA,
     nombre: 'Suscripción activa',
     descripcion: 'Se envía cuando la empresa paga su primera suscripción.',
     cuando: 'Con el primer pago de una empresa, en línea o registrado a mano',
@@ -119,6 +153,7 @@ export const PLANTILLAS = {
     },
   },
   suscripcion_renovada: {
+    grupo: GRUPO_CUENTA,
     nombre: 'Pago de renovación recibido',
     descripcion: 'Se envía cuando una empresa que ya tenía suscripción paga otro mes.',
     cuando: 'Con cada pago después del primero',
@@ -134,6 +169,7 @@ export const PLANTILLAS = {
     },
   },
   recordatorio_siete_dias: {
+    grupo: GRUPO_CUENTA,
     nombre: 'Recordatorio: vence en una semana',
     descripcion: 'Aviso a los 7 días o menos del vencimiento.',
     cuando: 'Una vez, cuando faltan 7 días o menos para vencer',
@@ -149,6 +185,7 @@ export const PLANTILLAS = {
     },
   },
   recordatorio_un_dia: {
+    grupo: GRUPO_CUENTA,
     nombre: 'Recordatorio: vence mañana',
     descripcion: 'Aviso el día antes del vencimiento.',
     cuando: 'Una vez, cuando falta un día o menos para vencer',
@@ -164,6 +201,7 @@ export const PLANTILLAS = {
     },
   },
   recordatorio_vencida: {
+    grupo: GRUPO_CUENTA,
     nombre: 'Aviso: suscripción vencida',
     descripcion: 'Aviso cuando la suscripción ya venció y el panel quedó bloqueado.',
     cuando: 'Una vez, tras el vencimiento',
@@ -178,7 +216,46 @@ export const PLANTILLAS = {
       buttonText: 'Renovar mi suscripción',
     },
   },
+  invitacion_cuenta: {
+    grupo: GRUPO_CUENTA,
+    nombre: 'Invitación a una cuenta',
+    descripcion: 'Le llega a quien un administrador crea una cuenta, para que elija su contraseña.',
+    cuando: 'Cuando un administrador crea una cuenta o reenvía la invitación',
+    variables: [SALUDO],
+    // El enlace lleva un token de un solo uso: lo pone el codigo en cada envio.
+    urlDelBoton: () => `${env.APP_URL}/reset-password`,
+    defecto: {
+      subject: 'Tu cuenta en Tenemos Filo',
+      title: 'Tu cuenta está lista',
+      body: `<p>{{saludo}}</p>
+<p>Te crearon una cuenta en <strong>Tenemos Filo</strong>. Solo falta que elijas tu contraseña para entrar.</p>
+<p style="font-size:13px;color:#6b7280;">El enlace caduca en 7 días y solo puede usarse una vez. Si caduca, pide uno nuevo desde «¿Olvidaste tu contraseña?» en la pantalla de acceso.</p>
+<p style="font-size:13px;color:#6b7280;">Si no esperabas este correo, puedes ignorarlo: sin elegir contraseña, la cuenta no se puede usar.</p>`,
+      buttonText: 'Elegir mi contraseña',
+    },
+  },
+  restablecer_contrasena: {
+    grupo: GRUPO_CUENTA,
+    nombre: 'Recuperar contraseña',
+    descripcion: 'Se envía a quien pide restablecer su contraseña.',
+    cuando: 'Cuando alguien usa «¿Olvidaste tu contraseña?»',
+    variables: [],
+    urlDelBoton: () => `${env.APP_URL}/reset-password`,
+    defecto: {
+      subject: 'Recupera tu contraseña - Tenemos Filo',
+      title: 'Recuperar contraseña',
+      body: `<p>Recibimos una solicitud para restablecer la contraseña de tu cuenta.</p>
+<p>Haz clic en el botón para elegir una contraseña nueva.</p>
+<p style="font-size:13px;color:#6b7280;">El enlace caduca en 1 hora y solo puede usarse una vez.</p>
+<p style="font-size:13px;color:#6b7280;">Si no solicitaste este cambio, ignora este correo: tu contraseña seguirá igual.</p>`,
+      buttonText: 'Cambiar mi contraseña',
+    },
+  },
+  ...PLANTILLAS_DE_RESERVA,
 } satisfies Record<string, DefinicionDePlantilla>;
+
+/** Las plantillas como un mapa suelto, para consultar campos opcionales sin pelear con los tipos. */
+const definicion = (key: ClaveDePlantilla): DefinicionDePlantilla => PLANTILLAS[key];
 
 export type ClaveDePlantilla = keyof typeof PLANTILLAS;
 
@@ -214,12 +291,25 @@ const VARIABLE = /\{\{\s*([a-z_]+)\s*\}\}/g;
 export const variablesUsadas = (texto: string): string[] =>
   [...texto.matchAll(VARIABLE)].map((m) => m[1]!);
 
-function sustituir(texto: string, valores: Record<string, string>, comoHtml: boolean): string {
+/**
+ * `sinEscapar` son las variables cuyo valor ya es HTML del codigo: en el cuerpo
+ * entran tal cual. Todo lo demas se escapa, porque viene de personas (el nombre
+ * de quien reserva, por ejemplo).
+ */
+function sustituir(
+  texto: string,
+  valores: Record<string, string>,
+  comoHtml: boolean,
+  sinEscapar: ReadonlySet<string> = new Set(),
+): string {
   return texto.replace(VARIABLE, (_, clave: string) => {
     const v = valores[clave] ?? '';
-    return comoHtml ? escaparHtml(v) : v;
+    return comoHtml && !sinEscapar.has(clave) ? escaparHtml(v) : v;
   });
 }
+
+const clavesHtml = (key: ClaveDePlantilla): Set<string> =>
+  new Set(definicion(key).variables.filter((v) => v.html).map((v) => v.clave));
 
 // ── Lectura y validación ────────────────────────────────────────────────────
 
@@ -227,7 +317,12 @@ export type PlantillaResuelta = ContenidoDePlantilla & { personalizada: boolean;
 
 /** La versión vigente: la del administrador si existe, o la del código. */
 export async function plantillaVigente(key: ClaveDePlantilla): Promise<PlantillaResuelta> {
-  const fila = await prisma.emailTemplate.findUnique({ where: { key } });
+  // Un fallo al leer la version del administrador no puede costar el correo:
+  // se manda con el texto original, que siempre existe.
+  const fila = await prisma.emailTemplate.findUnique({ where: { key } }).catch((err: unknown) => {
+    logger.error({ err, key }, 'no se pudo leer la plantilla de correo; se usa el texto original');
+    return null;
+  });
   if (!fila) return { ...PLANTILLAS[key].defecto, personalizada: false, updatedAt: null };
   return {
     subject: fila.subject,
@@ -254,6 +349,17 @@ export function validarContenido(key: ClaveDePlantilla, c: ContenidoDePlantilla)
     const validas = [...permitidas].map((v) => `{{${v}}}`).join(', ') || 'ninguna';
     throw BadRequest(`Variables que esta plantilla no tiene: ${lista}. Las disponibles son: ${validas}.`);
   }
+  // Las que traen HTML armado solo caben en el cuerpo: en el asunto saldrian
+  // como etiquetas sueltas.
+  const soloCuerpo = clavesHtml(key);
+  const mal = new Set<string>();
+  for (const texto of [c.subject, c.title, c.buttonText]) {
+    for (const v of variablesUsadas(texto)) if (soloCuerpo.has(v)) mal.add(v);
+  }
+  if (mal.size > 0) {
+    const lista = [...mal].map((v) => `{{${v}}}`).join(', ');
+    throw BadRequest(`${lista} solo se puede usar en el cuerpo, no en el asunto, el título ni el botón.`);
+  }
   return { ...c, body: limpiarHtml(c.body) };
 }
 
@@ -276,21 +382,32 @@ function maquetar(titulo: string, cuerpoHtml: string, botonTexto: string, botonU
   </table></td></tr></table></body></html>`;
 }
 
+export type OpcionesDeCorreo = {
+  /** Destino del boton cuando no es fijo (el enlace con token de una calificacion). */
+  botonUrl?: string;
+  /** Logo y color del anfitrion, para las plantillas que llevan su marca. */
+  contexto?: ContextoDeMarca;
+};
+
 /** Arma asunto y HTML a partir de un contenido (guardado o borrador) y los valores de las variables. */
 export function componer(
   key: ClaveDePlantilla,
   contenido: ContenidoDePlantilla,
   valores: Record<string, string>,
+  opciones: OpcionesDeCorreo = {},
 ): { subject: string; html: string } {
-  const def = PLANTILLAS[key];
+  const def = definicion(key);
+  const titulo = sustituir(contenido.title, valores, false);
+  // Se limpia la plantilla antes de rellenarla, no despues: lo que ya entro
+  // escapado no debe mutilarse, y lo que escribio el administrador si se revisa.
+  const cuerpo = sustituir(limpiarHtml(contenido.body), valores, true, clavesHtml(key));
+  const botonTexto = sustituir(contenido.buttonText, valores, false);
+  const botonUrl = opciones.botonUrl ?? def.urlDelBoton();
   return {
     subject: sustituir(contenido.subject, valores, false),
-    html: maquetar(
-      sustituir(contenido.title, valores, false),
-      limpiarHtml(sustituir(contenido.body, valores, true)),
-      sustituir(contenido.buttonText, valores, false),
-      def.urlDelBoton(),
-    ),
+    html: def.maqueta
+      ? def.maqueta({ titulo, cuerpo, botonTexto, botonUrl, contexto: opciones.contexto ?? {} })
+      : maquetar(titulo, cuerpo, botonTexto, botonUrl),
   };
 }
 
@@ -298,10 +415,11 @@ export function componer(
 export async function armarCorreo(
   key: ClaveDePlantilla,
   valores: Record<string, string>,
+  opciones?: OpcionesDeCorreo,
 ): Promise<{ subject: string; html: string }> {
-  return componer(key, await plantillaVigente(key), valores);
+  return componer(key, await plantillaVigente(key), valores, opciones);
 }
 
 /** Valores de ejemplo para la vista previa y los correos de prueba. */
 export const valoresDeEjemplo = (key: ClaveDePlantilla): Record<string, string> =>
-  Object.fromEntries(PLANTILLAS[key].variables.map((v) => [v.clave, v.ejemplo]));
+  Object.fromEntries(definicion(key).variables.map((v) => [v.clave, v.muestra ?? v.ejemplo]));
