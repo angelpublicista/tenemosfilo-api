@@ -4,7 +4,8 @@ import { z } from 'zod';
 import { requireAuth, requireHumanAuth, requireRole } from '../../middleware/auth.js';
 import { validate } from '../../middleware/validate.js';
 import { getPlatformSettings } from '../../lib/commissions.js';
-import { olvidarSuscripciones } from '../../lib/suscripcion.js';
+import { olvidarSuscripciones, urlDelWebhookDeSuscripcionMp } from '../../lib/suscripcion.js';
+import { credencialCoincideConEntorno } from '../../lib/mercadopago.js';
 import { llaveCoincideConEntorno } from '../../lib/wompi.js';
 import { cifrar, hayLlaveDeCifrado } from '../../lib/cripto.js';
 import { BadRequest } from '../../lib/errors.js';
@@ -39,6 +40,13 @@ const updateSettingsSchema = z
     wompiPrivateKey: secreto,
     wompiIntegritySecret: secreto,
     wompiEventsSecret: secreto,
+
+    mercadopagoEnabled: z.boolean().optional(),
+    mercadopagoEnvironment: wompiEnvironmentEnum.optional(),
+    mercadopagoAccessToken: secreto,
+    mercadopagoWebhookSecret: secreto,
+    // Con cual se cobra la suscripcion de los anfitriones. Una sola a la vez.
+    subscriptionProvider: z.enum(['WOMPI', 'MERCADO_PAGO']).optional(),
   })
   .refine(
     (d) =>
@@ -81,6 +89,14 @@ function aRespuesta(s: Awaited<ReturnType<typeof getPlatformSettings>>) {
     wompiPrivateKeyConfigured: !!s.wompiPrivateKey,
     wompiIntegritySecretConfigured: !!s.wompiIntegritySecret,
     wompiEventsSecretConfigured: !!s.wompiEventsSecret,
+
+    mercadopagoEnabled: s.mercadopagoEnabled,
+    mercadopagoEnvironment: s.mercadopagoEnvironment,
+    mercadopagoAccessTokenConfigured: !!s.mercadopagoAccessToken,
+    mercadopagoWebhookSecretConfigured: !!s.mercadopagoWebhookSecret,
+    subscriptionProvider: s.subscriptionProvider === 'MERCADO_PAGO' ? 'MERCADO_PAGO' : 'WOMPI',
+    // Lo que hay que pegar en el panel de Mercado Pago.
+    mercadopagoWebhookUrl: urlDelWebhookDeSuscripcionMp(),
   };
 }
 
@@ -116,6 +132,42 @@ settingsRouter.patch('/', validate(updateSettingsSchema), async (req: Request, r
     }
   }
 
+  // Mercado Pago. Mismas reglas que Wompi: no activar sin credenciales, no
+  // cruzar un token de pruebas con produccion, y secretos solo si hay llave de cifrado.
+  const entornoMp = input.mercadopagoEnvironment ?? actuales.mercadopagoEnvironment;
+  const hayTokenMp =
+    input.mercadopagoAccessToken !== undefined
+      ? input.mercadopagoAccessToken !== ''
+      : !!actuales.mercadopagoAccessToken;
+  if (input.mercadopagoAccessToken && !credencialCoincideConEntorno(input.mercadopagoAccessToken, entornoMp)) {
+    throw BadRequest(
+      `El access token no corresponde al entorno ${entornoMp === 'PRODUCTION' ? 'de producción' : 'de pruebas'}.`,
+    );
+  }
+  const mpActivo = input.mercadopagoEnabled ?? actuales.mercadopagoEnabled;
+  if (input.mercadopagoEnabled === true && !hayTokenMp) {
+    throw BadRequest('Para activar Mercado Pago hace falta el access token.');
+  }
+  if (input.mercadopagoAccessToken === '' && mpActivo) {
+    throw BadRequest('Desactiva Mercado Pago antes de borrar su access token.');
+  }
+  // Elegir Mercado Pago para la suscripcion con la pasarela sin lista dejaria a
+  // todos los anfitriones sin forma de pagar.
+  const proveedor = input.subscriptionProvider ?? actuales.subscriptionProvider;
+  if (proveedor === 'MERCADO_PAGO' && !(mpActivo && hayTokenMp)) {
+    throw BadRequest('Activa Mercado Pago, con su access token, antes de usarlo para cobrar la suscripción.');
+  }
+  if (input.mercadopagoEnabled === false && proveedor === 'MERCADO_PAGO') {
+    throw BadRequest('Mercado Pago es la pasarela de la suscripción: cámbiala a Wompi antes de desactivarlo.');
+  }
+  const secretosMp = ['mercadopagoAccessToken', 'mercadopagoWebhookSecret'] as const;
+  if (secretosMp.some((c) => input[c]) && !hayLlaveDeCifrado()) {
+    throw BadRequest(
+      'Falta CREDENTIALS_KEY en el servidor: no se pueden guardar las credenciales de Mercado Pago. ' +
+        'Con ella puesta, se guardan cifradas.',
+    );
+  }
+
   // Una cadena vacia borra el secreto; omitirlo lo deja intacto.
   //
   // Los tres secretos se cifran antes de guardarse. La llave publica no: viaja
@@ -133,6 +185,12 @@ settingsRouter.patch('/', validate(updateSettingsSchema), async (req: Request, r
     );
   }
   for (const campo of secretos) {
+    if (input[campo] !== undefined) {
+      conSecretos[campo] = input[campo] === '' ? null : cifrar(input[campo] as string);
+    }
+  }
+
+  for (const campo of secretosMp) {
     if (input[campo] !== undefined) {
       conSecretos[campo] = input[campo] === '' ? null : cifrar(input[campo] as string);
     }
@@ -167,6 +225,13 @@ settingsRouter.patch('/', validate(updateSettingsSchema), async (req: Request, r
       ...(input.subscriptionVat !== undefined && { subscriptionVat: input.subscriptionVat }),
       ...(input.wompiEnabled !== undefined && { wompiEnabled: input.wompiEnabled }),
       ...(input.wompiEnvironment !== undefined && { wompiEnvironment: input.wompiEnvironment }),
+      ...(input.mercadopagoEnabled !== undefined && { mercadopagoEnabled: input.mercadopagoEnabled }),
+      ...(input.mercadopagoEnvironment !== undefined && {
+        mercadopagoEnvironment: input.mercadopagoEnvironment,
+      }),
+      ...(input.subscriptionProvider !== undefined && {
+        subscriptionProvider: input.subscriptionProvider,
+      }),
       ...conSecretos,
     },
   });

@@ -192,3 +192,39 @@ export async function empresasQuePuedenCobrar(companyIds: string[]): Promise<Set
   });
   return new Set(empresas.filter((c) => pasarelaDelAnfitrion(c) !== null).map((c) => c.id));
 }
+
+// ── La suscripcion de los anfitriones ───────────────────────────────────────
+
+/** Credenciales de Mercado Pago de la plataforma: lo que hace falta para cobrar la suscripcion. */
+export type MercadoPagoDeLaPlataforma = {
+  accessToken: string;
+  /** Opcional: sin el no se valida `x-signature`, pero el cobro funciona igual. */
+  webhookSecret: string | null;
+  entorno: 'SANDBOX' | 'PRODUCTION';
+};
+
+/**
+ * Mercado Pago de la plataforma, si esta lista.
+ *
+ * Aparte de `pasarelaDeLaPlataforma` a proposito: esa describe como cobra FILO
+ * las reservas y es solo Wompi; esta es solo para la suscripcion, que es la unica
+ * cosa que se cobra por recurrencia.
+ */
+export async function mercadoPagoDeLaPlataforma(): Promise<MercadoPagoDeLaPlataforma | null> {
+  const a = await getPlatformSettings();
+  if (!a.mercadopagoEnabled) return null;
+  const accessToken = descifrarHeredado(a.mercadopagoAccessToken);
+  // Un token que no se puede descifrar es un token que no sirve.
+  if (!accessToken) return null;
+  return {
+    accessToken,
+    webhookSecret: descifrarHeredado(a.mercadopagoWebhookSecret),
+    entorno: a.mercadopagoEnvironment,
+  };
+}
+
+/** Con cual pasarela se cobra la suscripcion, segun lo que decidio el administrador. */
+export async function proveedorDeLaSuscripcion(): Promise<'WOMPI' | 'MERCADO_PAGO'> {
+  const a = await getPlatformSettings();
+  return a.subscriptionProvider === 'MERCADO_PAGO' ? 'MERCADO_PAGO' : 'WOMPI';
+}

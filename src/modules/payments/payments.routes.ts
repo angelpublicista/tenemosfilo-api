@@ -20,7 +20,11 @@ import { prisma } from '../../config/prisma.js';
 import { aEstadoDePago, webhookValido } from '../../lib/wompi.js';
 import { avisarCambioDeEstado, avisarPago, cargarDatosDeReserva } from '../../lib/notify.js';
 import { construirCheckout } from './payments.service.js';
-import { PREFIJO_DE_SUSCRIPCION, procesarEventoDeSuscripcion } from '../../lib/suscripcion.js';
+import {
+  PREFIJO_DE_SUSCRIPCION,
+  procesarAvisoDeMercadoPago,
+  procesarEventoDeSuscripcion,
+} from '../../lib/suscripcion.js';
 import { cerrarVentaPorPagoEnLinea } from '../opportunities/opportunities.enlace.js';
 
 export const paymentsRouter = Router();
@@ -94,6 +98,26 @@ paymentsRouter.post(
     res.json({ data: actualizado });
   },
 );
+
+/**
+ * Avisos de Mercado Pago sobre la suscripcion de los anfitriones.
+ *
+ * Aparte del webhook de reservas (`/mercadopago/webhook/:companyId`): aquel
+ * lleva la empresa en la URL porque cada anfitrion cobra con su cuenta; este
+ * es siempre de la plataforma. Todo el procesamiento vive en lib/suscripcion.
+ */
+paymentsRouter.post('/mercadopago/suscripcion/webhook', async (req: Request, res: Response) => {
+  const codigo = await procesarAvisoDeMercadoPago(
+    { ...(req.body ?? {}), id: (req.body ?? {}).id ?? req.query['data.id'] ?? req.query.id },
+    {
+      xSignature: req.headers['x-signature'] as string | undefined,
+      xRequestId: req.headers['x-request-id'] as string | undefined,
+    },
+  );
+  return codigo === 401
+    ? res.status(401).json({ error: { code: 'INVALID_SIGNATURE' } })
+    : res.status(200).json({ received: true });
+});
 
 paymentsRouter.post('/wompi/webhook', async (req: Request, res: Response) => {
   const evento = req.body as Record<string, unknown>;

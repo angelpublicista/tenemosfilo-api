@@ -27,6 +27,11 @@ export type PagoDeMercadoPago = {
   /** Nuestro numero de reserva: se lo mandamos al crear la preferencia. */
   referencia: string | null;
   monto: number;
+  /**
+   * El mandato de cobro automatico al que pertenece, si es un cobro recurrente.
+   * Mercado Pago no lo manda en un solo sitio (ver `leerPago`).
+   */
+  preapprovalId: string | null;
   crudo: unknown;
 };
 
@@ -151,6 +156,9 @@ export async function leerPago(
     status?: string;
     external_reference?: string | null;
     transaction_amount?: number;
+    subscription_id?: string | null;
+    metadata?: { preapproval_id?: string | null } | null;
+    point_of_interaction?: { transaction_data?: { subscription_id?: string | null } } | null;
   };
   if (!p.status) return null;
 
@@ -160,7 +168,163 @@ export async function leerPago(
     estadoCrudo: p.status,
     referencia: p.external_reference ?? null,
     monto: Number(p.transaction_amount ?? 0),
+    // El cobro recurrente NO trae el mandato en `subscription_id` de la raiz:
+    // viene en point_of_interaction.transaction_data y en metadata. Leer solo
+    // la raiz hacia que el cobro mensual pareciera un pago suelto y se
+    // descartara en silencio. Quien conoce el mandato por otra via (el
+    // authorized_payment) lo pasa como pista.
+    preapprovalId:
+      p.subscription_id ||
+      p.point_of_interaction?.transaction_data?.subscription_id ||
+      p.metadata?.preapproval_id ||
+      null,
     crudo: p,
+  };
+}
+
+// ── Cobro automatico (preapproval) ──────────────────────────────────────────
+//
+// El anfitrion autoriza UNA vez y Mercado Pago cobra cada periodo. Hay tres
+// recursos distintos y se confunden facil:
+//
+//   preapproval          — el mandato: monto, periodicidad y estado.
+//   authorized_payment   — un intento de cobro de ese mandato (una "factura").
+//   payment              — el pago real, que existe cuando el cobro se intenta.
+//
+// El webhook `subscription_authorized_payment` trae el id de un
+// authorized_payment, no el de un pago: pasarselo a /v1/payments devuelve 404.
+// Hay que resolverlo primero.
+
+export type EstadoDeMandato = 'pending' | 'authorized' | 'paused' | 'cancelled';
+
+export type MandatoDeMercadoPago = {
+  id: string;
+  estado: EstadoDeMandato;
+  /** Lo que mandamos al crearlo: el id de nuestra empresa. */
+  referencia: string | null;
+  initPoint: string | null;
+  crudo: unknown;
+};
+
+function aMandato(m: {
+  id?: string | number;
+  status?: string;
+  external_reference?: string | null;
+  init_point?: string | null;
+}): MandatoDeMercadoPago | null {
+  if (m.id === undefined || !m.status) return null;
+  const conocidos: string[] = ['pending', 'authorized', 'paused', 'cancelled'];
+  return {
+    id: String(m.id),
+    // Cualquier estado raro se trata como pendiente: nunca como autorizado.
+    estado: conocidos.includes(m.status) ? (m.status as EstadoDeMandato) : 'pending',
+    referencia: m.external_reference ?? null,
+    initPoint: m.init_point ?? null,
+    crudo: m,
+  };
+}
+
+/**
+ * Crea el mandato sin tarjeta: queda `pending` y devuelve la URL donde el
+ * anfitrion pone la suya y autoriza. El primer cobro lo hace Mercado Pago al
+ * autorizar.
+ *
+ * El periodo es de 30 DIAS y no de un mes calendario, a proposito: cada pago
+ * compra exactamente 30 dias (`DIAS_POR_PAGO`), y con meses el cobro y los dias
+ * comprados se irian desfasando.
+ *
+ * `external_reference` es el id de la empresa y nada mas: Mercado Pago
+ * modera ese campo y rechaza correos u otros datos personales
+ * (invalid_field_content).
+ */
+export async function crearMandato(params: {
+  accessToken: string;
+  motivo: string;
+  monto: number;
+  dias: number;
+  referencia: string;
+  correoDelPagador: string;
+  notificationUrl: string;
+  redirectUrl: string;
+}): Promise<MandatoDeMercadoPago | { error: string }> {
+  const r = await fetch(`${API}/preapproval`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${params.accessToken}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      reason: params.motivo,
+      external_reference: params.referencia,
+      payer_email: params.correoDelPagador,
+      back_url: params.redirectUrl,
+      notification_url: params.notificationUrl,
+      status: 'pending',
+      auto_recurring: {
+        frequency: params.dias,
+        frequency_type: 'days',
+        transaction_amount: params.monto,
+        currency_id: 'COP',
+      },
+    }),
+    signal: AbortSignal.timeout(10000),
+  });
+  const cuerpo = (await r.json().catch(() => ({}))) as { message?: string };
+  if (!r.ok) return { error: cuerpo.message ?? `Mercado Pago respondio ${r.status}` };
+  return (
+    aMandato(cuerpo as Parameters<typeof aMandato>[0]) ?? { error: 'Respuesta de Mercado Pago sin id' }
+  );
+}
+
+export async function leerMandato(
+  accessToken: string,
+  id: string,
+): Promise<MandatoDeMercadoPago | null> {
+  const r = await fetch(`${API}/preapproval/${encodeURIComponent(id)}`, {
+    headers: { authorization: `Bearer ${accessToken}` },
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!r.ok) return null;
+  return aMandato((await r.json()) as Parameters<typeof aMandato>[0]);
+}
+
+/** Pausa, reanuda o cancela el cobro automatico. Cancelar no tiene vuelta. */
+export async function cambiarEstadoDeMandato(
+  accessToken: string,
+  id: string,
+  estado: 'cancelled' | 'paused' | 'authorized',
+): Promise<boolean> {
+  const r = await fetch(`${API}/preapproval/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ status: estado }),
+    signal: AbortSignal.timeout(8000),
+  });
+  return r.ok;
+}
+
+/**
+ * Resuelve un authorized_payment al mandato y al pago real.
+ *
+ * `pagoId` es null mientras el cobro esta programado o reintentandose: aun no
+ * hay pago del que hablar y no es un error.
+ */
+export async function leerCobroAutorizado(
+  accessToken: string,
+  id: string,
+): Promise<{ mandatoId: string | null; pagoId: string | null } | null> {
+  const r = await fetch(`${API}/authorized_payments/${encodeURIComponent(id)}`, {
+    headers: { authorization: `Bearer ${accessToken}` },
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!r.ok) return null;
+  const c = (await r.json()) as {
+    preapproval_id?: string | number | null;
+    payment?: { id?: string | number | null } | null;
+  };
+  return {
+    mandatoId: c.preapproval_id ? String(c.preapproval_id) : null,
+    pagoId: c.payment?.id ? String(c.payment.id) : null,
   };
 }
 

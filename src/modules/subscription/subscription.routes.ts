@@ -10,6 +10,7 @@ import {
   PREFIJO_DE_SUSCRIPCION,
   aplicarPago,
   avisarPagoDeSuscripcion,
+  cancelarRenovacionAutomatica,
   crearCheckoutDeSuscripcion,
   estadoDeSuscripcion,
   olvidarSuscripciones,
@@ -56,6 +57,13 @@ subscriptionRouter.get('/', async (req: Request, res: Response) => {
 /** El pago de otro mes, firmado y listo para llevar al anfitrion a Wompi. */
 subscriptionRouter.post('/checkout', async (req: Request, res: Response) => {
   res.status(201).json({ data: await crearCheckoutDeSuscripcion(empresaDeLaSesion(req)) });
+});
+
+/** Dejar de renovar solo (Mercado Pago). Los dias ya pagados se conservan. */
+subscriptionRouter.post('/renovacion/cancelar', async (req: Request, res: Response) => {
+  const companyId = empresaDeLaSesion(req);
+  await cancelarRenovacionAutomatica(companyId);
+  res.json({ data: await estadoDeSuscripcion(companyId) });
 });
 
 // ─── Lo de FILO ──────────────────────────────────────────────────────────

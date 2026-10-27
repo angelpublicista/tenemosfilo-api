@@ -14,8 +14,17 @@ import { logger } from './logger.js';
 import { sendEmail } from './email.js';
 import { armarCorreo } from './plantillas-de-correo.js';
 import { getPlatformSettings } from './commissions.js';
-import { pasarelaDeLaPlataforma } from './pasarela.js';
+import { anotarCobroSinReserva } from './cobro-sin-reserva.js';
+import { mercadoPagoDeLaPlataforma, pasarelaDeLaPlataforma, proveedorDeLaSuscripcion } from './pasarela.js';
 import { URL_CHECKOUT, aCentavos, aEstadoDePago, firmaIntegridad, webhookValido } from './wompi.js';
+import {
+  cambiarEstadoDeMandato,
+  crearMandato,
+  firmaValida,
+  leerCobroAutorizado,
+  leerMandato,
+  leerPago as leerPagoMp,
+} from './mercadopago.js';
 
 /** Lo que compra cada pago. */
 export const DIAS_POR_PAGO = 30;
@@ -40,6 +49,22 @@ export type EstadoDeSuscripcion = {
   iva: number;
   /** Lo que se cobra: precio + IVA. */
   total: number;
+  /** Con que pasarela se cobra, la que decidio el administrador. */
+  proveedor: 'WOMPI' | 'MERCADO_PAGO';
+  /**
+   * El cobro automatico del anfitrion, si lo autorizo. Solo Mercado Pago lo
+   * tiene; con Wompi cada mes se paga a mano. null = nunca lo ha pedido.
+   */
+  renovacion: EstadoDeRenovacion | null;
+};
+
+export type EstadoDeRenovacion = 'PENDIENTE' | 'ACTIVA' | 'PAUSADA' | 'CANCELADA';
+
+const RENOVACION_DE: Record<string, EstadoDeRenovacion> = {
+  pending: 'PENDIENTE',
+  authorized: 'ACTIVA',
+  paused: 'PAUSADA',
+  cancelled: 'CANCELADA',
 };
 
 /**
@@ -62,15 +87,22 @@ export async function estadoDeSuscripcion(companyId: string): Promise<EstadoDeSu
       select: {
         subscriptionEndsAt: true,
         subscriptionExempt: true,
+        subscriptionMpStatus: true,
         owner: { select: { role: true } },
       },
     }),
     getPlatformSettings(),
   ]);
 
-  const cobro = conIva(Number(ajustes.subscriptionPrice), Number(ajustes.subscriptionVat));
+  const cobro = {
+    ...conIva(Number(ajustes.subscriptionPrice), Number(ajustes.subscriptionVat)),
+    proveedor: ajustes.subscriptionProvider === 'MERCADO_PAGO' ? ('MERCADO_PAGO' as const) : ('WOMPI' as const),
+  };
   if (!empresa) {
-    return { requerida: false, exenta: false, vigente: true, bloqueada: false, endsAt: null, diasRestantes: null, ...cobro };
+    return {
+      requerida: false, exenta: false, vigente: true, bloqueada: false,
+      endsAt: null, diasRestantes: null, renovacion: null, ...cobro,
+    };
   }
 
   // Solo los anfitriones pagan. Los revendedores venden lo de otros, y la
@@ -90,6 +122,7 @@ export async function estadoDeSuscripcion(companyId: string): Promise<EstadoDeSu
     bloqueada: requerida && !conDias,
     endsAt,
     diasRestantes: endsAt ? Math.ceil((endsAt.getTime() - ahora) / MS_DIA) : null,
+    renovacion: empresa.subscriptionMpStatus ? (RENOVACION_DE[empresa.subscriptionMpStatus] ?? null) : null,
     ...cobro,
   };
 }
@@ -162,7 +195,7 @@ export async function aplicarPago(
   return aplicado;
 }
 
-export type CheckoutDeSuscripcion = {
+export type CheckoutDeWompi = {
   proveedor: 'WOMPI';
   checkoutUrl: string;
   publicKey: string;
@@ -174,8 +207,23 @@ export type CheckoutDeSuscripcion = {
   environment: string;
 };
 
-/** Un intento de pago nuevo, firmado, listo para llevar al anfitrion a Wompi. */
+/** Mercado Pago solo necesita que el navegador vaya a la URL donde se autoriza el cobro. */
+export type CheckoutDeMercadoPago = {
+  proveedor: 'MERCADO_PAGO';
+  checkoutUrl: string;
+};
+
+export type CheckoutDeSuscripcion = CheckoutDeWompi | CheckoutDeMercadoPago;
+
+/** Un intento de pago nuevo con la pasarela que el administrador haya elegido. */
 export async function crearCheckoutDeSuscripcion(companyId: string): Promise<CheckoutDeSuscripcion> {
+  return (await proveedorDeLaSuscripcion()) === 'MERCADO_PAGO'
+    ? crearCheckoutDeMercadoPago(companyId)
+    : crearCheckoutDeWompi(companyId);
+}
+
+/** Un intento de pago nuevo, firmado, listo para llevar al anfitrion a Wompi. */
+async function crearCheckoutDeWompi(companyId: string): Promise<CheckoutDeWompi> {
   const pasarela = await pasarelaDeLaPlataforma();
   if (!pasarela?.publicKey || !pasarela.integritySecret) {
     throw BadRequest('El pago en línea no está disponible por ahora. Escríbenos y lo resolvemos.');
@@ -269,6 +317,296 @@ export async function procesarEventoDeSuscripcion(
   return 200;
 }
 
+// ── Mercado Pago: cobro automatico ──────────────────────────────────────────
+//
+// El anfitrion autoriza un mandato (preapproval) y Mercado Pago cobra cada 30
+// dias. Cada cobro aprobado se registra como un SubscriptionPayment y pasa por
+// el mismo `aplicarPago` que uno de Wompi: suma 30 dias y es idempotente.
+//
+// Dos cosas que ya costaron incidentes en happy-sapiens y aqui se cuidan:
+//
+//  1. Un mismo cobro llega por VARIAS notificaciones (`payment`,
+//     `subscription_authorized_payment`, y reintentos). La unicidad la da la
+//     referencia `SUB-MP<idDelPago>`: se llegue por donde se llegue, es la
+//     misma fila y los dias se suman una sola vez.
+//  2. El `subscription_authorized_payment` trae el id de un authorized_payment,
+//     no el de un pago. Se resuelve primero (`leerCobroAutorizado`).
+
+const MENSAJE_SIN_MP = 'El pago en línea no está disponible por ahora. Escríbenos y lo resolvemos.';
+
+/** A donde Mercado Pago manda sus avisos de la suscripcion. */
+export const urlDelWebhookDeSuscripcionMp = () =>
+  `${env.API_PUBLIC_URL ?? env.APP_URL}/payments/mercadopago/suscripcion/webhook`;
+
+async function crearCheckoutDeMercadoPago(companyId: string): Promise<CheckoutDeMercadoPago> {
+  const mp = await mercadoPagoDeLaPlataforma();
+  if (!mp) throw BadRequest(MENSAJE_SIN_MP);
+
+  const { precio, total } = await estadoDeSuscripcion(companyId);
+  if (!(precio > 0)) throw BadRequest('La suscripción no tiene un precio configurado.');
+
+  const empresa = await prisma.company.findUnique({
+    where: { id: companyId },
+    select: {
+      companyEmail: true,
+      subscriptionMpPreapprovalId: true,
+      subscriptionMpStatus: true,
+      owner: { select: { email: true } },
+    },
+  });
+  if (!empresa) throw BadRequest('La empresa indicada no existe');
+  if (empresa.subscriptionMpStatus === 'authorized') {
+    throw BadRequest(
+      'Ya tienes el cobro automático activo: Mercado Pago renueva tu suscripción cada 30 días.',
+    );
+  }
+  const correo = empresa.owner.email || empresa.companyEmail;
+  if (!correo) throw BadRequest('Tu cuenta no tiene un correo con el que autorizar el cobro.');
+
+  // Un mandato pendiente de antes se cancela: si el anfitrion abriera ese
+  // enlace viejo y lo autorizara, tendriamos dos cobrandole cada mes.
+  if (empresa.subscriptionMpPreapprovalId && empresa.subscriptionMpStatus === 'pending') {
+    await cambiarEstadoDeMandato(mp.accessToken, empresa.subscriptionMpPreapprovalId, 'cancelled').catch(
+      () => false,
+    );
+  }
+
+  const mandato = await crearMandato({
+    accessToken: mp.accessToken,
+    motivo: 'Suscripción mensual a Tenemos Filo',
+    // El monto del mandato queda fijo en Mercado Pago: lo que cambie despues
+    // en el precio solo alcanza a quien autorice desde ese momento.
+    monto: total,
+    dias: DIAS_POR_PAGO,
+    // Solo el id de la empresa: Mercado Pago rechaza datos personales aqui.
+    referencia: companyId,
+    correoDelPagador: correo,
+    notificationUrl: urlDelWebhookDeSuscripcionMp(),
+    redirectUrl: `${env.APP_URL}/dashboard/suscripcion?pago=mp`,
+  });
+  if ('error' in mandato || !mandato.initPoint) {
+    const motivo = 'error' in mandato ? mandato.error : 'Mercado Pago no devolvió el enlace de pago';
+    logger.error({ companyId, motivo }, 'No se pudo crear el cobro automatico en Mercado Pago');
+    // Una cuenta de Mercado Pago de otro pais no puede suscribirse desde Colombia.
+    if (/different countries/i.test(motivo)) {
+      throw BadRequest(
+        'Tu cuenta de Mercado Pago está registrada en un país distinto a Colombia. Usa el correo de una cuenta colombiana.',
+      );
+    }
+    throw BadRequest('No se pudo abrir el pago con Mercado Pago. Intenta de nuevo en un momento.');
+  }
+
+  await prisma.company.update({
+    where: { id: companyId },
+    data: { subscriptionMpPreapprovalId: mandato.id, subscriptionMpStatus: 'pending' },
+  });
+  return { proveedor: 'MERCADO_PAGO', checkoutUrl: mandato.initPoint };
+}
+
+/**
+ * La empresa a la que pertenece un mandato.
+ *
+ * Primero por el id que guardamos al crearlo. Si no esta —el aviso de un cobro
+ * puede adelantarse a todo— se cae a la referencia externa, que es el id de la
+ * empresa, y se enlaza ahi. Sin este rescate un cobro real se descartaba por
+ * llegar "antes" que su registro.
+ */
+async function empresaDelMandato(mandatoId: string, referencia: string | null) {
+  const porMandato = await prisma.company.findUnique({
+    where: { subscriptionMpPreapprovalId: mandatoId },
+    select: { id: true },
+  });
+  if (porMandato) return porMandato;
+  if (!referencia) return null;
+  const porReferencia = await prisma.company.findUnique({ where: { id: referencia }, select: { id: true } });
+  if (!porReferencia) return null;
+  await prisma.company
+    .update({ where: { id: porReferencia.id }, data: { subscriptionMpPreapprovalId: mandatoId } })
+    // Otra empresa ya tiene ese id (no deberia): no se pisa, el cobro igual se atribuye.
+    .catch(() => undefined);
+  return porReferencia;
+}
+
+/** El estado del mandato manda: se relee de Mercado Pago, nunca del aviso. */
+async function sincronizarMandato(accessToken: string, mandatoId: string): Promise<void> {
+  const mandato = await leerMandato(accessToken, mandatoId);
+  if (!mandato) {
+    logger.warn({ mandatoId }, 'Mercado Pago no devolvio el mandato de la suscripcion');
+    return;
+  }
+  const empresa = await empresaDelMandato(mandato.id, mandato.referencia);
+  if (!empresa) {
+    logger.warn({ mandatoId }, 'Mandato de Mercado Pago sin empresa conocida');
+    return;
+  }
+  await prisma.company.update({
+    where: { id: empresa.id },
+    data: { subscriptionMpStatus: mandato.estado },
+  });
+}
+
+async function procesarCobroDeMercadoPago(
+  accessToken: string,
+  pagoId: string,
+  mandatoPista: string | null,
+): Promise<void> {
+  const pago = await leerPagoMp(accessToken, pagoId);
+  if (!pago) {
+    logger.warn({ pagoId }, 'Mercado Pago no devolvio el pago de la suscripcion');
+    return;
+  }
+  // Este webhook es solo de la suscripcion: un pago sin mandato no es nuestro.
+  const mandatoId = pago.preapprovalId ?? mandatoPista;
+  if (!mandatoId) return;
+
+  const empresa = await empresaDelMandato(mandatoId, pago.referencia);
+  if (!empresa) {
+    // Dinero cobrado que no se sabe de quien es: que quede a la vista.
+    await anotarCobroSinReserva({
+      gateway: 'MERCADO_PAGO',
+      reference: mandatoId,
+      transactionId: pago.id,
+      amount: pago.monto,
+      currency: 'COP',
+      gatewayStatus: pago.estadoCrudo,
+      event: pago.crudo,
+    });
+    return;
+  }
+
+  if (pago.estado === 'FAILED') {
+    // Mercado Pago reintenta solo. No se toca nada: los dias pagados siguen
+    // corriendo y, si el reintento entra, llegara como un cobro nuevo.
+    logger.warn({ companyId: empresa.id, pagoId: pago.id, estado: pago.estadoCrudo }, 'Cobro automatico de suscripcion rechazado');
+    return;
+  }
+  if (pago.estado === 'REFUNDED') {
+    // No se quitan dias solos: devolver un pago es una decision de una persona
+    // (puede ser parcial, o un contracargo en disputa). Se corrige desde el admin.
+    logger.warn({ companyId: empresa.id, pagoId: pago.id }, 'Pago de suscripcion devuelto en Mercado Pago: revisar el vencimiento');
+    return;
+  }
+  if (pago.estado !== 'PAID') return;
+
+  // El monto cobrado es el del mandato, con IVA incluido; se desglosa con el IVA vigente.
+  const { ivaPorcentaje } = await estadoDeSuscripcion(empresa.id);
+  const base = Math.round(pago.monto / (1 + ivaPorcentaje / 100));
+  const reference = `${PREFIJO_DE_SUSCRIPCION}MP${pago.id}`;
+
+  let fila = await prisma.subscriptionPayment.findUnique({ where: { reference } });
+  if (!fila) {
+    try {
+      fila = await prisma.subscriptionPayment.create({
+        data: {
+          companyId: empresa.id,
+          reference,
+          amount: pago.monto,
+          baseAmount: base,
+          vatAmount: pago.monto - base,
+          method: 'MERCADO_PAGO',
+          transactionId: pago.id,
+        },
+      });
+    } catch (err) {
+      // Dos avisos del mismo cobro a la vez: gana uno, el otro lee su fila.
+      if ((err as { code?: string }).code !== 'P2002') throw err;
+      fila = await prisma.subscriptionPayment.findUnique({ where: { reference } });
+    }
+  }
+  if (!fila) return;
+
+  // Un cobro aprobado prueba que el mandato esta vivo, aunque su propio aviso se retrase.
+  await prisma.company.updateMany({
+    where: { id: empresa.id, subscriptionMpStatus: { in: ['pending'] } },
+    data: { subscriptionMpStatus: 'authorized' },
+  });
+
+  const sumo = await aplicarPago(fila.id, { transactionId: pago.id });
+  if (sumo) void avisarPagoDeSuscripcion(empresa.id).catch(() => undefined);
+}
+
+type AvisoDeMercadoPago = {
+  type?: string;
+  topic?: string;
+  data?: { id?: string | number };
+  id?: string | number;
+};
+
+/**
+ * Un aviso de Mercado Pago sobre la suscripcion.
+ *
+ * Como en el resto de pasarelas con Mercado Pago, el cuerpo solo trae un id y
+ * NUNCA se cree su contenido: el estado se relee de su API con nuestro token.
+ * La firma `x-signature` se exige solo si el administrador guardo el secreto.
+ * Devuelve 401 solo ante una firma invalida; si algo falla al procesar, lanza
+ * para que Mercado Pago reintente (todo aqui es idempotente).
+ */
+export async function procesarAvisoDeMercadoPago(
+  aviso: AvisoDeMercadoPago,
+  cabeceras: { xSignature?: string; xRequestId?: string },
+): Promise<200 | 401> {
+  const tipo = aviso.type ?? aviso.topic;
+  const dataId = String(aviso.data?.id ?? aviso.id ?? '');
+  if (!tipo || !dataId) return 200;
+
+  const mp = await mercadoPagoDeLaPlataforma();
+  if (!mp) {
+    logger.error({ tipo }, 'Aviso de Mercado Pago de suscripcion sin la pasarela configurada');
+    return 200;
+  }
+
+  if (mp.webhookSecret) {
+    const valida = firmaValida({
+      xSignature: cabeceras.xSignature,
+      xRequestId: cabeceras.xRequestId,
+      dataId,
+      secreto: mp.webhookSecret,
+    });
+    if (!valida) {
+      logger.warn({ tipo, dataId }, 'Aviso de Mercado Pago de suscripcion con firma invalida: descartado');
+      return 401;
+    }
+  }
+
+  if (tipo === 'subscription_preapproval' || tipo === 'preapproval') {
+    await sincronizarMandato(mp.accessToken, dataId);
+  } else if (tipo === 'subscription_authorized_payment') {
+    const cobro = await leerCobroAutorizado(mp.accessToken, dataId);
+    if (!cobro) {
+      logger.warn({ dataId }, 'Mercado Pago no devolvio el cobro autorizado');
+      return 200;
+    }
+    // Sin pago real todavia (programado o reintentandose): nada que registrar.
+    if (cobro.pagoId) await procesarCobroDeMercadoPago(mp.accessToken, cobro.pagoId, cobro.mandatoId);
+  } else if (tipo === 'payment') {
+    await procesarCobroDeMercadoPago(mp.accessToken, dataId, null);
+  }
+  return 200;
+}
+
+/**
+ * Dejar de renovar. Los dias ya pagados siguen: se cancela el cobro, no la
+ * suscripcion. Cancelar en Mercado Pago no tiene vuelta; para volver a
+ * renovar solo se autoriza un mandato nuevo.
+ */
+export async function cancelarRenovacionAutomatica(companyId: string): Promise<void> {
+  const empresa = await prisma.company.findUnique({
+    where: { id: companyId },
+    select: { subscriptionMpPreapprovalId: true, subscriptionMpStatus: true },
+  });
+  const id = empresa?.subscriptionMpPreapprovalId;
+  if (!id || !['authorized', 'paused', 'pending'].includes(empresa.subscriptionMpStatus ?? '')) {
+    throw BadRequest('No tienes un cobro automático que cancelar.');
+  }
+  const mp = await mercadoPagoDeLaPlataforma();
+  if (!mp) throw BadRequest(MENSAJE_SIN_MP);
+
+  if (!(await cambiarEstadoDeMandato(mp.accessToken, id, 'cancelled'))) {
+    throw BadRequest('Mercado Pago no pudo cancelar el cobro automático. Intenta de nuevo en un momento.');
+  }
+  await prisma.company.update({ where: { id: companyId }, data: { subscriptionMpStatus: 'cancelled' } });
+}
+
 // ── Correos ─────────────────────────────────────────────────────────────────
 
 const fechaLarga = (d: Date) =>
@@ -322,15 +660,19 @@ export async function enviarRecordatoriosDeSuscripcion(): Promise<number> {
       owner: { role: 'HOST' },
       ...(ajustes.platformCompanyId ? { id: { not: ajustes.platformCompanyId } } : {}),
     },
-    select: { id: true },
+    select: { id: true, subscriptionMpStatus: true },
   });
 
   let enviados = 0;
-  for (const { id } of empresas) {
+  for (const { id, subscriptionMpStatus } of empresas) {
     const { correos, nombre, endsAt } = await destinatarios(id);
     if (!endsAt || correos.length === 0) continue;
 
     const diasRestantes = (endsAt.getTime() - ahora) / MS_DIA;
+    // Con el cobro automatico vivo, Mercado Pago renueva solo: decirle que
+    // "vence en 7 dias" seria alarmarlo por nada. Si ya vencio, algo fallo (la
+    // tarjeta) y ahi si hay que avisar.
+    if (subscriptionMpStatus === 'authorized' && diasRestantes > 0) continue;
     const cuando =
       diasRestantes <= 0 ? 'vencida' : diasRestantes <= 1 ? 'un_dia' : 'siete_dias';
     const clave = `subscription:${id}:${endsAt.toISOString().slice(0, 10)}:${cuando}`;
