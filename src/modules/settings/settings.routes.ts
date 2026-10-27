@@ -47,6 +47,8 @@ const updateSettingsSchema = z
     mercadopagoWebhookSecret: secreto,
     // Con cual se cobra la suscripcion de los anfitriones. Una sola a la vez.
     subscriptionProvider: z.enum(['WOMPI', 'MERCADO_PAGO']).optional(),
+    // Con cual se cobran las reservas que cobra FILO. Independiente de la anterior.
+    reservationsProvider: z.enum(['WOMPI', 'MERCADO_PAGO']).optional(),
   })
   .refine(
     (d) =>
@@ -95,6 +97,7 @@ function aRespuesta(s: Awaited<ReturnType<typeof getPlatformSettings>>) {
     mercadopagoAccessTokenConfigured: !!s.mercadopagoAccessToken,
     mercadopagoWebhookSecretConfigured: !!s.mercadopagoWebhookSecret,
     subscriptionProvider: s.subscriptionProvider === 'MERCADO_PAGO' ? 'MERCADO_PAGO' : 'WOMPI',
+    reservationsProvider: s.reservationsProvider === 'MERCADO_PAGO' ? 'MERCADO_PAGO' : 'WOMPI',
     // Lo que hay que pegar en el panel de Mercado Pago.
     mercadopagoWebhookUrl: urlDelWebhookDeSuscripcionMp(),
   };
@@ -157,8 +160,15 @@ settingsRouter.patch('/', validate(updateSettingsSchema), async (req: Request, r
   if (proveedor === 'MERCADO_PAGO' && !(mpActivo && hayTokenMp)) {
     throw BadRequest('Activa Mercado Pago, con su access token, antes de usarlo para cobrar la suscripción.');
   }
+  const proveedorReservas = input.reservationsProvider ?? actuales.reservationsProvider;
+  if (proveedorReservas === 'MERCADO_PAGO' && !(mpActivo && hayTokenMp)) {
+    throw BadRequest('Activa Mercado Pago, con su access token, antes de usarlo para cobrar las reservas.');
+  }
   if (input.mercadopagoEnabled === false && proveedor === 'MERCADO_PAGO') {
     throw BadRequest('Mercado Pago es la pasarela de la suscripción: cámbiala a Wompi antes de desactivarlo.');
+  }
+  if (input.mercadopagoEnabled === false && proveedorReservas === 'MERCADO_PAGO') {
+    throw BadRequest('Mercado Pago es la pasarela de las reservas: cámbiala a Wompi antes de desactivarlo.');
   }
   const secretosMp = ['mercadopagoAccessToken', 'mercadopagoWebhookSecret'] as const;
   if (secretosMp.some((c) => input[c]) && !hayLlaveDeCifrado()) {
@@ -231,6 +241,9 @@ settingsRouter.patch('/', validate(updateSettingsSchema), async (req: Request, r
       }),
       ...(input.subscriptionProvider !== undefined && {
         subscriptionProvider: input.subscriptionProvider,
+      }),
+      ...(input.reservationsProvider !== undefined && {
+        reservationsProvider: input.reservationsProvider,
       }),
       ...conSecretos,
     },

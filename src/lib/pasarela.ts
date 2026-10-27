@@ -112,11 +112,41 @@ export function pasarelaDelAnfitrion(c: FilaDeEmpresa | null): Pasarela | null {
 /**
  * La de la plataforma, si esta lista.
  *
+ * Sin `proveedor` es la que el administrador eligio para las reservas. Los
+ * webhooks piden una concreta: un aviso de Wompi que llega despues de cambiar
+ * a Mercado Pago se tiene que validar con las llaves de Wompi, no con las de
+ * la pasarela que hoy cobra.
+ */
+export async function pasarelaDeLaPlataforma(
+  proveedor?: 'WOMPI' | 'MERCADO_PAGO',
+): Promise<Pasarela | null> {
+  const elegido = proveedor ?? (await getPlatformSettings()).reservationsProvider;
+  return elegido === 'MERCADO_PAGO' ? mercadoPagoComoPasarela() : wompiDeLaPlataforma();
+}
+
+/** Mercado Pago de la plataforma, con la forma de una pasarela de reservas. */
+async function mercadoPagoComoPasarela(): Promise<Pasarela | null> {
+  const mp = await mercadoPagoDeLaPlataforma();
+  if (!mp) return null;
+  return {
+    quienCobra: 'PLATFORM',
+    proveedor: 'MERCADO_PAGO',
+    entorno: mp.entorno,
+    publicKey: null,
+    privateKey: mp.accessToken,
+    integritySecret: null,
+    eventsSecret: mp.webhookSecret,
+  };
+}
+
+/**
+ * Wompi de la plataforma, si esta lista.
+ *
  * Sus secretos van cifrados igual que los de los anfitriones: cobran dinero
  * de verdad, y no habia motivo para que las nuestras fueran las unicas en
  * claro. `descifrarHeredado` cubre las que se guardaron antes del cifrado.
  */
-export async function pasarelaDeLaPlataforma(): Promise<Pasarela | null> {
+async function wompiDeLaPlataforma(): Promise<Pasarela | null> {
   const a = await getPlatformSettings();
   if (!a.wompiEnabled || !a.wompiPublicKey) return null;
   const p: Pasarela = {
@@ -165,8 +195,9 @@ export async function pasarelaDe(companyId: string): Promise<Pasarela | null> {
 export async function pasarelaDeLaReserva(
   companyId: string,
   quienCobra: CollectedBy,
+  proveedor?: 'WOMPI' | 'MERCADO_PAGO',
 ): Promise<Pasarela | null> {
-  if (quienCobra === 'PLATFORM') return pasarelaDeLaPlataforma();
+  if (quienCobra === 'PLATFORM') return pasarelaDeLaPlataforma(proveedor);
   const empresa = await prisma.company.findUnique({
     where: { id: companyId },
     select: SELECT_PASARELA,
@@ -206,9 +237,9 @@ export type MercadoPagoDeLaPlataforma = {
 /**
  * Mercado Pago de la plataforma, si esta lista.
  *
- * Aparte de `pasarelaDeLaPlataforma` a proposito: esa describe como cobra FILO
- * las reservas y es solo Wompi; esta es solo para la suscripcion, que es la unica
- * cosa que se cobra por recurrencia.
+ * Son las credenciales en bruto: sirven tanto para la suscripcion (que es lo
+ * unico que se cobra por recurrencia) como, a traves de `pasarelaDeLaPlataforma`,
+ * para las reservas si el administrador la eligio para ellas.
  */
 export async function mercadoPagoDeLaPlataforma(): Promise<MercadoPagoDeLaPlataforma | null> {
   const a = await getPlatformSettings();

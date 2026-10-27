@@ -103,9 +103,13 @@ export async function construirCheckout(
         titulo: reserva.experience?.title ?? 'Reserva',
         monto: total,
         referencia: reservationNumber,
-        // Lleva la empresa dentro: es lo unico que nos permite despues saber
-        // con que token releer el pago que nos notifiquen.
-        notificationUrl: `${env.API_PUBLIC_URL ?? env.APP_URL}/payments/mercadopago/webhook/${reserva.companyId}`,
+        // Si cobra el anfitrion, lleva su empresa dentro: es lo unico que nos
+        // permite despues saber con que token releer el pago que nos notifiquen.
+        // Si cobra FILO el token es siempre el de la plataforma.
+        notificationUrl:
+          pasarela.quienCobra === 'PLATFORM'
+            ? `${env.API_PUBLIC_URL ?? env.APP_URL}/payments/mercadopago/reservas/webhook`
+            : `${env.API_PUBLIC_URL ?? env.APP_URL}/payments/mercadopago/webhook/${reserva.companyId}`,
         redirectUrl,
         entorno: pasarela.entorno,
         correoDelCliente: cliente.email ?? null,

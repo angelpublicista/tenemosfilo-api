@@ -710,6 +710,9 @@ model PlatformSettings {
   // Con cual de las dos se cobra la suscripcion. Una sola a la vez: la
   // decide el administrador, el anfitrion no escoge.
   subscriptionProvider     PaymentProvider    @default(WOMPI)
+  // Con cual se cobran las reservas que cobra FILO (las de anfitriones sin
+  // pasarela propia). Independiente de la de la suscripcion.
+  reservationsProvider     PaymentProvider    @default(WOMPI)
 
   // ──────── La empresa que representa a la plataforma ────────
   // Filo tambien vende: tiene su propio canal, y las reservas que entran por

@@ -1,4 +1,4 @@
-// Pagos de experiencias a traves de Wompi.
+// Pagos de experiencias a traves de Wompi o Mercado Pago.
 //
 // El cobro lo procesa FILO: el cliente paga en la pasarela y despues se
 // dispersa a anfitriones y revendedores (ver modulo payouts).
@@ -7,7 +7,7 @@ import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { requireAuth, requireHumanAuth, requireRole } from '../../middleware/auth.js';
 import { validate } from '../../middleware/validate.js';
-import { pasarelaDeLaReserva, pasarelaDelAnfitrion } from '../../lib/pasarela.js';
+import { pasarelaDeLaPlataforma, pasarelaDeLaReserva, pasarelaDelAnfitrion } from '../../lib/pasarela.js';
 import { firmaValida, leerPago as leerPagoDeMercadoPago } from '../../lib/mercadopago.js';
 import {
   aEstadoDePago as aEstadoDePagoDeBold,
@@ -181,7 +181,7 @@ paymentsRouter.post('/wompi/webhook', async (req: Request, res: Response) => {
     return res.status(200).json({ received: true });
   }
 
-  const pasarela = await pasarelaDeLaReserva(reserva.companyId, reserva.collectedBy);
+  const pasarela = await pasarelaDeLaReserva(reserva.companyId, reserva.collectedBy, 'WOMPI');
   if (!pasarela?.eventsSecret) {
     logger.error(
       { referencia, quienCobra: reserva.collectedBy },
@@ -294,150 +294,168 @@ paymentsRouter.post('/wompi/webhook', async (req: Request, res: Response) => {
 paymentsRouter.post(
   '/mercadopago/webhook/:companyId',
   validate(z.object({ companyId: z.string().min(1) }), 'params'),
-  async (req: Request, res: Response) => {
-    const { companyId } = req.params as { companyId: string };
-    const cuerpo = (req.body ?? {}) as {
-      type?: string;
-      topic?: string;
-      action?: string;
-      data?: { id?: string | number };
-      id?: string | number;
-    };
-
-    // Manda varios tipos de evento; solo los de pago dicen algo del cobro.
-    const tipo = cuerpo.type ?? cuerpo.topic;
-    if (tipo && tipo !== 'payment') return res.status(200).json({ received: true });
-
-    const paymentId = String(cuerpo.data?.id ?? cuerpo.id ?? req.query.id ?? '');
-    if (!paymentId) return res.status(200).json({ received: true });
-
-    const empresa = await prisma.company.findUnique({
-      where: { id: companyId },
-      select: {
-        paymentProvider: true,
-        paymentGatewayEnabled: true,
-        paymentEnvironment: true,
-        gatewayPublicKey: true,
-        gatewayPrivateKey: true,
-        gatewayIntegritySecret: true,
-        gatewayEventsSecret: true,
-      },
-    });
-    const pasarela = pasarelaDelAnfitrion(empresa);
-    if (!pasarela || pasarela.proveedor !== 'MERCADO_PAGO' || !pasarela.privateKey) {
-      logger.error({ companyId }, 'Webhook de Mercado Pago para una empresa sin esa pasarela');
-      // 200 a proposito: reintentarlo no va a arreglar una configuracion.
-      return res.status(200).json({ received: true });
-    }
-
-    // Solo si el anfitrion guardo el secreto. No es lo que impide que nos
-    // mientan —para eso se relee el pago— sino lo que evita que un tercero
-    // nos haga consultar su API a voluntad.
-    if (pasarela.eventsSecret) {
-      const valida = firmaValida({
-        xSignature: req.headers['x-signature'] as string | undefined,
-        xRequestId: req.headers['x-request-id'] as string | undefined,
-        dataId: paymentId,
-        secreto: pasarela.eventsSecret,
-      });
-      if (!valida) {
-        logger.warn({ companyId, paymentId }, 'Webhook de Mercado Pago con firma invalida');
-        return res.status(401).json({ error: { code: 'INVALID_SIGNATURE' } });
-      }
-    }
-
-    const pago = await leerPagoDeMercadoPago(pasarela.privateKey, paymentId);
-    if (!pago?.referencia) {
-      logger.warn({ companyId, paymentId }, 'Mercado Pago no devolvio el pago o venia sin referencia');
-      return res.status(200).json({ received: true });
-    }
-
-    const reserva = await prisma.reservation.findUnique({
-      where: { reservationNumber: pago.referencia },
-      select: {
-        id: true,
-        companyId: true,
-        paymentStatus: true,
-        paymentDetails: true,
-        pricing: true,
-        opportunityId: true,
-      },
-    });
-    // La reserva tiene que ser de la empresa cuyo token acabamos de usar. Sin
-    // esta comprobacion, un anfitrion podria mover el estado de la reserva de
-    // otro mandando su propio id de pago a su propia URL.
-    if (!reserva || reserva.companyId !== companyId) {
-      // TR-44, igual que en Wompi. Si la reserva es de OTRA empresa no es un
-      // huerfano —existe y tiene dueño— sino un intento de tocar lo ajeno, y
-      // ese se descarta sin apuntar nada.
-      if (!reserva) {
-        await anotarCobroSinReserva({
-          gateway: 'MERCADO_PAGO',
-          reference: pago.referencia,
-          transactionId: pago.id ?? null,
-          amount: pago.monto ?? null,
-          currency: null,
-          gatewayStatus: pago.estadoCrudo ?? null,
-          companyId,
-          event: pago as unknown,
-        });
-      }
-      logger.warn({ companyId, referencia: pago.referencia }, 'Pago de Mercado Pago para una reserva ajena o desconocida');
-      return res.status(200).json({ received: true });
-    }
-
-    const idQuePago =
-      (reserva.paymentDetails as { transactionId?: string | null } | null)?.transactionId ?? null;
-    // Un cobro hecho no se deshace por un evento de OTRO pago. Las
-    // notificaciones se reintentan y llegan desordenadas.
-    if (reserva.paymentStatus === 'PAID' && pago.estado !== 'PAID' && idQuePago !== pago.id) {
-      logger.warn(
-        { referencia: pago.referencia, estado: pago.estadoCrudo },
-        'Evento de Mercado Pago descartado: la reserva ya esta pagada por otro pago',
-      );
-      return res.status(200).json({ received: true });
-    }
-
-    const cobrado =
-      pago.monto > 0 ? pago.monto : Number((reserva.pricing as { total?: unknown } | null)?.total ?? 0);
-
-    await prisma.reservation.update({
-      where: { id: reserva.id },
-      data: {
-        paymentStatus: pago.estado,
-        paymentMethod: 'MERCADO_PAGO',
-        // Una devolucion deja la reserva sin dinero cobrado: dejar el monto
-        // puesto le diria al CRM que la venta sigue pagada.
-        ...(pago.estado === 'PAID' ? { paidAmount: cobrado } : {}),
-        ...(pago.estado === 'REFUNDED' ? { paidAmount: 0 } : {}),
-        paymentDetails: {
-          provider: 'mercadopago',
-          transactionId: pago.id,
-          status: pago.estadoCrudo,
-          raw: pago.crudo as object,
-        },
-        ...(pago.estado === 'PAID' ? { status: 'CONFIRMED' as const } : {}),
-      },
-    });
-
-    logger.info(
-      { referencia: pago.referencia, estado: pago.estadoCrudo },
-      'Pago de Mercado Pago procesado',
-    );
-
-    if (pago.estado === 'PAID' && reserva.paymentStatus !== 'PAID') {
-      if (reserva.opportunityId) void cerrarVentaPorPagoEnLinea(reserva.opportunityId);
-      void (async () => {
-        const datos = await cargarDatosDeReserva(reserva.id);
-        if (!datos) return;
-        await avisarPago(datos);
-        await avisarCambioDeEstado(datos, 'CONFIRMED');
-      })();
-    }
-
-    res.status(200).json({ received: true });
-  },
+  (req: Request, res: Response) =>
+    atenderPagoDeMercadoPago(req, res, (req.params as { companyId: string }).companyId),
 );
+
+/**
+ * Lo mismo para las reservas que cobra FILO con su propia cuenta de Mercado
+ * Pago: no hay empresa en la URL porque el token es siempre el de la
+ * plataforma.
+ */
+paymentsRouter.post('/mercadopago/reservas/webhook', (req: Request, res: Response) =>
+  atenderPagoDeMercadoPago(req, res, null),
+);
+
+async function atenderPagoDeMercadoPago(req: Request, res: Response, companyId: string | null) {
+  const cuerpo = (req.body ?? {}) as {
+    type?: string;
+    topic?: string;
+    action?: string;
+    data?: { id?: string | number };
+    id?: string | number;
+  };
+
+  // Manda varios tipos de evento; solo los de pago dicen algo del cobro.
+  const tipo = cuerpo.type ?? cuerpo.topic;
+  if (tipo && tipo !== 'payment') return res.status(200).json({ received: true });
+
+  const paymentId = String(cuerpo.data?.id ?? cuerpo.id ?? req.query.id ?? '');
+  if (!paymentId) return res.status(200).json({ received: true });
+
+  const pasarela = companyId
+    ? pasarelaDelAnfitrion(
+        await prisma.company.findUnique({
+          where: { id: companyId },
+          select: {
+            paymentProvider: true,
+            paymentGatewayEnabled: true,
+            paymentEnvironment: true,
+            gatewayPublicKey: true,
+            gatewayPrivateKey: true,
+            gatewayIntegritySecret: true,
+            gatewayEventsSecret: true,
+          },
+        }),
+      )
+    : await pasarelaDeLaPlataforma('MERCADO_PAGO');
+  if (!pasarela || pasarela.proveedor !== 'MERCADO_PAGO' || !pasarela.privateKey) {
+    logger.error({ companyId }, 'Webhook de Mercado Pago para una empresa sin esa pasarela');
+    // 200 a proposito: reintentarlo no va a arreglar una configuracion.
+    return res.status(200).json({ received: true });
+  }
+
+  // Solo si el anfitrion guardo el secreto. No es lo que impide que nos
+  // mientan —para eso se relee el pago— sino lo que evita que un tercero
+  // nos haga consultar su API a voluntad.
+  if (pasarela.eventsSecret) {
+    const valida = firmaValida({
+      xSignature: req.headers['x-signature'] as string | undefined,
+      xRequestId: req.headers['x-request-id'] as string | undefined,
+      dataId: paymentId,
+      secreto: pasarela.eventsSecret,
+    });
+    if (!valida) {
+      logger.warn({ companyId, paymentId }, 'Webhook de Mercado Pago con firma invalida');
+      return res.status(401).json({ error: { code: 'INVALID_SIGNATURE' } });
+    }
+  }
+
+  const pago = await leerPagoDeMercadoPago(pasarela.privateKey, paymentId);
+  if (!pago?.referencia) {
+    logger.warn({ companyId, paymentId }, 'Mercado Pago no devolvio el pago o venia sin referencia');
+    return res.status(200).json({ received: true });
+  }
+
+  const reserva = await prisma.reservation.findUnique({
+    where: { reservationNumber: pago.referencia },
+    select: {
+      id: true,
+      companyId: true,
+      paymentStatus: true,
+      paymentDetails: true,
+      pricing: true,
+      opportunityId: true,
+      collectedBy: true,
+    },
+  });
+  // La reserva tiene que ser de quien cuyo token acabamos de usar: de la
+  // empresa, o de la plataforma si cobro FILO. Sin esta comprobacion, un
+  // anfitrion podria mover el estado de la reserva de otro mandando su propio
+  // id de pago a su propia URL.
+  const esDeEstaCuenta =
+    !!reserva && (companyId ? reserva.companyId === companyId : reserva.collectedBy === 'PLATFORM');
+  if (!reserva || !esDeEstaCuenta) {
+    // TR-44, igual que en Wompi. Si la reserva es de OTRA empresa no es un
+    // huerfano —existe y tiene dueño— sino un intento de tocar lo ajeno, y
+    // ese se descarta sin apuntar nada.
+    if (!reserva) {
+      await anotarCobroSinReserva({
+        gateway: 'MERCADO_PAGO',
+        reference: pago.referencia,
+        transactionId: pago.id ?? null,
+        amount: pago.monto ?? null,
+        currency: null,
+        gatewayStatus: pago.estadoCrudo ?? null,
+        companyId: companyId ?? undefined,
+        event: pago as unknown,
+      });
+    }
+    logger.warn({ companyId, referencia: pago.referencia }, 'Pago de Mercado Pago para una reserva ajena o desconocida');
+    return res.status(200).json({ received: true });
+  }
+
+  const idQuePago =
+    (reserva.paymentDetails as { transactionId?: string | null } | null)?.transactionId ?? null;
+  // Un cobro hecho no se deshace por un evento de OTRO pago. Las
+  // notificaciones se reintentan y llegan desordenadas.
+  if (reserva.paymentStatus === 'PAID' && pago.estado !== 'PAID' && idQuePago !== pago.id) {
+    logger.warn(
+      { referencia: pago.referencia, estado: pago.estadoCrudo },
+      'Evento de Mercado Pago descartado: la reserva ya esta pagada por otro pago',
+    );
+    return res.status(200).json({ received: true });
+  }
+
+  const cobrado =
+    pago.monto > 0 ? pago.monto : Number((reserva.pricing as { total?: unknown } | null)?.total ?? 0);
+
+  await prisma.reservation.update({
+    where: { id: reserva.id },
+    data: {
+      paymentStatus: pago.estado,
+      paymentMethod: 'MERCADO_PAGO',
+      // Una devolucion deja la reserva sin dinero cobrado: dejar el monto
+      // puesto le diria al CRM que la venta sigue pagada.
+      ...(pago.estado === 'PAID' ? { paidAmount: cobrado } : {}),
+      ...(pago.estado === 'REFUNDED' ? { paidAmount: 0 } : {}),
+      paymentDetails: {
+        provider: 'mercadopago',
+        transactionId: pago.id,
+        status: pago.estadoCrudo,
+        raw: pago.crudo as object,
+      },
+      ...(pago.estado === 'PAID' ? { status: 'CONFIRMED' as const } : {}),
+    },
+  });
+
+  logger.info(
+    { referencia: pago.referencia, estado: pago.estadoCrudo },
+    'Pago de Mercado Pago procesado',
+  );
+
+  if (pago.estado === 'PAID' && reserva.paymentStatus !== 'PAID') {
+    if (reserva.opportunityId) void cerrarVentaPorPagoEnLinea(reserva.opportunityId);
+    void (async () => {
+      const datos = await cargarDatosDeReserva(reserva.id);
+      if (!datos) return;
+      await avisarPago(datos);
+      await avisarCambioDeEstado(datos, 'CONFIRMED');
+    })();
+  }
+
+  res.status(200).json({ received: true });
+}
 
 /**
  * Webhook de Bold.

@@ -224,7 +224,7 @@ export async function crearCheckoutDeSuscripcion(companyId: string): Promise<Che
 
 /** Un intento de pago nuevo, firmado, listo para llevar al anfitrion a Wompi. */
 async function crearCheckoutDeWompi(companyId: string): Promise<CheckoutDeWompi> {
-  const pasarela = await pasarelaDeLaPlataforma();
+  const pasarela = await pasarelaDeLaPlataforma('WOMPI');
   if (!pasarela?.publicKey || !pasarela.integritySecret) {
     throw BadRequest('El pago en línea no está disponible por ahora. Escríbenos y lo resolvemos.');
   }
@@ -282,7 +282,7 @@ export async function procesarEventoDeSuscripcion(
     return 200;
   }
 
-  const pasarela = await pasarelaDeLaPlataforma();
+  const pasarela = await pasarelaDeLaPlataforma('WOMPI');
   if (!pasarela?.eventsSecret) {
     logger.error({ referencia }, 'Webhook de suscripcion sin secreto de eventos de la plataforma');
     return 200;
