@@ -16,3 +16,17 @@ export const registrarPagoSchema = z.object({
 });
 
 export type RegistrarPagoInput = z.infer<typeof registrarPagoSchema>;
+
+export const ventasPropiasQuerySchema = z.object({
+  companyId: z.string().min(1).optional(),
+  /** Omitido = todos los meses. */
+  period: periodoSchema.optional(),
+  /** Omitido = todas. PLATFORM = cobradas por FILO; HOST = por el anfitrion con su pasarela. */
+  cobro: z.enum(['PLATFORM', 'HOST']).optional(),
+  /** Omitido = todas. RESELLER = las que trajo un revendedor; DIRECTO = el resto. */
+  canal: z.enum(['RESELLER', 'DIRECTO']).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+});
+
+export type VentasPropiasQuery = z.infer<typeof ventasPropiasQuerySchema>;

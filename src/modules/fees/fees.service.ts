@@ -10,7 +10,7 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../config/prisma.js';
 import { BadRequest, NotFound } from '../../lib/errors.js';
-import type { RegistrarPagoInput } from './fees.schemas.js';
+import type { RegistrarPagoInput, VentasPropiasQuery } from './fees.schemas.js';
 
 const ZONA = 'America/Bogota';
 
@@ -205,6 +205,98 @@ export const feesService = {
         };
       })
       .filter((r) => r.filoCommission > 0);
+  },
+
+  /**
+   * Todas las ventas pagadas, con lo que sumaron, y quien las cobro: FILO o el
+   * anfitrion con su propia pasarela. Sin esto el administrador solo veria
+   * saldos y comisiones, no las ventas que los componen.
+   */
+  async ventasPropias(q: VentasPropiasQuery) {
+    const rango = q.period ? rangoDelPeriodo(q.period) : null;
+    const where: Prisma.ReservationWhereInput = {
+      ...(q.cobro ? { collectedBy: q.cobro } : {}),
+      paymentStatus: 'PAID',
+      status: { not: 'CANCELLED' },
+      ...(q.companyId ? { companyId: q.companyId } : {}),
+      ...(q.canal === 'RESELLER' ? { resellerCompanyId: { not: null } } : {}),
+      ...(q.canal === 'DIRECTO' ? { resellerCompanyId: null } : {}),
+      ...(rango ? { reservationDate: { gte: rango.desde, lt: rango.hasta } } : {}),
+    };
+
+    const [total, reservas, sumas] = await Promise.all([
+      prisma.reservation.count({ where }),
+      prisma.reservation.findMany({
+        where,
+        orderBy: { reservationDate: 'desc' },
+        skip: (q.page - 1) * q.pageSize,
+        take: q.pageSize,
+        select: {
+          id: true,
+          reservationNumber: true,
+          reservationDate: true,
+          participants: true,
+          paymentMethod: true,
+          collectedBy: true,
+          pricing: true,
+          company: { select: { id: true, companyName: true } },
+          resellerCompany: { select: { id: true, companyName: true } },
+          experience: { select: { title: true } },
+        },
+      }),
+      prisma.$queryRaw<{ vendido: Prisma.Decimal | null; filo: Prisma.Decimal | null; reventa: Prisma.Decimal | null }[]>`
+        SELECT COALESCE(SUM((r.pricing ->> 'total')::numeric), 0) AS vendido,
+               COALESCE(SUM((r.pricing ->> 'filoCommission')::numeric), 0) AS filo,
+               COALESCE(SUM((r.pricing ->> 'resellerCommission')::numeric), 0) AS reventa
+        FROM "Reservation" r
+        WHERE r."paymentStatus" = 'PAID'
+          AND r."status" <> 'CANCELLED'
+          ${q.cobro ? Prisma.sql`AND r."collectedBy" = ${q.cobro}::"CollectedBy"` : Prisma.empty}
+          ${q.companyId ? Prisma.sql`AND r."companyId" = ${q.companyId}` : Prisma.empty}
+          ${
+            q.canal === 'RESELLER'
+              ? Prisma.sql`AND r."resellerCompanyId" IS NOT NULL`
+              : q.canal === 'DIRECTO'
+                ? Prisma.sql`AND r."resellerCompanyId" IS NULL`
+                : Prisma.empty
+          }
+          ${
+            rango
+              ? Prisma.sql`AND r."reservationDate" >= ${rango.desde} AND r."reservationDate" < ${rango.hasta}`
+              : Prisma.empty
+          }
+      `,
+    ]);
+
+    const items = reservas.map((r) => {
+      const p = (r.pricing ?? {}) as Record<string, unknown>;
+      return {
+        id: r.id,
+        reservationNumber: r.reservationNumber,
+        reservationDate: r.reservationDate,
+        participants: r.participants,
+        paymentMethod: r.paymentMethod,
+        collectedBy: r.collectedBy,
+        companyId: r.company.id,
+        companyName: r.company.companyName,
+        resellerName: r.resellerCompany?.companyName ?? null,
+        experienceTitle: r.experience?.title ?? null,
+        total: Number(p.total ?? 0),
+        filoCommission: Number(p.filoCommission ?? 0),
+        resellerCommission: Number(p.resellerCommission ?? 0),
+      };
+    });
+
+    const s = sumas[0];
+    return {
+      items,
+      total,
+      totals: {
+        vendido: Math.round(Number(s?.vendido ?? 0)),
+        filoCommission: Math.round(Number(s?.filo ?? 0)),
+        resellerCommission: Math.round(Number(s?.reventa ?? 0)),
+      },
+    };
   },
 
   /**

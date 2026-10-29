@@ -8,7 +8,9 @@ import { feesService } from './fees.service.js';
 import {
   periodoSchema,
   registrarPagoSchema,
+  ventasPropiasQuerySchema,
   type RegistrarPagoInput,
+  type VentasPropiasQuery,
 } from './fees.schemas.js';
 
 export const feesRouter = Router();
@@ -45,6 +47,12 @@ feesRouter.use(requireRole('ADMIN'));
 
 feesRouter.get('/', async (_req: Request, res: Response) => {
   res.json({ data: await feesService.balances() });
+});
+
+feesRouter.get('/ventas', validate(ventasPropiasQuerySchema, 'query'), async (req: Request, res: Response) => {
+  const q = req.query as unknown as VentasPropiasQuery;
+  const { items, total, totals } = await feesService.ventasPropias(q);
+  res.json({ data: items, meta: { total, page: q.page, pageSize: q.pageSize, totals } });
 });
 
 feesRouter.post('/payments', validate(registrarPagoSchema), async (req: Request, res: Response) => {
