@@ -99,6 +99,141 @@ subscriptionRouter.get('/admin', async (_req: Request, res: Response) => {
   });
 });
 
+/** Mes (AAAA-MM) de una fecha, en hora de Bogota (UTC-5 fijo). */
+const mesDeBogota = (d: Date): string =>
+  new Date(d.getTime() - 5 * 3_600_000).toISOString().slice(0, 7);
+
+const estadisticasQuerySchema = z.object({
+  /** Cuantos meses hacia atras, contando el actual. */
+  meses: z.coerce.number().int().min(1).max(36).default(12),
+});
+
+/**
+ * Lo vendido en suscripciones: ingresos por mes y por metodo de pago, y como
+ * esta la cartera de anfitriones. Solo cuentan los pagos en PAID.
+ */
+subscriptionRouter.get(
+  '/admin/estadisticas',
+  validate(estadisticasQuerySchema, 'query'),
+  async (req: Request, res: Response) => {
+    const { meses } = req.query as unknown as z.infer<typeof estadisticasQuerySchema>;
+
+    const ahora = new Date();
+    const [y, m] = mesDeBogota(ahora).split('-').map(Number) as [number, number];
+    const claves: string[] = [];
+    for (let i = meses - 1; i >= 0; i -= 1) {
+      const d = new Date(Date.UTC(y, m - 1 - i, 1));
+      claves.push(d.toISOString().slice(0, 7));
+    }
+    const desde = new Date(`${claves[0]}-01T00:00:00-05:00`);
+
+    const [pagos, primeros, empresas] = await Promise.all([
+      prisma.subscriptionPayment.findMany({
+        where: { status: 'PAID', paidAt: { gte: desde } },
+        select: {
+          companyId: true,
+          amount: true,
+          baseAmount: true,
+          vatAmount: true,
+          method: true,
+          paidAt: true,
+        },
+      }),
+      prisma.subscriptionPayment.groupBy({
+        by: ['companyId'],
+        where: { status: 'PAID' },
+        _min: { paidAt: true },
+      }),
+      prisma.company.findMany({
+        where: { deletedAt: null, owner: { role: 'HOST' } },
+        select: { subscriptionEndsAt: true, subscriptionExempt: true },
+      }),
+    ]);
+
+    const porMes = new Map(
+      claves.map((c) => [
+        c,
+        { period: c, pagos: 0, total: 0, base: 0, iva: 0, empresas: new Set<string>() },
+      ]),
+    );
+    const porMetodo = new Map<string, { method: string; pagos: number; total: number }>();
+    let total = 0;
+    let base = 0;
+    let iva = 0;
+    let cantidad = 0;
+    const pagadoras = new Set<string>();
+
+    for (const p of pagos) {
+      if (!p.paidAt) continue;
+      const fila = porMes.get(mesDeBogota(p.paidAt));
+      if (!fila) continue;
+      const monto = Number(p.amount);
+      fila.pagos += 1;
+      fila.total += monto;
+      fila.base += Number(p.baseAmount);
+      fila.iva += Number(p.vatAmount);
+      fila.empresas.add(p.companyId);
+      cantidad += 1;
+      total += monto;
+      base += Number(p.baseAmount);
+      iva += Number(p.vatAmount);
+      pagadoras.add(p.companyId);
+      const met = porMetodo.get(p.method) ?? { method: p.method, pagos: 0, total: 0 };
+      met.pagos += 1;
+      met.total += monto;
+      porMetodo.set(p.method, met);
+    }
+
+    // Altas: empresas cuyo primer pago de siempre cae en cada mes.
+    const altas = new Map<string, number>();
+    for (const f of primeros) {
+      const primero = f._min.paidAt;
+      if (!primero) continue;
+      const k = mesDeBogota(primero);
+      altas.set(k, (altas.get(k) ?? 0) + 1);
+    }
+
+    const t = ahora.getTime();
+    let alDia = 0;
+    let vencidas = 0;
+    let sinPagar = 0;
+    let exentas = 0;
+    for (const e of empresas) {
+      if (e.subscriptionExempt) exentas += 1;
+      else if (!e.subscriptionEndsAt) sinPagar += 1;
+      else if (e.subscriptionEndsAt.getTime() <= t) vencidas += 1;
+      else alDia += 1;
+    }
+
+    res.json({
+      data: {
+        meses,
+        totales: {
+          pagos: cantidad,
+          total: Math.round(total),
+          base: Math.round(base),
+          iva: Math.round(iva),
+          empresasQuePagaron: pagadoras.size,
+          ticketPromedio: cantidad ? Math.round(total / cantidad) : 0,
+        },
+        porMes: [...porMes.values()].map((f) => ({
+          period: f.period,
+          pagos: f.pagos,
+          total: Math.round(f.total),
+          base: Math.round(f.base),
+          iva: Math.round(f.iva),
+          empresas: f.empresas.size,
+          altas: altas.get(f.period) ?? 0,
+        })),
+        porMetodo: [...porMetodo.values()]
+          .map((f) => ({ ...f, total: Math.round(f.total) }))
+          .sort((a, b) => b.total - a.total),
+        cartera: { alDia, vencidas, sinPagar, exentas, total: empresas.length },
+      },
+    });
+  },
+);
+
 const pagoManualSchema = z.object({
   /** Cuantos periodos de 30 dias se registran. Por defecto uno. */
   periodos: z.number().int().min(1).max(12).default(1),
