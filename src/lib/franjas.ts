@@ -32,6 +32,8 @@ export interface Franja {
    * limite, que es lo que hacia una experiencia sin aforo.
    */
   cupos?: number | null;
+  /** Una sola sesión que empieza a `startTime`; no se ofrece otra hora de la ventana. */
+  sesionFija?: boolean;
 }
 
 interface DiaDeLaSemana {

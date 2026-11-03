@@ -156,8 +156,11 @@ export async function comprobarDiaAbierto(
   // Abierto si ALGUN horario de los que aplican cubre esa hora: con uno que la
   // abra, hay donde vender.
   const abierto = horarios.some((h) =>
-    franjasDeLaFecha(h, fecha).some(
-      (f) => minuto >= enMinutos(f.startTime) && minuto < enMinutos(f.endTime),
+    franjasDeLaFecha(h, fecha).some((f) =>
+      // Una sesión fija solo abre a su hora de inicio.
+      f.sesionFija
+        ? minuto === enMinutos(f.startTime)
+        : minuto >= enMinutos(f.startTime) && minuto < enMinutos(f.endTime),
     ),
   );
   if (abierto) return;

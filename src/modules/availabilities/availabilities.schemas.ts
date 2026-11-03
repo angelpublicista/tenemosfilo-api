@@ -15,6 +15,9 @@ const franjaSchema = z.object({
   startTime: z.string(),
   endTime: z.string(),
   cupos: z.number().int().positive(),
+  // La franja es una sola sesión que empieza a su hora de inicio, no una
+  // ventana donde se puede empezar cada 30 minutos.
+  sesionFija: z.boolean().optional(),
 });
 
 const dayScheduleSchema = z.object({
