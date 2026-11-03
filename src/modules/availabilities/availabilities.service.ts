@@ -11,6 +11,9 @@ import type {
 
 const baseInclude = {
   location: { select: { id: true, name: true, slug: true, companyId: true } },
+  // A qué experiencias pertenece: sin esto no se distingue el horario de una
+  // sede del que una experiencia tiene en esa misma sede.
+  experiences: { select: { id: true } },
 } satisfies Prisma.AvailabilityInclude;
 
 async function locationCompanyId(locationId: string): Promise<string | null> {
