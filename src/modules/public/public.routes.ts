@@ -172,14 +172,23 @@ async function conHorariosDeSede<
   T extends {
     id: string;
     locations: { id: string }[];
-    availabilities: Array<{ locationId: string | null }>;
+    availabilities: Array<{ locationId: string | null; validUntil?: Date | null }>;
   },
->(experiences: T[]): Promise<T[]> {
+>(todas: T[]): Promise<T[]> {
+  const hoy = new Date();
+  hoy.setHours(0, 0, 0, 0);
+
+  // Un horario propio vencido no cuenta como nivel, igual que al reservar:
+  // si contara, taparia al de la sede y el motor ofreceria fechas y horas de
+  // un calendario que ya no rige.
+  const experiences = todas.map((e) => ({
+    ...e,
+    availabilities: e.availabilities.filter((a) => !a.validUntil || a.validUntil >= hoy),
+  }));
+
   const sedes = [...new Set(experiences.flatMap((e) => e.locations.map((l) => l.id)))];
   if (sedes.length === 0) return experiences;
 
-  const hoy = new Date();
-  hoy.setHours(0, 0, 0, 0);
   const deSede = await prisma.availability.findMany({
     where: {
       deletedAt: null,
