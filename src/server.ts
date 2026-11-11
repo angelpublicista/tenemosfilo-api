@@ -4,6 +4,7 @@ import { prisma } from './config/prisma.js';
 import { logger } from './lib/logger.js';
 import { recaptchaActivo } from './lib/recaptcha.js';
 import { enviarRecordatoriosDeSuscripcion } from './lib/suscripcion.js';
+import { expirarReservasSinPago } from './modules/reservations/reservations.expiracion.js';
 
 /** Host de la BD sin credenciales, para saber de un vistazo contra que corres. */
 function dbHost(url: string): string {
@@ -39,10 +40,21 @@ async function bootstrap() {
   const primerRecordatorio = setTimeout(() => void recordar(), 60_000);
   const recordatorios = setInterval(() => void recordar(), 6 * 60 * 60 * 1000);
 
+  // Reservas del catalogo que nadie pago. Cada guardado vuelve a comprobar que
+  // siga sin pagar, asi que varias instancias o un pago a mitad no se pisan.
+  const expirar = () =>
+    expirarReservasSinPago().catch((err) =>
+      logger.error({ err }, 'fallo la expiracion de reservas sin pago'),
+    );
+  const primeraExpiracion = setTimeout(() => void expirar(), 90_000);
+  const expiraciones = setInterval(() => void expirar(), 15 * 60 * 1000);
+
   const shutdown = async (signal: string) => {
     logger.info(`Recibido ${signal}, cerrando...`);
     clearTimeout(primerRecordatorio);
     clearInterval(recordatorios);
+    clearTimeout(primeraExpiracion);
+    clearInterval(expiraciones);
     server.close();
     await prisma.$disconnect();
     process.exit(0);
