@@ -105,6 +105,11 @@ model User {
   isActive      Boolean        @default(true)
   notifications Notification[]
 
+  /// Como va el recorrido de primeros pasos: { tourVisto, descartados, oculto }.
+  /// Se guarda por usuario y no en el navegador para que lo recuerde en cualquier
+  /// dispositivo.
+  onboarding Json?
+
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?

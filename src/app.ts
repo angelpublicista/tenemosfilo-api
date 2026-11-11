@@ -40,6 +40,7 @@ import { publicRouter } from './modules/public/public.routes.js';
 import { docsRouter } from './modules/docs/docs.routes.js';
 import { notificationsRouter } from './modules/notifications/notifications.routes.js';
 import { ayudaRouter } from './modules/ayuda/ayuda.routes.js';
+import { onboardingRouter } from './modules/onboarding/onboarding.routes.js';
 import { plantillasDeCorreoRouter } from './modules/plantillas-de-correo/plantillas-de-correo.routes.js';
 import { descubrimientoRouter, oauthRouter } from './modules/oauth/oauth.routes.js';
 import { mcpRouter } from './modules/mcp/mcp.routes.js';
@@ -166,6 +167,7 @@ export function createApp() {
   app.use('/payments', limiteGeneral, paymentsRouter);
   app.use('/notifications', limiteGeneral, notificationsRouter);
   app.use('/ayuda', limiteGeneral, ayudaRouter);
+  app.use('/onboarding', limiteGeneral, onboardingRouter);
   app.use('/plantillas-de-correo', limiteGeneral, plantillasDeCorreoRouter);
 
   // El servidor MCP y el OAuth con el que se conectan los asistentes. Los
