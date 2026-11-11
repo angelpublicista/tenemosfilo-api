@@ -30,7 +30,6 @@ import {
   resolverComisiones,
 } from '../../lib/commissions.js';
 import { BadRequest, Forbidden, NotFound } from '../../lib/errors.js';
-import { generarCodigoDeConfirmacion, normalizarCodigo } from '../../lib/codigo-de-confirmacion.js';
 import { construirCheckout } from '../payments/payments.service.js';
 import {
   avisarBajaParcial,
@@ -529,9 +528,6 @@ export const reservationsService = {
       data: {
         idempotencyKey: input.idempotencyKey ?? null,
         reservationNumber: input.reservationNumber ?? generateReservationNumber(),
-        // Todas lo llevan, no solo las de canal: si solo lo tuvieran unas, el
-        // anfitrion tendria dos formas de recibir a la gente en la puerta.
-        confirmationCode: generarCodigoDeConfirmacion(),
         experience: { connect: { id: input.experience } },
         company: { connect: { id: companyId } },
         ...(resellerCompanyId
@@ -712,7 +708,7 @@ export const reservationsService = {
         const ya = input.idempotencyKey
           ? await tx.reservation.findUnique({
               where: { idempotencyKey: input.idempotencyKey },
-              select: { reservationNumber: true, confirmationCode: true },
+              select: { reservationNumber: true },
             })
           : null;
         if (ya) return { reserva: ya, reutilizada: true };
@@ -721,9 +717,6 @@ export const reservationsService = {
       data: {
         idempotencyKey: input.idempotencyKey ?? null,
         reservationNumber: input.reservationNumber ?? generateReservationNumber(),
-        // Todas lo llevan, no solo las de canal: si solo lo tuvieran unas, el
-        // anfitrion tendria dos formas de recibir a la gente en la puerta.
-        confirmationCode: generarCodigoDeConfirmacion(),
         experience: { connect: { id: input.experience } },
         company: { connect: { id: companyId } },
         ...(revendedor ? { resellerCompany: { connect: { id: revendedor } } } : {}),
@@ -747,10 +740,7 @@ export const reservationsService = {
         specialRequirements: input.specialRequirements ?? null,
         notes: input.notes ?? null,
       },
-      // El codigo sale aqui porque es lo que la pantalla de confirmacion le
-      // enseña al cliente: sin el, lo unico que se lleva es el numero de
-      // reserva, que no es lo que le van a pedir en la puerta.
-      select: { reservationNumber: true, confirmationCode: true },
+      select: { reservationNumber: true },
         });
         return { reserva: nueva, reutilizada: false };
       },
@@ -853,64 +843,6 @@ export const reservationsService = {
   },
 
   /**
-   * Validar en la puerta el codigo que trae el cliente.
-   *
-   * Es el control que hace que una venta de canal no pueda quedarse fuera de
-   * FILO: quien vendio por su cuenta y no registro la reserva no tiene codigo
-   * que dar, y el anfitrion lo descubre cuando el cliente llega en vez de
-   * nunca. Por eso el "no existe" es una respuesta util y no un error a
-   * esconder: es justo la señal que hay que ver.
-   *
-   * Marca la llegada en el mismo paso. Separarlo en buscar y luego confirmar
-   * obligaria a dos toques con gente esperando en la entrada.
-   */
-  async validarCodigo(
-    codigo: string,
-    solicitante: { companyId?: string | null; role: UserRole; id: string },
-  ) {
-    const normalizado = normalizarCodigo(codigo);
-    const r = await prisma.reservation.findUnique({
-      where: { confirmationCode: normalizado },
-      include: {
-        ...fullInclude,
-        resellerCompany: { select: { id: true, companyName: true } },
-      },
-    });
-
-    // Mismo mensaje para "no existe" y "es de otra empresa": si fueran
-    // distintos, cualquiera con un anfitrion podria ir probando codigos para
-    // averiguar cuales existen.
-    const suya = solicitante.role === 'ADMIN' || r?.companyId === solicitante.companyId;
-    if (!r || !suya) {
-      throw NotFound(
-        'Ese código no corresponde a ninguna reserva tuya. Si el cliente insiste en que ya pagó, ' +
-          'pídele por dónde compró: puede ser una venta que no entró por FILO.',
-      );
-    }
-
-    if (r.status === 'CANCELLED') {
-      throw BadRequest('Esa reserva está cancelada.');
-    }
-
-    // Ya validada: no se vuelve a escribir la hora de llegada. El codigo de
-    // una reserva para cuatro no deberia servir para entrar dos veces, y el
-    // anfitrion necesita ver que esto ya paso.
-    if (r.checkedInAt) {
-      return { reserva: r, yaHabiaLlegado: true };
-    }
-
-    const actualizada = await prisma.reservation.update({
-      where: { id: r.id },
-      data: { checkedInAt: new Date(), checkedInById: solicitante.id },
-      include: {
-        ...fullInclude,
-        resellerCompany: { select: { id: true, companyName: true } },
-      },
-    });
-    return { reserva: actualizada, yaHabiaLlegado: false };
-  },
-
-  /**
    * Lo que vendio un canal, con la asistencia de cada reserva (TR-25).
    *
    * El revendedor no puede ver el listado de reservas del anfitrion —no son
@@ -948,7 +880,6 @@ export const reservationsService = {
         select: {
           id: true,
           reservationNumber: true,
-          confirmationCode: true,
           reservationDate: true,
           participants: true,
           attendedCount: true,
@@ -969,7 +900,6 @@ export const reservationsService = {
       return {
         id: r.id,
         reservationNumber: r.reservationNumber,
-        confirmationCode: r.confirmationCode,
         reservationDate: r.reservationDate,
         experienceTitle: r.experience?.title ?? null,
         hostCompanyName: r.company?.companyName ?? null,

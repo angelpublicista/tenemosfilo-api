@@ -178,17 +178,6 @@ export const listReservationsQuerySchema = z.object({
 export const reservationIdParamsSchema = z.object({ id: z.string().min(1) });
 
 /**
- * El codigo tal cual lo teclea el anfitrion.
- *
- * Laxo a proposito: llega con espacios, en minusculas o sin guion segun de
- * donde lo copie el cliente, y el servicio lo normaliza. Exigir el formato
- * exacto aqui seria mandar a alguien a reescribirlo delante de la fila.
- */
-export const validarCodigoSchema = z.object({
-  codigo: z.string().trim().min(4).max(40),
-});
-
-/**
  * Lo que llega al crear una reserva.
  *
  * `idempotencyKey` no esta en el esquema del cuerpo a proposito: viaja en
@@ -206,4 +195,3 @@ export type RescheduleInput = z.infer<typeof rescheduleSchema>;
 export type DeMiCanalQuery = z.infer<typeof deMiCanalQuerySchema>;
 export type UpdateDeMiCanalInput = z.infer<typeof updateDeMiCanalSchema>;
 export type ListReservationsQuery = z.infer<typeof listReservationsQuerySchema>;
-export type ValidarCodigoInput = z.infer<typeof validarCodigoSchema>;

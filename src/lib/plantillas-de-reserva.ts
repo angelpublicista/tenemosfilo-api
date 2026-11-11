@@ -80,11 +80,6 @@ const LUGAR: VariableDePlantilla = {
   descripcion: 'Sede o dirección. Puede venir vacío',
   ejemplo: 'Sede Centro · Calle 10 # 5-20, Medellín',
 };
-const CODIGO: VariableDePlantilla = {
-  clave: 'codigo',
-  descripcion: 'Código de confirmación que se muestra al llegar',
-  ejemplo: 'K7Q2XM',
-};
 const NUMERO: VariableDePlantilla = {
   clave: 'numero_reserva',
   descripcion: 'Número de reserva, la referencia para pagos y soporte',
@@ -106,7 +101,7 @@ const PERSONAS_QUE_SE_CAEN: VariableDePlantilla = {
   ejemplo: '2 personas',
 };
 
-const COMUNES = [CLIENTE, EMPRESA, EXPERIENCIA, FECHA, HORA, PERSONAS, LUGAR, CODIGO, NUMERO, TOTAL];
+const COMUNES = [CLIENTE, EMPRESA, EXPERIENCIA, FECHA, HORA, PERSONAS, LUGAR, NUMERO, TOTAL];
 
 const MUESTRA_DE_DATOS = bloqueDatos([
   { etiqueta: 'Experiencia', valor: 'Cata de cacao y chocolate' },
