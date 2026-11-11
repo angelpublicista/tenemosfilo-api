@@ -63,6 +63,11 @@ export type DefinicionDePlantilla = {
   urlDelBoton: () => string;
   /** Maqueta propia; sin ella se usa la de las cuentas y suscripciones. */
   maqueta?: Maqueta;
+  /**
+   * Sin ella la persona no puede entrar o seguir (recuperar contraseña,
+   * invitación): el administrador no puede apagarla.
+   */
+  esencial?: boolean;
   defecto: ContenidoDePlantilla;
 };
 
@@ -218,6 +223,7 @@ export const PLANTILLAS = {
   },
   invitacion_cuenta: {
     grupo: GRUPO_CUENTA,
+    esencial: true,
     nombre: 'Invitación a una cuenta',
     descripcion: 'Le llega a quien un administrador crea una cuenta, para que elija su contraseña.',
     cuando: 'Cuando un administrador crea una cuenta o reenvía la invitación',
@@ -236,6 +242,7 @@ export const PLANTILLAS = {
   },
   restablecer_contrasena: {
     grupo: GRUPO_CUENTA,
+    esencial: true,
     nombre: 'Recuperar contraseña',
     descripcion: 'Se envía a quien pide restablecer su contraseña.',
     cuando: 'Cuando alguien usa «¿Olvidaste tu contraseña?»',
@@ -258,6 +265,9 @@ export const PLANTILLAS = {
 const definicion = (key: ClaveDePlantilla): DefinicionDePlantilla => PLANTILLAS[key];
 
 export type ClaveDePlantilla = keyof typeof PLANTILLAS;
+
+/** Sin esta plantilla la persona no puede entrar: no se puede apagar. */
+export const esEsencial = (key: ClaveDePlantilla): boolean => definicion(key).esencial === true;
 
 export const esClaveDePlantilla = (k: string): k is ClaveDePlantilla => k in PLANTILLAS;
 
@@ -411,13 +421,34 @@ export function componer(
   };
 }
 
-/** El correo listo para enviar con la versión vigente de la plantilla. */
+/**
+ * El correo listo para enviar con la versión vigente de la plantilla.
+ *
+ * Lleva la clave de la plantilla para que `sendEmail` sepa si el administrador
+ * la apagó: viaja con el resto del correo, así los sitios que lo esparcen en el
+ * envío no tienen que acordarse de nada.
+ */
 export async function armarCorreo(
   key: ClaveDePlantilla,
   valores: Record<string, string>,
   opciones?: OpcionesDeCorreo,
-): Promise<{ subject: string; html: string }> {
-  return componer(key, await plantillaVigente(key), valores, opciones);
+): Promise<{ subject: string; html: string; plantilla: ClaveDePlantilla }> {
+  return { ...componer(key, await plantillaVigente(key), valores, opciones), plantilla: key };
+}
+
+/**
+ * Si la plantilla está encendida. Una esencial siempre lo está.
+ *
+ * Ante un fallo al leer se asume encendida: el mismo criterio que con el texto,
+ * un fallo de la base no puede costar un correo.
+ */
+export async function plantillaActiva(key: string): Promise<boolean> {
+  if (!esClaveDePlantilla(key) || esEsencial(key)) return true;
+  const fila = await prisma.emailTemplateSetting.findUnique({ where: { key } }).catch((err: unknown) => {
+    logger.error({ err, key }, 'no se pudo leer si la plantilla está activa; se envía');
+    return null;
+  });
+  return fila?.enabled ?? true;
 }
 
 /** Valores de ejemplo para la vista previa y los correos de prueba. */

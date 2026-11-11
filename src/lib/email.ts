@@ -4,6 +4,7 @@
 // no agregar dependencias: el API solo necesita disparar correos puntuales.
 import { env } from '../config/env.js';
 import { logger } from './logger.js';
+import { plantillaActiva } from './plantillas-de-correo.js';
 
 /**
  * El token tal como lo espera la cabecera.
@@ -30,6 +31,8 @@ type SendEmailInput = {
   fromName?: string;
   /** A donde llegan las respuestas del destinatario. */
   replyTo?: string;
+  /** La plantilla de la que sale el correo; si el administrador la apagó, no se envía. */
+  plantilla?: string;
 };
 
 /**
@@ -45,7 +48,13 @@ export async function sendEmail({
   html,
   fromName,
   replyTo,
+  plantilla,
 }: SendEmailInput): Promise<boolean> {
+  if (plantilla && !(await plantillaActiva(plantilla))) {
+    logger.info({ plantilla, to }, 'plantilla de correo apagada: no se envía');
+    return false;
+  }
+
   if (!env.ZEPTOMAIL_TOKEN || !env.ZEPTOMAIL_FROM_EMAIL) {
     logger.error('ZEPTOMAIL_TOKEN o ZEPTOMAIL_FROM_EMAIL sin configurar: no se envio el correo');
     return false;

@@ -12,7 +12,7 @@ import { prisma } from '../config/prisma.js';
 import { BadRequest } from './errors.js';
 import { logger } from './logger.js';
 import { sendEmail } from './email.js';
-import { armarCorreo } from './plantillas-de-correo.js';
+import { armarCorreo, plantillaActiva } from './plantillas-de-correo.js';
 import { getPlatformSettings } from './commissions.js';
 import { anotarCobroSinReserva } from './cobro-sin-reserva.js';
 import { mercadoPagoDeLaPlataforma, pasarelaDeLaPlataforma, proveedorDeLaSuscripcion } from './pasarela.js';
@@ -635,11 +635,11 @@ export async function avisarPagoDeSuscripcion(companyId: string): Promise<void> 
   // El primer pago activa la suscripcion y abre el panel; los siguientes son
   // renovaciones. Se cuentan los pagos ya aplicados (este incluido).
   const pagados = await prisma.subscriptionPayment.count({ where: { companyId, status: 'PAID' } });
-  const { subject, html } = await armarCorreo(pagados <= 1 ? 'suscripcion_activa' : 'suscripcion_renovada', {
+  const { subject, html, plantilla } = await armarCorreo(pagados <= 1 ? 'suscripcion_activa' : 'suscripcion_renovada', {
     empresa: nombre,
     fecha: fechaLarga(endsAt),
   });
-  await Promise.all(correos.map((to) => sendEmail({ to, subject, html }).catch(() => false)));
+  await Promise.all(correos.map((to) => sendEmail({ to, subject, html, plantilla }).catch(() => false)));
 }
 
 /**
@@ -675,6 +675,9 @@ export async function enviarRecordatoriosDeSuscripcion(): Promise<number> {
     if (subscriptionMpStatus === 'authorized' && diasRestantes > 0) continue;
     const cuando =
       diasRestantes <= 0 ? 'vencida' : diasRestantes <= 1 ? 'un_dia' : 'siete_dias';
+    // Apagado por el administrador: no se reclama la clave, o cada pasada la
+    // crearia y la soltaria, y al encenderlo el aviso saldria a tiempo.
+    if (!(await plantillaActiva(`recordatorio_${cuando}`))) continue;
     const clave = `subscription:${id}:${endsAt.toISOString().slice(0, 10)}:${cuando}`;
 
     try {
@@ -688,13 +691,13 @@ export async function enviarRecordatoriosDeSuscripcion(): Promise<number> {
     }
 
     const precio = `${pesos(conIva(Number(ajustes.subscriptionPrice), Number(ajustes.subscriptionVat)).total)} (IVA incluido)`;
-    const { subject, html } = await armarCorreo(`recordatorio_${cuando}` as const, {
+    const { subject, html, plantilla } = await armarCorreo(`recordatorio_${cuando}` as const, {
       empresa: nombre,
       fecha: fechaLarga(endsAt),
       precio,
     });
     const salio = await Promise.all(
-      correos.map((to) => sendEmail({ to, subject, html }).catch(() => false)),
+      correos.map((to) => sendEmail({ to, subject, html, plantilla }).catch(() => false)),
     );
     if (salio.some(Boolean)) {
       enviados += 1;

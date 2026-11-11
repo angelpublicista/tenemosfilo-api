@@ -82,7 +82,14 @@ export async function personasDeLaEmpresa(companyId: string | null | undefined):
 // Correo
 // ---------------------------------------------------------------------------
 
-type Envio = { to: string; subject: string; html: string; fromName?: string; replyTo?: string };
+type Envio = {
+  to: string;
+  subject: string;
+  html: string;
+  fromName?: string;
+  replyTo?: string;
+  plantilla?: string;
+};
 
 /**
  * Manda los correos y se traga cualquier fallo.

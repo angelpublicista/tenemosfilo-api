@@ -24,14 +24,14 @@ export async function enviarBienvenida(usuario: {
 }): Promise<void> {
   try {
     const nombre = usuario.name?.trim();
-    const { subject, html } = await armarCorreo(
+    const { subject, html, plantilla } = await armarCorreo(
       usuario.role === 'HOST' ? 'bienvenida_anfitrion' : 'bienvenida',
       {
         saludo: nombre ? `Hola ${nombre},` : 'Hola,',
         enlace_ayuda: `${env.APP_URL}/dashboard/ayuda`,
       },
     );
-    await sendEmail({ to: usuario.email, subject, html });
+    await sendEmail({ to: usuario.email, subject, html, plantilla });
   } catch (err) {
     logger.error({ err, email: usuario.email }, 'No se pudo enviar el correo de bienvenida');
   }

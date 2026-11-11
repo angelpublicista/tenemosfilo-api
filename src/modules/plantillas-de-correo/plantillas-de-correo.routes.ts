@@ -13,6 +13,8 @@ import {
   PLANTILLAS,
   componer,
   esClaveDePlantilla,
+  esEsencial,
+  plantillaActiva,
   plantillaVigente,
   validarContenido,
   valoresDeEjemplo,
@@ -65,12 +67,19 @@ const detalle = async (key: ClaveDePlantilla) => {
     },
     personalizada: vigente.personalizada,
     updatedAt: vigente.updatedAt,
+    esencial: esEsencial(key),
+    activa: await plantillaActiva(key),
   };
 };
 
 plantillasDeCorreoRouter.get('/', async (_req: Request, res: Response) => {
   const filas = await prisma.emailTemplate.findMany({ select: { key: true, updatedAt: true } });
   const editadas = new Map(filas.map((f) => [f.key, f.updatedAt]));
+  const apagadas = new Set(
+    (await prisma.emailTemplateSetting.findMany({ where: { enabled: false }, select: { key: true } })).map(
+      (f) => f.key,
+    ),
+  );
   res.json({
     data: (Object.keys(PLANTILLAS) as ClaveDePlantilla[]).map((key) => ({
       key,
@@ -80,6 +89,8 @@ plantillasDeCorreoRouter.get('/', async (_req: Request, res: Response) => {
       grupo: PLANTILLAS[key].grupo,
       personalizada: editadas.has(key),
       updatedAt: editadas.get(key) ?? null,
+      esencial: esEsencial(key),
+      activa: esEsencial(key) || !apagadas.has(key),
     })),
   });
 });
@@ -99,6 +110,29 @@ plantillasDeCorreoRouter.put(
       where: { key },
       create: { key, ...contenido, updatedByEmail: req.user!.email },
       update: { ...contenido, updatedByEmail: req.user!.email },
+    });
+    res.json({ data: await detalle(key) });
+  },
+);
+
+/**
+ * Encender o apagar una plantilla. Apagada, el correo no se envía; el texto
+ * guardado se conserva. Las esenciales no se pueden apagar.
+ */
+plantillasDeCorreoRouter.put(
+  '/:key/activa',
+  validate(claveSchema, 'params'),
+  validate(z.object({ activa: z.boolean() })),
+  async (req: Request, res: Response) => {
+    const key = claveDe(req);
+    const { activa } = req.body as { activa: boolean };
+    if (!activa && esEsencial(key)) {
+      throw BadRequest('Esta plantilla no se puede apagar: sin ella la persona no podría entrar a su cuenta.');
+    }
+    await prisma.emailTemplateSetting.upsert({
+      where: { key },
+      create: { key, enabled: activa, updatedByEmail: req.user!.email },
+      update: { enabled: activa, updatedByEmail: req.user!.email },
     });
     res.json({ data: await detalle(key) });
   },

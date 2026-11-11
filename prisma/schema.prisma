@@ -2289,3 +2289,13 @@ model EmailTemplate {
   updatedAt   DateTime @updatedAt
   updatedByEmail String?
 }
+
+/// Si una plantilla de correo se envía o no. Aparte de EmailTemplate: esa solo
+/// existe cuando el administrador cambió el texto, y apagar una plantilla no
+/// debería obligar a copiarla. Sin fila, la plantilla se envía.
+model EmailTemplateSetting {
+  key            String   @id
+  enabled        Boolean  @default(true)
+  updatedAt      DateTime @updatedAt
+  updatedByEmail String?
+}
