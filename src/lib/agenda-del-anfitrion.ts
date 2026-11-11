@@ -17,6 +17,7 @@ import type { Prisma, PrismaClient } from '@prisma/client';
 import { prisma } from '../config/prisma.js';
 import { BadRequest } from './errors.js';
 import { condicionesDe } from './sede-de-la-experiencia.js';
+import { inicioDelDiaEnBogota, sumarDias } from './zona.js';
 
 type Cliente = PrismaClient | Prisma.TransactionClient;
 
@@ -92,10 +93,8 @@ export async function simultaneidad(
 
   // Se trae la franja ancha del dia y el solape se calcula aqui: cruzar
   // fecha + duracion en SQL obligaria a un raw query por una comodidad.
-  const inicioDelDia = new Date(datos.fecha);
-  inicioDelDia.setHours(0, 0, 0, 0);
-  const finDelDia = new Date(inicioDelDia);
-  finDelDia.setDate(finDelDia.getDate() + 2);
+  const inicioDelDia = inicioDelDiaEnBogota(datos.fecha);
+  const finDelDia = sumarDias(inicioDelDia, 2);
 
   const candidatas = await cliente.reservation.findMany({
     where: {

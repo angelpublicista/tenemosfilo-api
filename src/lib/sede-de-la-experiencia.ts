@@ -12,6 +12,7 @@
 // miraban calendarios diferentes sin que nadie se diera cuenta.
 import { prisma } from '../config/prisma.js';
 import { BadRequest } from './errors.js';
+import { enBogota } from './zona.js';
 import { fechaCerrada, franjasDeLaFecha, horariosQueAplican, rigeEnLaFecha } from './franjas.js';
 import type { ExperienceKind, Prisma } from '@prisma/client';
 
@@ -147,7 +148,7 @@ export async function comprobarDiaAbierto(
   // Solo los que rigen ese dia: uno vencido no abre nada.
   const horarios = todos.filter((h) => rigeEnLaFecha(h, fecha));
 
-  const minuto = fecha.getHours() * 60 + fecha.getMinutes();
+  const minuto = enBogota(fecha).minuto;
   const enMinutos = (hhmm: string) => {
     const [h, m] = hhmm.split(':').map(Number);
     return (h ?? 0) * 60 + (m ?? 0);

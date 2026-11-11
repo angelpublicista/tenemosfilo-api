@@ -10,6 +10,7 @@
 // repetia, el corte de anticipacion y el conteo de cupos miraban horarios
 // distintos sin que nadie se diera cuenta.
 import { prisma } from '../config/prisma.js';
+import { claveDelDiaEnBogota, enBogota, inicioDelDiaEnBogota } from './zona.js';
 
 const DIAS = [
   'sunday',
@@ -46,7 +47,7 @@ interface DiaDeLaSemana {
 /** Las franjas de un dia, vengan con el nombre nuevo o con el viejo. */
 export function franjasDelDia(semana: unknown, fecha: Date): Franja[] {
   if (!semana || typeof semana !== 'object') return [];
-  const clave = DIAS[fecha.getDay()];
+  const clave = DIAS[enBogota(fecha).diaSemana];
   const dia = (semana as Record<string, DiaDeLaSemana | undefined>)[clave!];
   if (!dia?.isActive) return [];
   return dia.franjas ?? dia.timeSlots ?? [];
@@ -54,9 +55,7 @@ export function franjasDelDia(semana: unknown, fecha: Date): Franja[] {
 
 /** La fecha en "YYYY-MM-DD", que es como se guardan las excepciones. */
 export function claveDeFecha(f: Date): string {
-  return `${f.getFullYear()}-${String(f.getMonth() + 1).padStart(2, '0')}-${String(
-    f.getDate(),
-  ).padStart(2, '0')}`;
+  return claveDelDiaEnBogota(f);
 }
 
 /** Lo que se dijo de ESA fecha, si se dijo algo. */
@@ -79,8 +78,7 @@ export function rigeEnLaFecha(
   horario: { validFrom?: Date | null; validUntil?: Date | null },
   fecha: Date,
 ): boolean {
-  const dia = new Date(fecha);
-  dia.setHours(0, 0, 0, 0);
+  const dia = inicioDelDiaEnBogota(fecha);
   if (horario.validFrom && claveDeFecha(dia) < horario.validFrom.toISOString().slice(0, 10)) {
     return false;
   }
@@ -281,9 +279,8 @@ export async function franjaDeLaReserva(
   const horarios = await horariosQueAplican(experienceId, locationId);
   if (horarios.length === 0) return null;
 
-  const minutoDeLaReserva = fecha.getHours() * 60 + fecha.getMinutes();
-  const dia = new Date(fecha);
-  dia.setHours(0, 0, 0, 0);
+  const minutoDeLaReserva = enBogota(fecha).minuto;
+  const dia = inicioDelDiaEnBogota(fecha);
 
   let elegida: FranjaConCupos | null = null;
 
@@ -297,10 +294,8 @@ export async function franjaDeLaReserva(
       const hasta = enMinutos(f.endTime);
       if (minutoDeLaReserva < desde || minutoDeLaReserva >= hasta) continue;
 
-      const inicio = new Date(dia);
-      inicio.setMinutes(desde);
-      const fin = new Date(dia);
-      fin.setMinutes(hasta);
+      const inicio = new Date(dia.getTime() + desde * 60_000);
+      const fin = new Date(dia.getTime() + hasta * 60_000);
 
       if (!elegida || f.cupos < elegida.cupos) elegida = { inicio, fin, cupos: f.cupos };
     }

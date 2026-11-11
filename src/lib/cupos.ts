@@ -9,6 +9,7 @@ import type { Prisma, PrismaClient } from '@prisma/client';
 import { prisma } from '../config/prisma.js';
 import { BadRequest } from './errors.js';
 import { franjaDeLaReserva } from './franjas.js';
+import { inicioDelDiaEnBogota, sumarDias } from './zona.js';
 import { condicionesDe } from './sede-de-la-experiencia.js';
 
 /** El cliente de Prisma dentro o fuera de una transaccion. */
@@ -28,10 +29,8 @@ export const RETENCION_DE_CUPO_MIN = 20;
 
 /** El dia natural de una fecha, de las 00:00 a las 00:00 siguientes. */
 export function dia(fecha: Date): { inicio: Date; fin: Date } {
-  const inicio = new Date(fecha);
-  inicio.setHours(0, 0, 0, 0);
-  const fin = new Date(inicio);
-  fin.setDate(fin.getDate() + 1);
+  const inicio = inicioDelDiaEnBogota(fecha);
+  const fin = sumarDias(inicio, 1);
   return { inicio, fin };
 }
 

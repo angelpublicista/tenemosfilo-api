@@ -7,6 +7,7 @@
 import { prisma } from '../config/prisma.js';
 import { BadRequest } from './errors.js';
 import { franjasDelDia } from './franjas.js';
+import { claveDelDiaEnBogota, enBogota, inicioDelDiaEnBogota } from './zona.js';
 
 const DIAS = [
   'sunday',
@@ -23,8 +24,7 @@ const enMinutos = (hhmm: string): number => {
   return (h ?? 0) * 60 + (m ?? 0);
 };
 
-const soloElDia = (f: Date) =>
-  `${f.getFullYear()}-${String(f.getMonth() + 1).padStart(2, '0')}-${String(f.getDate()).padStart(2, '0')}`;
+const soloElDia = claveDelDiaEnBogota;
 
 /**
  * Las experiencias a las que afecta un horario.
@@ -65,8 +65,7 @@ export async function noBajarCuposVendidos(
   const experiencias = await aQuienAfecta(availabilityId);
   if (experiencias.length === 0) return;
 
-  const hoy = new Date();
-  hoy.setHours(0, 0, 0, 0);
+  const hoy = inicioDelDiaEnBogota(new Date());
 
   const reservas = await prisma.reservation.findMany({
     where: {
@@ -82,8 +81,8 @@ export async function noBajarCuposVendidos(
   // natural y el rango de la franja porque es asi como se cuenta al vender.
   const vendido = new Map<string, number>();
   for (const r of reservas) {
-    const clave = DIAS[r.reservationDate.getDay()];
-    const minuto = r.reservationDate.getHours() * 60 + r.reservationDate.getMinutes();
+    const { diaSemana, minuto } = enBogota(r.reservationDate);
+    const clave = DIAS[diaSemana];
     for (const f of franjasDelDia(nuevaSemana, r.reservationDate)) {
       if (f.cupos === null || f.cupos === undefined) continue;
       if (minuto < enMinutos(f.startTime) || minuto >= enMinutos(f.endTime)) continue;
