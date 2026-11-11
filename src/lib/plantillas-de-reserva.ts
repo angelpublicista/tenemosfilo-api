@@ -108,14 +108,13 @@ const MUESTRA_DE_DATOS = bloqueDatos([
   { etiqueta: 'Fecha', valor: 'sábado, 12 de diciembre de 2026, 3:00 p. m.' },
   { etiqueta: 'Personas', valor: '4 personas' },
   { etiqueta: 'Lugar', valor: 'Sede Centro · Calle 10 # 5-20, Medellín' },
-  { etiqueta: 'Código', valor: 'K7Q2XM' },
   { etiqueta: 'N.º de reserva', valor: 'RES-20261212-A1B' },
 ]);
 
 const DATOS_DE_RESERVA: VariableDePlantilla = {
   clave: 'datos_reserva',
   descripcion:
-    'Tabla con los datos de la reserva (experiencia, fecha, personas, lugar, código…). La arma la plataforma; según el correo incluye más o menos filas',
+    'Tabla con los datos de la reserva (experiencia, fecha, personas, lugar…). La arma la plataforma; según el correo incluye más o menos filas',
   ejemplo: 'Tabla de datos de la reserva',
   html: true,
   muestra: MUESTRA_DE_DATOS,

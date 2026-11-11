@@ -8,6 +8,7 @@
 // SU plan, al anfitrion le importa a quien tiene que atender, y al admin le
 // importa que la plataforma esta vendiendo. Por eso hay una plantilla por
 // audiencia y no una sola con condicionales.
+import type { PaymentStatus } from '@prisma/client';
 import { armarCorreo, type ClaveDePlantilla } from './plantillas-de-correo.js';
 import { bloqueDatos, dinero, esc, fechaLarga, hora, personas, type Fila } from './email-marco.js';
 
@@ -27,6 +28,8 @@ export type DatosCorreoReserva = {
   total?: number;
   /** Lo que lleva pagado. Sin valor mientras no haya pagado nada. */
   pagado?: number;
+  /** Si la reserva esta pagada; `pagado` dice cuanto. Sin valor se toma por pendiente. */
+  estadoDePago?: PaymentStatus;
   /**
    * Logo del anfitrion de la experiencia reservada. El correo lo manda Filo,
    * pero quien presta el servicio es el anfitrion: es su marca la que el
@@ -72,6 +75,29 @@ function armar(
   });
 }
 
+/**
+ * Que le pasa al dinero de esta reserva, en palabras para el anfitrion.
+ *
+ * Vacio cuando no hay nada que cobrar: una experiencia gratuita no esta
+ * "pendiente de pago".
+ */
+function estadoDelPago(d: DatosCorreoReserva): string {
+  if (!d.total) return '';
+  const pagado = d.pagado && d.pagado > 0 ? dinero(d.pagado) : '';
+  switch (d.estadoDePago) {
+    case 'PAID':
+      return `Pagada${pagado ? ` · ${pagado}` : ''}`;
+    case 'PARTIAL':
+      return `Pago parcial · ${pagado || dinero(0)} de ${dinero(d.total)}`;
+    case 'REFUNDED':
+      return 'Reembolsada';
+    case 'FAILED':
+      return 'El pago falló';
+    default:
+      return 'Pendiente de pago';
+  }
+}
+
 const datosDelPlan = (d: DatosCorreoReserva): Fila[] => [
   { etiqueta: 'Experiencia', valor: esc(d.experienceTitle) },
   { etiqueta: 'Fecha', valor: `${esc(fechaLarga(d.reservationDate))}, ${esc(hora(d.reservationDate))}` },
@@ -98,6 +124,7 @@ export function correoReservaAnfitrion(d: DatosCorreoReserva) {
       { etiqueta: 'Teléfono', valor: esc(d.clienteTelefono ?? '') },
       { etiqueta: 'Peticiones', valor: esc(d.peticiones ?? '') },
       { etiqueta: 'Total', valor: d.total ? esc(dinero(d.total)) : '' },
+      { etiqueta: 'Pago', valor: esc(estadoDelPago(d)) },
     ]),
   });
 }

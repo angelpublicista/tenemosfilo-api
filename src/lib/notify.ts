@@ -8,7 +8,12 @@
 // operacion que la origina. Si falla el aviso de "nueva reserva", la
 // reserva ya esta hecha y cobrada; perder el aviso es molesto, perder la
 // venta es inaceptable. Por eso todo va envuelto en un catch.
-import type { NotificationType, CompanyContactType, ReservationStatus } from '@prisma/client';
+import type {
+  NotificationType,
+  CompanyContactType,
+  ReservationStatus,
+  PaymentStatus,
+} from '@prisma/client';
 import { prisma } from '../config/prisma.js';
 import { env } from '../config/env.js';
 import { logger } from './logger.js';
@@ -372,6 +377,8 @@ type DatosReserva = {
   estado?: ReservationStatus;
   /** Lo que lleva pagado; 0 si nada. */
   pagado?: number;
+  /** Si esta pagada o no; `pagado` dice cuanto. */
+  estadoDePago?: PaymentStatus;
 };
 
 /** Reserva tal como sale de la base con sus relaciones. */
@@ -385,6 +392,7 @@ type ReservaCruda = {
   userId?: string | null;
   pricing?: unknown;
   status?: ReservationStatus;
+  paymentStatus?: PaymentStatus;
   paidAmount?: unknown;
   client?: unknown;
   experience?: { title?: string } | null;
@@ -459,6 +467,7 @@ export function datosDeReserva(r: ReservaCruda): DatosReserva {
     peticiones: r.specialRequirements ?? null,
     estado: r.status,
     pagado: Number(r.paidAmount ?? 0) || 0,
+    estadoDePago: r.paymentStatus,
   };
 }
 
@@ -499,6 +508,7 @@ function paraCorreo(r: DatosReserva): DatosCorreoReserva {
     peticiones: r.peticiones,
     total: r.total,
     pagado: r.pagado,
+    estadoDePago: r.estadoDePago,
   };
 }
 
