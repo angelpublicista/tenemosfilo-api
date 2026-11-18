@@ -155,6 +155,12 @@ enum CompanyType {
   CULINARY_SCHOOL
   INDEPENDENT_CHEF
   TOUR_OPERATOR
+  // Agencia o plataforma que vende experiencias de otros. Solo se le ofrece a
+  // los revendedores.
+  RESELLER
+  // Programa de puntos o lealtad que canjea puntos por experiencias. Tambien
+  // solo para revendedores.
+  LOYALTY_PROGRAM
   OTHER
 }
 
