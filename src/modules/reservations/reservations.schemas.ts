@@ -138,6 +138,11 @@ export const rescheduleSchema = z.object({
  * Sin filtro de empresa: la empresa es la de quien llama, siempre. Dejar que
  * se mande seria dejar que un revendedor pida las ventas de otro.
  */
+export const estadisticasQuerySchema = z.object({
+  dateFrom: z.string().datetime({ offset: true }).optional(),
+  dateTo: z.string().datetime({ offset: true }).optional(),
+});
+
 export const deMiCanalQuerySchema = z.object({
   page: z.coerce.number().int().positive().default(1),
   pageSize: z.coerce.number().int().positive().max(200).default(50),

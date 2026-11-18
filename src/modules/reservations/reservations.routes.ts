@@ -16,6 +16,7 @@ import {
   updateStatusSchema,
   reembolsoSchema,
   deMiCanalQuerySchema,
+  estadisticasQuerySchema,
   cargoAdicionalSchema,
   updateDeMiCanalSchema,
 } from './reservations.schemas.js';

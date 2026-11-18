@@ -16,7 +16,7 @@ import { empresasQuePuedenCobrar, pasarelaDe } from '../../lib/pasarela.js';
 import { enlaceService } from '../opportunities/opportunities.enlace.js';
 import { recalcularNotaDeExperiencia } from '../../lib/calificacion.js';
 import { env } from '../../config/env.js';
-import { limiteChatPublico } from '../../middleware/rate-limit.js';
+import { limiteChatPublico, limiteEventosPublicos } from '../../middleware/rate-limit.js';
 import { agenteService, CANAL_WEB } from '../agente/agente.service.js';
 
 export const publicRouter = Router();
@@ -710,5 +710,48 @@ publicRouter.post(
 
     await recalcularNotaDeExperiencia(r.experienceId);
     res.json({ data: { gracias: true } });
+  },
+);
+
+/**
+ * Interaccion en el catalogo de un revendedor: visita, experiencia vista,
+ * fecha elegida, datos dejados. Es lo que le permite saber en que paso se va
+ * la gente.
+ *
+ * Responde 204 siempre que el cuerpo sea valido, exista o no el catalogo: medir
+ * no puede romper la reserva ni servir para averiguar que slugs existen.
+ */
+const eventoSchema = z.object({
+  tipo: z.enum(['VISITA', 'VER_EXPERIENCIA', 'ELEGIR_FECHA', 'INICIAR_RESERVA']),
+  sessionId: z.string().min(8).max(64),
+  experienceId: z.string().min(1).max(64).optional(),
+});
+
+publicRouter.post(
+  '/reseller/:slug/evento',
+  limiteEventosPublicos,
+  validate(paramsSchema, 'params'),
+  validate(eventoSchema),
+  async (req: Request, res: Response) => {
+    const { slug } = req.params as unknown as z.infer<typeof paramsSchema>;
+    const body = req.body as z.infer<typeof eventoSchema>;
+
+    const reseller = await prisma.company.findFirst({
+      where: dondeEstaElCatalogo(slug),
+      select: { id: true },
+    });
+    if (reseller) {
+      await prisma.eventoDeCatalogo
+        .create({
+          data: {
+            resellerCompanyId: reseller.id,
+            tipo: body.tipo,
+            sessionId: body.sessionId,
+            experienceId: body.experienceId ?? null,
+          },
+        })
+        .catch(() => undefined);
+    }
+    res.status(204).end();
   },
 );

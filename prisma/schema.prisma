@@ -169,6 +169,9 @@ model Company {
   // Asistentes conectados por MCP en nombre de este anfitrion.
   oauthGrants OAuthGrant[]
 
+  // Lo que hizo la gente en el catalogo de este revendedor.
+  eventosDeCatalogo EventoDeCatalogo[]
+
   id      String @id @default(cuid())
   ownerId String
   owner   User   @relation("CompanyOwner", fields: [ownerId], references: [id])
@@ -2303,4 +2306,27 @@ model EmailTemplateSetting {
   enabled        Boolean  @default(true)
   updatedAt      DateTime @updatedAt
   updatedByEmail String?
+}
+
+/// Que paso en el catalogo publico de un revendedor: lo que la reserva sola no
+/// cuenta. Una reserva dice que alguien compro; esto dice cuanta gente miro y
+/// en que paso se fue. Sin datos personales: solo un id de sesion anonimo.
+enum TipoEventoCatalogo {
+  VISITA
+  VER_EXPERIENCIA
+  ELEGIR_FECHA
+  INICIAR_RESERVA
+}
+
+model EventoDeCatalogo {
+  id                String             @id @default(cuid())
+  resellerCompanyId String
+  resellerCompany   Company            @relation(fields: [resellerCompanyId], references: [id], onDelete: Cascade)
+  tipo              TipoEventoCatalogo
+  /// Id aleatorio del navegador (sessionStorage). No identifica a nadie.
+  sessionId         String
+  experienceId      String?
+  createdAt         DateTime           @default(now())
+
+  @@index([resellerCompanyId, createdAt])
 }

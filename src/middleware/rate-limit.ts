@@ -185,3 +185,17 @@ export const limiteSondeoDeKeys = rateLimit({
   },
   handler: responder('Demasiadas credenciales rechazadas desde esta conexion. Espera un momento.'),
 });
+
+/**
+ * Eventos de interaccion del catalogo de un revendedor.
+ *
+ * Sin credenciales y sin efecto para quien los manda, asi que son la via mas
+ * facil de inflar una estadistica. El margen es amplio —una oficina entera
+ * comparte IP y cada visita manda unos cinco eventos— pero no infinito.
+ */
+export const limiteEventosPublicos = rateLimit({
+  ...comunes,
+  windowMs: 10 * MINUTO,
+  limit: 200,
+  handler: responder('Demasiados eventos seguidos.'),
+});

@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import { reservationsService } from './reservations.service.js';
+import { estadisticasDeMiCanal } from './reservations.estadisticas.js';
 import type {
   CancelInput,
   CargoAdicionalInput,
@@ -65,6 +66,15 @@ export const reservationsController = {
       q<DeMiCanalQuery>(req),
     );
     res.json({ data: items, meta: { total, resumen } });
+  },
+
+  // Resumen, embudo y series de lo que ha generado el canal.
+  async estadisticasDeMiCanal(req: Request, res: Response) {
+    const data = await estadisticasDeMiCanal(
+      req.user!.companyId,
+      q<{ dateFrom?: string; dateTo?: string }>(req),
+    );
+    res.json({ data });
   },
 
   async mias(req: Request, res: Response) {
