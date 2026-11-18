@@ -386,6 +386,99 @@ Trata las claves como contraseñas: no las compartas ni las subas a repositorios
   },
 ];
 
+/**
+ * Correcciones a artículos que ya se cargaron antes.
+ *
+ * El alta de arriba no toca lo que existe, para respetar lo que el
+ * administrador edite. Pero eso deja sin arreglar los artículos que salieron
+ * mal. Estas revisiones sí los actualizan, con una condición: solo si el
+ * artículo sigue EXACTAMENTE como se cargó (`bodyAnterior`). Si alguien lo
+ * editó, no se toca. Es idempotente: tras aplicarse, el cuerpo ya no coincide.
+ *
+ * `audienceAnterior` se exige igual cuando se cambia la audiencia.
+ */
+type Revision = {
+  slug: string;
+  bodyAnterior: string;
+  audienceAnterior?: UserRole[];
+};
+
+const REVISIONES: Revision[] = [
+  { slug: 'primeros-pasos-como-revendedor', bodyAnterior: `Como revendedor compartes experiencias de **todos los anfitriones** de la plataforma y ganas una comisión por cada reserva que llegue por ti.
+
+## Tu catálogo
+
+En *Mi catálogo* tienes tu enlace. Se actualiza solo: cuando un anfitrión publica una experiencia nueva, aparece ahí sin que hagas nada.
+
+## Compartir una sola experiencia
+
+En la misma pantalla, **Enlace de cada experiencia** lista cada publicación con su enlace propio. Cópialo para compartir una experiencia por redes o WhatsApp. La reserva queda atribuida a ti igual que con el enlace general.
+
+## Cómo se atribuyen las ventas
+
+Toda reserva que entre por tu enlace o por tu iframe queda atribuida a ti y genera tu comisión automáticamente. El cobro lo procesa Tenemos Filo.
+
+- *Ventas de mi canal*: lo vendido y quién apareció.
+- *Mis ingresos*: tus comisiones.
+
+Si no ves tu enlace, tu cuenta todavía no tiene una empresa asociada: escríbenos y la vinculamos.` },
+  { slug: 'comisiones-del-revendedor', bodyAnterior: `Tu comisión se genera con cada reserva atribuida a tu canal, es decir, que entró por tu enlace o tu iframe.
+
+- En *Ventas de mi canal* ves la operación: qué se vendió y quién reservó.
+- En *Mis ingresos* ves el dinero cobrado. Una reserva aparece ahí cuando el cliente completa el pago.
+
+El porcentaje o valor de la comisión lo define la plataforma. Si algo no cuadra, escríbenos con el número de la reserva.` },
+  // El cuerpo no cambia: solo deja de mostrarse a revendedores, que no tienen MCP.
+  {
+    slug: 'acceso-con-api-y-asistentes-mcp',
+    bodyAnterior: `## Claves de API
+
+En *Claves de API* generas claves para que otro sistema consulte o cree información en tu cuenta. **Guárdala al crearla**: por seguridad solo se muestra una vez.
+
+## Asistentes por MCP
+
+Con la integración MCP puedes conectar un asistente de IA para que actúe en tu nombre. Desde su pantalla copias la dirección del servidor y la pegas en el asistente.
+
+## Revocar el acceso
+
+Si revocas una clave o desconectas un asistente, **deja de poder entrar a tu cuenta en el momento**. Para volver a usarlo tendrás que conectarlo de nuevo.
+
+Trata las claves como contraseñas: no las compartas ni las subas a repositorios públicos.`,
+    audienceAnterior: ['HOST', 'RESELLER'],
+  },
+];
+
+const normalizar = (t: string) => t.replace(/\r\n/g, '\n').trim();
+const igual = (a: string, b: string) => normalizar(a) === normalizar(b);
+const mismaLista = (a: string[], b: string[]) => [...a].sort().join() === [...b].sort().join();
+
+async function revisar(): Promise<{ aplicadas: number; editadas: number }> {
+  let aplicadas = 0;
+  let editadas = 0;
+  for (const r of REVISIONES) {
+    const nuevo = ARTICULOS.find((a) => a.slug === r.slug);
+    const actual = await prisma.helpArticle.findUnique({ where: { slug: r.slug } });
+    if (!nuevo || !actual) continue;
+
+    // Ya está al día: nada que hacer.
+    if (igual(actual.body, nuevo.body) && mismaLista(actual.audience, nuevo.audience)) continue;
+
+    const sinEditar =
+      igual(actual.body, r.bodyAnterior) &&
+      (!r.audienceAnterior || mismaLista(actual.audience, r.audienceAnterior));
+    if (!sinEditar) {
+      editadas += 1;
+      continue;
+    }
+    await prisma.helpArticle.update({
+      where: { slug: r.slug },
+      data: { body: nuevo.body, audience: nuevo.audience, summary: nuevo.summary },
+    });
+    aplicadas += 1;
+  }
+  return { aplicadas, editadas };
+}
+
 async function main() {
   let creados = 0;
   for (const a of ARTICULOS) {
@@ -395,6 +488,10 @@ async function main() {
     creados += 1;
   }
   console.log(`Base de conocimiento: ${creados} creados, ${ARTICULOS.length - creados} ya existían.`);
+  const rev = await revisar();
+  console.log(
+    `Revisiones: ${rev.aplicadas} aplicadas, ${rev.editadas} omitidas por haberse editado a mano.`,
+  );
 }
 
 main()
