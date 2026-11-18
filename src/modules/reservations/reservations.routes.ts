@@ -51,6 +51,14 @@ reservationsRouter.get(
   reservationsController.deMiCanal,
 );
 
+// Resumen, embudo y series del canal. Antes de /:id por la misma razon.
+reservationsRouter.get(
+  '/de-mi-canal/estadisticas',
+  requireRole('RESELLER', 'ADMIN'),
+  validate(estadisticasQuerySchema, 'query'),
+  reservationsController.estadisticasDeMiCanal,
+);
+
 reservationsRouter.get(
   '/stats/by-company/:companyId',
   requireRole('HOST', 'ADMIN'),
