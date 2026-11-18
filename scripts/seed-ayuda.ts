@@ -257,6 +257,7 @@ En la misma pantalla, **Enlace de cada experiencia** lista cada publicación con
 
 Toda reserva que entre por tu enlace o por tu iframe queda atribuida a ti y genera tu comisión automáticamente. El cobro lo procesa Tenemos Filo.
 
+- *Dashboard*: el resumen de tu catálogo, con visitas, reservas, comisión y gráficas.
 - *Ventas de mi canal*: lo vendido y quién apareció.
 - *Mis ingresos*: tus comisiones.
 
@@ -271,10 +272,78 @@ Si no ves tu enlace, tu cuenta todavía no tiene una empresa asociada: escríben
     audience: ['RESELLER'],
     body: `Tu comisión se genera con cada reserva atribuida a tu canal, es decir, que entró por tu enlace o tu iframe.
 
-- En *Ventas de mi canal* ves la operación: qué se vendió y quién reservó.
+- En el *Dashboard* ves tres totales: lo **generado** (comisión de las reservas de tu canal), lo **ya recibido** y lo **por recibir**.
+- En *Ventas de mi canal* ves la operación: qué se vendió y quién reservó, con o sin pago.
 - En *Mis ingresos* ves el dinero cobrado. Una reserva aparece ahí cuando el cliente completa el pago.
 
+Las reservas **canceladas** no se cuentan en esos totales del Dashboard.
+
 El porcentaje o valor de la comisión lo define la plataforma. Si algo no cuadra, escríbenos con el número de la reserva.`,
+  },
+  {
+    slug: 'estadisticas-de-tu-catalogo',
+    title: 'Entender las estadísticas de tu catálogo',
+    summary: 'Qué significan las visitas, el embudo y la conversión del Dashboard.',
+    category: 'Primeros pasos',
+    position: 4,
+    audience: ['RESELLER'],
+    body: `En el *Dashboard* ves qué pasa en tu catálogo. Cambia el periodo (7, 30 o 90 días) con los botones de arriba a la derecha.
+
+## Las tarjetas
+
+- **Visitas**: personas distintas que abrieron tu catálogo. Quien vuelve varias veces en la misma sesión cuenta una vez.
+- **Reservas**: las que entraron por tu enlace o tu iframe. Las canceladas se muestran aparte y no suman.
+- **Personas**: cuánta gente suman esas reservas.
+- **Comisión generada**: lo que ganas por esas reservas, junto al total vendido.
+- **Conversión**: de cada 100 visitas, cuántas terminan en reserva.
+
+## Las gráficas
+
+- **Visitas por día** y **Reservas por día**. Pasa el cursor sobre un punto o una barra para ver el valor exacto.
+- **Dónde se va la gente**: el embudo, desde que abren tu catálogo hasta que reservan. Si mucha gente ve experiencias pero pocas eligen fecha, quizá las fechas o los precios no convencen.
+- **Experiencias que más funcionan**: las que más reservas y vistas tienen.
+
+## Qué tener en cuenta
+
+- Las reservas se cuentan por el día en que se **vendieron**, no por el día de la experiencia.
+- Las visitas se miden desde que se activó esta función: antes no hay datos, aunque sí haya reservas.
+- No guardamos datos personales de quien visita, solo que alguien pasó por cada paso.`,
+  },
+  {
+    slug: 'cambiar-o-cancelar-una-venta-de-mi-canal',
+    title: 'Cambiar o cancelar una reserva de tu canal',
+    summary: 'Refleja lo que te pidió tu cliente y revisa quién asistió.',
+    category: 'Reservas',
+    position: 2,
+    audience: ['RESELLER'],
+    body: `Tu cliente te cambia o cancela la reserva a ti, no al anfitrión. Para que el anfitrión no guarde una mesa para gente que ya no viene, refléjalo en *Ventas de mi canal*.
+
+## Cambiar
+
+Pulsa **Cambiar** en la fila de la reserva. Puedes modificar las personas, la fecha y hora y las notas del cliente. El anfitrión recibe el aviso de que lo cambiaste tú.
+
+## Cancelar
+
+Pulsa **Cancelar** e indica el motivo: el anfitrión lo va a leer. El cupo queda libre.
+
+Solo se pueden tocar las reservas futuras que no estén canceladas ni cerradas. El estado, el pago y el precio los gestionan el anfitrión y FILO.
+
+## Asistencia
+
+La columna **Asistieron** la llena el anfitrión al cerrar la experiencia. Mientras no la cierre dice *Sin cerrar*: no damos un número que no sabemos.`,
+  },
+  {
+    slug: 'claves-de-api-del-revendedor',
+    title: 'Claves de API para vender desde tu plataforma',
+    summary: 'Conecta tu sistema para crear reservas atribuidas a ti.',
+    category: 'Integraciones',
+    position: 2,
+    audience: ['RESELLER'],
+    body: `En *Claves de API* generas claves para que tu sistema consulte y cree reservas en tu cuenta. Cada reserva hecha con ellas queda atribuida a ti y genera comisión.
+
+**Guarda la clave al crearla**: por seguridad solo se muestra una vez.
+
+Si revocas una clave, **deja de funcionar en el momento**. Trátala como una contraseña: no la compartas ni la subas a repositorios públicos.`,
   },
   {
     slug: 'hacer-una-reserva-como-comensal',
@@ -300,7 +369,7 @@ Puedes ver tus reservas en *Mis reservas*.`,
     summary: 'Conecta tus sistemas o un asistente de IA a tu cuenta, y cómo revocar el acceso.',
     category: 'Integraciones',
     position: 1,
-    audience: ['HOST', 'RESELLER'],
+    audience: ['HOST'],
     body: `## Claves de API
 
 En *Claves de API* generas claves para que otro sistema consulte o cree información en tu cuenta. **Guárdala al crearla**: por seguridad solo se muestra una vez.
